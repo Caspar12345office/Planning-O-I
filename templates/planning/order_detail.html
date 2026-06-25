@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}{{ o.order_number }} · Planning O-I{% endblock %}
-{% block pagehead %}<h1>{{ o.order_number }}</h1><p>{{ o.client }} · {{ o.delivery_address }}</p>{% endblock %}
+{% block title %}#{{ o.order_number }} · Planning O-I{% endblock %}
+{% block pagehead %}<h1>#{{ o.order_number }}</h1><p>{{ o.client }} · {{ o.delivery_address }}</p>{% endblock %}
 {% block page_css %}
   .cols{display:grid;grid-template-columns:1.5fr 1fr;gap:18px}
   .kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:14px}
@@ -32,7 +32,8 @@
       <h3 style="color:var(--accent);margin-bottom:14px">Gegevens</h3>
       <div class="kv">
         <span class="k">Status</span><span>{{ o.status }}</span>
-        <span class="k">Bron</span><span>{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span>
+        <span class="k">Orderwaarde</span><span>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} ⭐ belangrijke order{% endif %}{% else %}—{% endif %}</span>
+        <span class="k">Bron</span><span>{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}{% if o.source=='shopify' %} (ordernr = Shopify){% endif %}</span>
         <span class="k">Gewenste datum</span><span>{{ o.desired_date }}</span>
         <span class="k">Telefoon</span><span>{{ o.phone or '—' }}</span>
         <span class="k">E-mail</span><span>{{ o.email or '—' }}</span>

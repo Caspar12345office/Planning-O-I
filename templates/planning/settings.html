@@ -18,6 +18,8 @@
     <div class="field"><label>Bevestiging na inplannen</label><textarea name="tpl_confirm">{{ v.get('tpl_confirm','') }}</textarea></div>
     <div class="field"><label>Aankomst op de leverdag (met trackinglink)</label><textarea name="tpl_arrival">{{ v.get('tpl_arrival','') }}</textarea>
       <div class="tplhint">De trackinglink toont de klant een veilige benadering van de locatie en de actuele ETA (Uber/Picnic-stijl), nooit de exacte GPS-positie.</div></div>
+    <div class="field"><label>Vertraging onderweg</label><textarea name="tpl_delay">{{ v.get('tpl_delay','') }}</textarea>
+      <div class="tplhint">Wordt automatisch verstuurd zodra de verwachte aankomsttijd oploopt (indien ingeschakeld bij de mail-koppeling).</div></div>
   </div>
   <button class="btn primary" type="submit">Opslaan</button>
 </form>

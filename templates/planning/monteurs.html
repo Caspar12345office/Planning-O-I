@@ -1,14 +1,22 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Monteurs · Planning O-I{% endblock %}
-{% block pagehead %}<h1>Monteurs</h1><p>Team en koppeling aan bussen</p>{% endblock %}
+{% block pagehead %}<h1>Monteurs</h1><p>Team, snelheid (inschaalbaar) en thuisadres (vertrekpunt van de route)</p>{% endblock %}
 {% block page_css %}
-  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
   .mcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
   .mcard .top{display:flex;align-items:center;gap:12px;margin-bottom:12px}
   .mcard .av{width:46px;height:46px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px}
   .mcard .nm{font-weight:700;font-size:16px}
-  .mcard .kv{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
-  .stars{color:var(--gold);letter-spacing:2px}
+  .speed{display:flex;align-items:center;gap:3px;margin-top:2px}
+  .speed .b{width:16px;height:6px;border-radius:3px;background:var(--line)}
+  .speed .b.on{background:var(--gold)}
+  .speed small{color:var(--muted);font-size:11.5px;margin-left:5px}
+  .kv{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:5px 10px;margin-top:4px}
+  details.edit{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  details.edit summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;list-style:none}
+  details.edit summary::-webkit-details-marker{display:none}
+  .ef{margin-top:10px}.ef label{font-size:12px;margin:8px 0 4px}
+  .ef .row{display:flex;gap:10px}.ef .row>*{flex:1}
 {% endblock %}
 {% block content %}
 <div class="mgrid">
@@ -16,14 +24,38 @@
   <div class="mcard">
     <div class="top">
       <div class="av" style="background:{{ m.color or '#0f3d3e' }}">{{ m.name[:1]|upper }}</div>
-      <div><div class="nm">{{ m.name }}</div><div class="stars">{{ '★' * m.skill }}<span style="color:var(--line)">{{ '★' * (5-m.skill) }}</span></div></div>
+      <div><div class="nm">{{ m.name }}</div>
+        <div class="speed">{% for i in range(5) %}<span class="b {{ 'on' if i < m.speed }}"></span>{% endfor %}<small>snelheid {{ m.speed }}/5</small></div>
+      </div>
     </div>
     <div class="kv">
       <span>📞</span><span>{{ m.phone or '—' }}</span>
       <span>✉</span><span>{{ m.email or '—' }}</span>
       <span>🚐</span><span>{{ m.bus or 'Geen vaste bus' }}</span>
+      <span>🏠</span><span>{{ m.home_address or '—' }}</span>
       <span>●</span><span>{{ 'Actief' if m.active else 'Inactief' }}</span>
     </div>
+    {% if can_edit %}
+    <details class="edit">
+      <summary>✎ Bewerken</summary>
+      <form class="ef" method="post" action="{{ url_for('planning.monteur_edit', mid=m.id) }}">
+        <div class="row">
+          <div><label>Naam</label><input name="name" value="{{ m.name }}"></div>
+          <div><label>Telefoon</label><input name="phone" value="{{ m.phone or '' }}"></div>
+        </div>
+        <label>E-mail</label><input name="email" value="{{ m.email or '' }}">
+        <div class="row">
+          <div><label>Snelheid (1-5)</label>
+            <select name="speed">{% for s in range(1,6) %}<option value="{{ s }}" {{ 'selected' if m.speed==s }}>{{ s }}</option>{% endfor %}</select></div>
+          <div><label>Vaste bus</label>
+            <select name="bus_id"><option value="">Geen</option>{% for b in busses %}<option value="{{ b.id }}" {{ 'selected' if m.bus_id==b.id }}>{{ b.name }}</option>{% endfor %}</select></div>
+        </div>
+        <label>Thuisadres (start van de route)</label><input name="home_address" value="{{ m.home_address or '' }}">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" name="active" {{ 'checked' if m.active }} style="width:auto"> Actief</label>
+        <button class="btn primary sm" type="submit" style="margin-top:12px">Opslaan</button>
+      </form>
+    </details>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

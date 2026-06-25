@@ -35,6 +35,14 @@
   .rail-nav a:hover{background:rgba(255,255,255,.07);color:#fff}
   .rail-nav a.active{background:linear-gradient(135deg,rgba(184,138,68,.95),rgba(205,163,90,.9));color:#1c1a16;font-weight:600;box-shadow:0 8px 18px rgba(184,138,68,.25)}
   .rail-nav a.active .i{opacity:1}
+  .navgrp{margin:2px 0}
+  .navgrp summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:11px;color:var(--railtext);font-size:14.5px;font-weight:500}
+  .navgrp summary::-webkit-details-marker{display:none}
+  .navgrp summary:hover{background:rgba(255,255,255,.07);color:#fff}
+  .navgrp summary .caret{margin-left:auto;font-size:11px;opacity:.7;transition:transform .15s}
+  .navgrp[open] summary .caret{transform:rotate(180deg)}
+  .rail-nav a.sub{padding:9px 13px 9px 45px;font-size:13.8px}
+  .rail-nav a.sub.active{padding-left:45px}
   .rail-foot{padding:14px;border-top:1px solid rgba(255,255,255,.08)}
   .ucard{display:flex;align-items:center;gap:11px;padding:8px;border-radius:12px}
   .ucard .av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1c1a16;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
@@ -101,12 +109,23 @@
 <div class="app">
   <aside class="rail">
     <div class="rail-head">
-      <div class="rail-logo"><span class="oi">O-I</span><div>Planning O-I<small>Bezorging &amp; montage</small></div></div>
+      <div class="rail-logo"><span class="oi">O-I</span><div>Planning O-I<small>Real-time planning optimalisatie</small></div></div>
     </div>
     <nav class="rail-nav">
-      {% for label, endpoint, icon, perm in p_nav %}
-        {% if p_has_perm(perm) %}
-        <a class="{{ 'active' if request.endpoint==endpoint }}" href="{{ url_for(endpoint) }}"><span class="i">{{ icon }}</span>{{ label }}</a>
+      {% for item in p_nav %}
+        {% if item.children %}
+          {% set visible = item.children | selectattr('perm','in',p_perms) | list %}
+          {% if visible %}
+            {% set open = item.children | selectattr('endpoint','equalto',request.endpoint) | list %}
+            <details class="navgrp" {{ 'open' if open }}>
+              <summary><span class="i">{{ item.icon }}</span>{{ item.label }}<span class="caret">▾</span></summary>
+              {% for ch in visible %}
+              <a class="sub {{ 'active' if request.endpoint==ch.endpoint }}" href="{{ url_for(ch.endpoint) }}">{{ ch.label }}</a>
+              {% endfor %}
+            </details>
+          {% endif %}
+        {% elif p_has_perm(item.perm) %}
+          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}</a>
         {% endif %}
       {% endfor %}
       {% if p_user and p_user.role=='monteur' %}
@@ -128,6 +147,9 @@
       <div class="ttl">{% block pagehead %}<h1>Planning O-I</h1>{% endblock %}</div>
       <div class="spacer"></div>
       <div class="search">🔍<input placeholder="Zoek order, klant of monteur…"></div>
+      {% if p_user and p_user.role != 'monteur' %}
+      <a class="live" href="{{ url_for('planning.dashboard') }}#vragen" title="Openstaande vragen aan jou">💬 {{ p_open_questions }}</a>
+      {% endif %}
       <span class="live"><span class="dot"></span>Live</span>
     </header>
     <div class="content">

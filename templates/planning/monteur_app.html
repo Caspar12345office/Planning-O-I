@@ -28,6 +28,12 @@
   .donebtn{width:100%;border:0;border-radius:10px;padding:11px;background:var(--accent);color:#fff;font:inherit;font-weight:700;cursor:pointer}
   .ghostbtn{flex:1;border:1px solid var(--line);border-radius:10px;padding:11px;background:var(--panel);color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
   .donepill{font-size:12px;font-weight:700;color:#3c7a2c}
+  .gpsbar{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;margin-top:14px}
+  .gpsbar .gtxt{flex:1;font-size:12.5px;color:#eaf3ee}
+  .gpsbar .gtxt b{display:block;font-size:13.5px;color:#fff}
+  .gpsbtn{border:0;border-radius:9px;padding:9px 13px;font:inherit;font-weight:700;font-size:12.5px;cursor:pointer;background:#fff;color:#0f3d3e}
+  .gpsbtn.on{background:#4f9d3a;color:#fff}
+  .jc .items{font-size:12.5px;color:var(--ink);background:var(--soft);border-radius:8px;padding:7px 9px;margin-bottom:10px}
 {% endblock %}
 {% block content %}
 <div class="phonewrap">
@@ -40,6 +46,12 @@
         <div><b>{{ jobs|selectattr('status','equalto','afgerond')|list|length }}</b><span>afgerond</span></div>
         <div><b>{{ jobs|sum(attribute='montage_min') }}</b><span>min montage</span></div>
       </div>
+      {% if monteur %}
+      <div class="gpsbar">
+        <div class="gtxt"><b id="gpsState">Live locatie uit</b>Deel je locatie zodat de planning je ziet rijden</div>
+        <button class="gpsbtn" id="gpsBtn" onclick="toggleGps()">Aanzetten</button>
+      </div>
+      {% endif %}
     </div>
     <div class="ph-body">
       {% if not monteur %}
@@ -54,7 +66,9 @@
             {% elif j.status=='onderweg' %}<span class="pill blue" style="margin-left:auto">onderweg</span>{% endif %}</div>
           <div class="cl">{{ j.client }}</div>
           <div class="ad">{{ j.delivery_address }}</div>
-          <div class="meta"><span class="pill gray">{{ j.n_items }} artikelen</span><span class="pill gray">{{ j.montage_min }} min</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel</a>{% endif %}</div>
+          <div class="items">📦 {{ j.items or '—' }}</div>
+          {% if j.instructions %}<div class="ad" style="margin-top:-6px">📝 {{ j.instructions }}</div>{% endif %}
+          <div class="meta"><span class="pill gray">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
           {% set q = j.delivery_address|urlencode %}
           <div class="navbtns">
             <a class="navb" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google Maps</a>
@@ -76,4 +90,32 @@
     </div>
   </div></div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var gpsWatch=null;
+function postLoc(lat,lng,live){
+  fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({lat:lat,lng:lng,live:live})});
+}
+function toggleGps(){
+  var btn=document.getElementById('gpsBtn'), st=document.getElementById('gpsState');
+  if(gpsWatch===null){
+    if(!navigator.geolocation){ alert('Deze telefoon ondersteunt geen GPS.'); return; }
+    gpsWatch=navigator.geolocation.watchPosition(function(p){
+      postLoc(p.coords.latitude, p.coords.longitude, true);
+      st.textContent='Live locatie aan';
+    }, function(err){
+      alert('Locatie niet beschikbaar: '+err.message);
+    }, {enableHighAccuracy:true, maximumAge:10000, timeout:15000});
+    btn.textContent='Uitzetten'; btn.classList.add('on'); st.textContent='Live locatie aan';
+  } else {
+    navigator.geolocation.clearWatch(gpsWatch); gpsWatch=null;
+    btn.textContent='Aanzetten'; btn.classList.remove('on'); st.textContent='Live locatie uit';
+    // laatste bekende positie als 'niet live' markeren
+    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ postLoc(p.coords.latitude,p.coords.longitude,false); });
+  }
+}
+</script>
 {% endblock %}

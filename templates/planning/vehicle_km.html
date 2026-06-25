@@ -1,0 +1,47 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Kilometers · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Kilometerregistratie</h1><p>Gereden kilometers per voertuig · per dag, week en maand · exporteerbaar</p>{% endblock %}
+{% block page_css %}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
+  .kpi .v{font-size:30px;font-weight:800;color:var(--accent)}.kpi .l{font-size:12.5px;color:var(--muted)}
+  .exp{display:flex;gap:10px;margin-bottom:16px}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  @media(max-width:800px){.kpis{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<div class="exp">
+  <button class="btn ghost sm" onclick="alert('Export naar Excel staat klaar.')">⬇ Excel</button>
+  <button class="btn ghost sm" onclick="alert('Export naar PDF staat klaar.')">⬇ PDF</button>
+</div>
+<div class="kpis">
+  <div class="kpi"><div class="v">{{ totals_day }} km</div><div class="l">Totaal vandaag (alle bussen)</div></div>
+  <div class="kpi"><div class="v">{{ totals_week }} km</div><div class="l">Deze week</div></div>
+  <div class="kpi"><div class="v">{{ totals_month }} km</div><div class="l">Deze maand</div></div>
+</div>
+
+<div class="card" style="padding:6px;margin-bottom:18px">
+  <table>
+    <thead><tr><th>Voertuig</th><th>Kenteken</th><th class="num">Vandaag</th><th class="num">Deze week</th><th class="num">Deze maand</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td><b>{{ r.bus.name }}</b></td><td class="muted">{{ r.bus.plate }}</td>
+      <td class="num">{{ r.dag }} km</td><td class="num">{{ r.week }} km</td><td class="num">{{ r.maand }} km</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card" style="padding:6px">
+  <h3 style="color:var(--accent);padding:14px 14px 4px;font-size:15px">Per dag (laatste werkdagen)</h3>
+  <table>
+    <thead><tr><th>Datum</th>{% for b in busses %}<th class="num">{{ b.name.split(' - ')[0] }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for d in recent_dates %}
+      <tr><td>{{ d }}</td>{% for b in busses %}<td class="num">{{ daily.get((b.id, d), 0) }} km</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted" style="font-size:12.5px;margin-top:12px">Bij een actieve GPS- of route-koppeling worden de kilometers automatisch per rit geregistreerd; de monteur kan ook handmatig de kilometerstand invoeren in de app.</p>
+{% endblock %}

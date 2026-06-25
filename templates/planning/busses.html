@@ -1,14 +1,19 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Bussen · Planning O-I{% endblock %}
-{% block pagehead %}<h1>Bussen</h1><p>Capaciteit, onderhoud en APK · overbelading wordt automatisch voorkomen</p>{% endblock %}
+{% block pagehead %}<h1>Bussen</h1><p>Capaciteit, onderhoud en APK · gegevens zijn aanpasbaar · overbelading wordt voorkomen</p>{% endblock %}
 {% block page_css %}
-  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
   .bcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
   .bcard .nm{font-weight:700;font-size:16px;color:var(--accent)}
   .bcard .plate{display:inline-block;background:#1c1a16;color:#ffd24a;font-weight:700;border-radius:6px;padding:2px 9px;font-size:12.5px;letter-spacing:1px;margin:6px 0 12px}
   .bcard .kv{font-size:13.5px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px}
   .bcard .kv .k{color:var(--muted)}
   .apk-warn{color:#a23d2a;font-weight:600}
+  details.edit{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  details.edit summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;list-style:none}
+  details.edit summary::-webkit-details-marker{display:none}
+  .ef{margin-top:10px}.ef label{font-size:12px;margin:8px 0 4px}
+  .ef .row{display:flex;gap:10px}.ef .row>*{flex:1}
 {% endblock %}
 {% block content %}
 <div class="bgrid">
@@ -21,9 +26,32 @@
       <span class="k">Laadvolume</span><span>{{ '%.0f'|format(b.max_volume) }} m³</span>
       <span class="k">Max. gewicht</span><span>{{ '%.0f'|format(b.max_weight) }} kg</span>
       <span class="k">Max. stops</span><span>{{ b.max_stops }}</span>
-      <span class="k">APK</span><span class="{{ 'apk-warn' if b.apk_date and b.apk_date <= today }}{{ '' }}">{{ b.apk_date }}{% if b.apk_date and b.apk_date < (today) %} (verlopen){% endif %}</span>
+      <span class="k">APK</span><span class="{{ 'apk-warn' if b.apk_date and b.apk_date < today }}">{{ b.apk_date }}{% if b.apk_date and b.apk_date < today %} (verlopen){% endif %}</span>
       {% if b.maintenance %}<span class="k">Onderhoud</span><span>{{ b.maintenance }}</span>{% endif %}
     </div>
+    {% if can_edit %}
+    <details class="edit">
+      <summary>✎ Bewerken</summary>
+      <form class="ef" method="post" action="{{ url_for('planning.bus_edit', bid=b.id) }}">
+        <div class="row">
+          <div><label>Naam</label><input name="name" value="{{ b.name }}"></div>
+          <div><label>Kenteken</label><input name="plate" value="{{ b.plate or '' }}"></div>
+        </div>
+        <label>Chauffeur</label><input name="driver" value="{{ b.driver or '' }}">
+        <div class="row">
+          <div><label>Laadvolume (m³)</label><input name="max_volume" type="number" step="0.5" value="{{ b.max_volume }}"></div>
+          <div><label>Max. gewicht (kg)</label><input name="max_weight" type="number" value="{{ b.max_weight }}"></div>
+        </div>
+        <div class="row">
+          <div><label>Max. stops</label><input name="max_stops" type="number" value="{{ b.max_stops }}"></div>
+          <div><label>APK-datum</label><input name="apk_date" type="date" value="{{ b.apk_date }}"></div>
+        </div>
+        <label>Onderhoud / opmerking</label><input name="maintenance" value="{{ b.maintenance or '' }}">
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" name="active" {{ 'checked' if b.active }} style="width:auto"> Actief</label>
+        <button class="btn primary sm" type="submit" style="margin-top:12px">Opslaan</button>
+      </form>
+    </details>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

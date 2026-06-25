@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Dashboard · Planning O-I{% endblock %}
-{% block pagehead %}<h1>Dashboard</h1><p>Goedemorgen{{ ', ' + p_user.name.split(' ')[0] if p_user }} · overzicht van vandaag</p>{% endblock %}
+{% block pagehead %}<h1>Dashboard</h1><p>Goedemorgen{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht</p>{% endblock %}
 
 {% block page_css %}
   .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
@@ -11,27 +11,43 @@
   .kpi .trend{font-size:12px;font-weight:600;margin-top:8px;display:inline-block}
   .kpi.gold{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff}
   .kpi.gold .v,.kpi.gold .l{color:#fff}.kpi.gold .l{color:#cfe1da}
-  .cols{display:grid;grid-template-columns:1.6fr 1fr;gap:18px}
-  .sec-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .cols{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-bottom:18px}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}
   .sec-h h3{font-size:17px;color:var(--accent)}
-  .job{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px solid var(--line)}
-  .job:last-child{border-bottom:0}
-  .job .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-  .job .who{flex:1;min-width:0}
-  .job .who b{font-size:14.5px}
-  .job .who span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .job .time{font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap}
-  .busbar{margin:11px 0}
-  .busbar .top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
-  .busbar .track{height:9px;background:var(--soft);border-radius:99px;overflow:hidden}
-  .busbar .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent2),var(--gold))}
-  .busbar .fill.full{background:linear-gradient(90deg,#d9962b,#c0533f)}
-  .tray-card{display:flex;align-items:center;gap:11px;padding:11px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
-  .tray-card .num{font-weight:700;font-size:13px;color:var(--accent)}
-  .tray-card .meta{flex:1;min-width:0}.tray-card .meta span{font-size:12.5px;color:var(--muted)}
   .draft-banner{display:flex;align-items:center;gap:12px;background:#fbeccd;border:1px solid #f0d49a;border-radius:13px;padding:13px 16px;margin-bottom:20px;font-size:13.5px;color:#7a5713}
   .draft-banner b{color:#5e430d}
-  @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+
+  .mapcard{padding:16px}
+  .mapwrap{position:relative;border-radius:14px;overflow:hidden;background:linear-gradient(160deg,#eaf1ec,#e3ece4);border:1px solid var(--line)}
+  .maplegend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}
+  .maplegend .lg{display:inline-flex;align-items:center;gap:6px}
+  .maplegend .d{width:11px;height:11px;border-radius:50%}
+  .gpsnote{font-size:12px;color:var(--muted);margin-top:8px}
+  .mk-label{font-size:10px;font-weight:700;fill:#1c1a16}
+
+  .ow{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .ow:last-child{border-bottom:0}
+  .ow .dot{width:11px;height:11px;border-radius:50%;margin-top:4px;flex-shrink:0}
+  .ow .who{flex:1;min-width:0}.ow .who b{font-size:14.5px}.ow .who span{display:block;font-size:12.5px;color:var(--muted)}
+  .ow .eta{text-align:right;flex-shrink:0}.ow .eta b{font-size:15px;color:var(--accent)}.ow .eta span{display:block;font-size:11px;color:var(--muted)}
+
+  .tray-card{display:flex;align-items:center;gap:11px;padding:10px;border:1px solid var(--line);border-radius:11px;margin-bottom:8px}
+  .tray-card .num{font-weight:700;font-size:13px;color:var(--accent)}
+  .tray-card .meta{flex:1;min-width:0}.tray-card .meta span{font-size:12px;color:var(--muted)}
+
+  .office-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .office-row:last-child{border-bottom:0}
+  .office-row .nm{font-weight:600;font-size:14px;width:130px;flex-shrink:0}
+  .office-row select{width:auto;padding:7px 10px;font-size:13px}
+  .office-row input.note{flex:1;padding:7px 10px;font-size:13px}
+
+  .q{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;background:var(--soft)}
+  .q .qh{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--muted);margin-bottom:5px}
+  .q .qt{font-size:14px}
+  .askform .row{display:flex;gap:10px;margin-bottom:10px}
+  .askform .row > *{flex:1}
+  @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols,.cols2{grid-template-columns:1fr}}
 {% endblock %}
 
 {% block content %}
@@ -40,68 +56,135 @@
 {% endif %}
 
 <div class="kpis">
-  <div class="kpi"><span class="ic">🚚</span><div class="v">{{ stats.today }}</div><div class="l">Leveringen vandaag</div><span class="trend pill blue">{{ stats.underway }} onderweg</span></div>
-  <div class="kpi"><span class="ic">📅</span><div class="v">{{ stats.tomorrow }}</div><div class="l">Leveringen morgen</div><span class="trend pill gray">komende week {{ stats.week }}</span></div>
+  <div class="kpi gold"><span class="ic">🧰</span><div class="v">{{ stats.monteurs_active }}</div><div class="l">Monteurs vandaag actief</div><span class="trend pill" style="background:rgba(255,255,255,.18);color:#fff">{{ stats.underway }} onderweg</span></div>
   <div class="kpi"><span class="ic">📦</span><div class="v">{{ stats.unplanned }}</div><div class="l">Nog in te plannen</div><span class="trend pill amber">{{ stats.open_orders }} open orders</span></div>
-  <div class="kpi gold"><span class="ic">🧰</span><div class="v">{{ stats.monteurs_total }}</div><div class="l">Monteurs actief</div><span class="trend pill green" style="background:rgba(255,255,255,.18);color:#fff">vandaag inzetbaar</span></div>
+  <div class="kpi"><span class="ic">⭐</span><div class="v">{{ stats.important }}</div><div class="l">Belangrijke orders</div><a class="trend pill" href="{{ url_for('planning.important_orders') }}">bekijk →</a></div>
+  <div class="kpi"><span class="ic">📅</span><div class="v">{{ stats.tomorrow }}</div><div class="l">Leveringen morgen</div><span class="trend pill gray">komende week {{ stats.week }}</span></div>
 </div>
 
 <div class="cols">
-  <div class="grid" style="align-content:start">
-    <div class="card">
-      <div class="sec-h"><h3>Leveringen vandaag</h3><a class="pill" href="{{ url_for('planning.planning') }}">Naar planning →</a></div>
-      {% if today_jobs %}
-        {% for j in today_jobs %}
-        <div class="job">
-          <span class="dot" style="background:{{ j.color or '#0f3d3e' }}"></span>
-          <div class="who"><b>{{ j.order_number }} · {{ j.client }}</b><span>{{ j.delivery_address }} · {{ j.monteur }}</span></div>
-          {% if j.status=='onderweg' %}<span class="pill blue">onderweg</span>
-          {% elif j.status=='afgerond' %}<span class="pill green">afgerond</span>
-          {% else %}<span class="time">{{ j.slot_start or '—' }}</span>{% endif %}
-        </div>
-        {% endfor %}
-      {% else %}<p class="muted">Nog niets ingepland voor vandaag.</p>{% endif %}
-    </div>
-
-    <div class="card">
-      <div class="sec-h"><h3>Monteurs onderweg</h3><span class="live"><span class="dot"></span>realtime</span></div>
-      {% if underway %}
-        {% for j in underway %}
-        <div class="job">
-          <span class="dot" style="background:{{ j.color or '#0f3d3e' }}"></span>
-          <div class="who"><b>{{ j.monteur }}</b><span>nu bij {{ j.client }} · {{ j.delivery_address }}</span></div>
-          <span class="pill blue">ETA {{ j.slot_end or '—' }}</span>
-        </div>
-        {% endfor %}
-      {% else %}<p class="muted">Geen monteurs onderweg op dit moment.</p>{% endif %}
-    </div>
+  <div class="card mapcard">
+    <div class="sec-h"><h3>Live op de kaart</h3><span class="live"><span class="dot"></span>realtime</span></div>
+    <div class="mapwrap"><svg id="nlmap" viewBox="0 0 300 380" width="100%" style="display:block"></svg></div>
+    <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
+    <div class="gpsnote">De monteur deelt zijn live GPS vanuit de app op zijn telefoon. Posities verversen automatisch. Met de Google Maps-koppeling tonen we hier de echte kaart met verkeersinfo.</div>
   </div>
 
   <div class="grid" style="align-content:start">
     <div class="card">
-      <div class="sec-h"><h3>Busbezetting vandaag</h3></div>
-      {% for b in bus_load %}
-      {% set pct = ((b.used / b.max_volume * 100) if b.max_volume else 0)|round|int %}
-      <div class="busbar">
-        <div class="top"><span>{{ b.name }}</span><span class="muted">{{ '%.1f'|format(b.used) }} / {{ '%.0f'|format(b.max_volume) }} m³</span></div>
-        <div class="track"><div class="fill {{ 'full' if pct>=85 }}" style="width:{{ [pct,100]|min }}%"></div></div>
-      </div>
-      {% endfor %}
-      <p class="muted" style="font-size:12.5px;margin:12px 0 0">Overbelading wordt automatisch gesignaleerd op basis van volume en gewicht.</p>
+      <div class="sec-h"><h3>Monteurs onderweg</h3><span class="pill gray">ETA terug Breda</span></div>
+      {% if underway %}
+        {% for m in underway %}
+        <div class="ow">
+          <span class="dot" style="background:{{ m.color }}"></span>
+          <div class="who"><b>{{ m.name }}</b><span>{% if m.client %}nu bij {{ m.client }}{% else %}onderweg{% endif %} · nog {{ m.remaining }} stop(s)</span></div>
+          <div class="eta"><b>{{ m.eta_base }}</b><span>± {{ m.km_base }} km</span></div>
+        </div>
+        {% endfor %}
+        <p class="gpsnote">Geschatte terugkomst in Breda op basis van live locatie, resterende stops en de snelheid van de monteur — zo weet je wanneer je kunt laden.</p>
+      {% else %}<p class="muted">Geen monteurs onderweg op dit moment.</p>{% endif %}
     </div>
-
     <div class="card">
       <div class="sec-h"><h3>Nog in te plannen</h3><a class="pill amber" href="{{ url_for('planning.orders', status='in_te_plannen') }}">{{ stats.unplanned }}</a></div>
-      {% if unplanned %}
-        {% for o in unplanned %}
-        <a class="tray-card" href="{{ url_for('planning.order_detail', oid=o.id) }}">
-          <span class="num">{{ o.order_number }}</span>
-          <div class="meta"><b style="font-size:13.5px">{{ o.client }}</b><span>{{ o.delivery_address }}</span></div>
-          {% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}
-        </a>
-        {% endfor %}
-      {% else %}<p class="muted">Alles is ingepland. 🎉</p>{% endif %}
+      {% for o in unplanned %}
+      <a class="tray-card" href="{{ url_for('planning.order_detail', oid=o.id) }}">
+        <span class="num">#{{ o.order_number }}</span>
+        <div class="meta"><b style="font-size:13.5px">{{ o.client }}</b><span>{{ o.delivery_address }}</span></div>
+        {% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}
+      </a>
+      {% else %}<p class="muted">Alles ingepland. 🎉</p>{% endfor %}
     </div>
   </div>
 </div>
+
+<div class="cols2">
+  <div class="card">
+    <div class="sec-h"><h3>Kantoorbezetting</h3>
+      <input type="date" value="{{ office_day }}" style="width:auto;padding:7px 10px"
+             onchange="location.href='{{ url_for('planning.dashboard') }}?office_day='+this.value+'#kantoor'">
+    </div>
+    <div id="kantoor">
+    {% for o in office %}
+      <div class="office-row" data-person="{{ o.person }}">
+        <span class="nm">{{ o.person }}</span>
+        <select onchange="saveOffice(this)">
+          <option value="kantoor" {{ 'selected' if o.status=='kantoor' }}>🟢 Op kantoor</option>
+          <option value="afspraak" {{ 'selected' if o.status=='afspraak' }}>🟠 Afspraak/extern</option>
+          <option value="vrij" {{ 'selected' if o.status=='vrij' }}>⚪ Vrij/afwezig</option>
+        </select>
+        <input class="note" placeholder="toelichting (bv. vergadering op locatie)" value="{{ o.note }}" onchange="saveOffice(this)">
+      </div>
+    {% endfor %}
+    </div>
+    <p class="gpsnote">Selecteer een dag om te zien wie er op kantoor is en wie een afspraak heeft — handig om rekening te houden met de bezetting.</p>
+  </div>
+
+  <div class="card" id="vragen">
+    <div class="sec-h"><h3>Vragen aan jou</h3>{% if my_questions %}<span class="pill red">{{ my_questions|length }}</span>{% endif %}</div>
+    {% for q in my_questions %}
+      <div class="q">
+        <div class="qh"><span>van <b>{{ q.from_name }}</b>{% if q.order_number %} · #{{ q.order_number }}{% endif %}</span><span>{{ q.ts.replace('T',' ') }}</span></div>
+        <div class="qt">{{ q.text }}</div>
+        <form method="post" action="{{ url_for('planning.api_question_resolve', qid=q.id) }}" style="margin-top:8px">
+          <button class="btn ghost sm" type="submit">✓ Opgelost</button>
+        </form>
+      </div>
+    {% else %}<p class="muted" style="margin-top:0">Geen openstaande vragen. 🎉</p>{% endfor %}
+
+    <div class="sec-h" style="margin-top:18px"><h3 style="font-size:15px">Iemand taggen met een vraag</h3></div>
+    <form class="askform" method="post" action="{{ url_for('planning.api_question') }}">
+      <div class="row">
+        <select name="to_user_id" required>
+          <option value="">Kies collega…</option>
+          {% for u in all_users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+        </select>
+        <input name="order_number" placeholder="#ordernr (optioneel)">
+      </div>
+      <textarea name="text" rows="2" placeholder="Stel je vraag…" required style="margin-bottom:10px"></textarea>
+      <button class="btn primary sm" type="submit">Vraag versturen</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function saveOffice(el){
+  var row = el.closest('.office-row');
+  fetch('{{ url_for("planning.api_office") }}', {method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({person:row.getAttribute('data-person'), date:'{{ office_day }}',
+      status:row.querySelector('select').value, note:row.querySelector('input.note').value})});
+}
+(function(){
+  var W=300,H=380, NS='http://www.w3.org/2000/svg';
+  var OUTLINE=[[53.42,6.85],[53.30,7.18],[52.64,7.06],[52.20,7.03],[51.84,6.12],[51.18,6.17],
+    [50.76,5.95],[51.02,5.84],[51.30,5.50],[51.42,4.55],[51.38,3.56],[51.66,3.42],
+    [52.00,4.12],[52.46,4.56],[52.95,4.71],[52.88,5.05],[53.10,5.42],[53.30,5.95]];
+  function proj(lat,lng){return [(lng-3.2)/(7.4-3.2)*W,(53.7-lat)/(53.7-50.6)*H];}
+  function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  var svg=document.getElementById('nlmap'); if(!svg) return;
+  var pts=OUTLINE.map(function(p){var xy=proj(p[0],p[1]);return xy[0].toFixed(1)+','+xy[1].toFixed(1);}).join(' ');
+  svg.appendChild(el('polygon',{points:pts,fill:'#dce8de',stroke:'#b9cdbc','stroke-width':'1.5'}));
+  var b=proj(51.5719,4.7683);
+  svg.appendChild(el('circle',{cx:b[0],cy:b[1],r:7,fill:'#b88a44',stroke:'#fff','stroke-width':'2'}));
+  var bl=el('text',{x:b[0],y:b[1]-11,'text-anchor':'middle'}); bl.setAttribute('class','mk-label'); bl.textContent='Breda'; svg.appendChild(bl);
+  var markers=el('g',{}); svg.appendChild(markers);
+  var legend=document.getElementById('maplegend');
+  function refresh(){
+    fetch('{{ url_for("planning.api_locations") }}').then(function(r){return r.json();}).then(function(list){
+      while(markers.firstChild) markers.removeChild(markers.firstChild);
+      legend.innerHTML='<span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span>';
+      list.forEach(function(m){
+        var xy=proj(m.lat,m.lng), g=el('g',{});
+        g.appendChild(el('circle',{cx:xy[0],cy:xy[1],r:9,fill:m.color,opacity:'0.25'}));
+        g.appendChild(el('circle',{cx:xy[0],cy:xy[1],r:5.5,fill:m.color,stroke:'#fff','stroke-width':'2'}));
+        var t=el('text',{x:xy[0],y:xy[1]-10,'text-anchor':'middle'}); t.setAttribute('class','mk-label'); t.textContent=m.name.split(' ')[0]; g.appendChild(t);
+        markers.appendChild(g);
+        legend.innerHTML+='<span class="lg"><span class="d" style="background:'+m.color+'"></span>'+m.name.split(' ')[0]+' · terug ± '+m.eta_base+'</span>';
+      });
+    }).catch(function(){});
+  }
+  refresh(); setInterval(refresh,15000);
+})();
+</script>
 {% endblock %}

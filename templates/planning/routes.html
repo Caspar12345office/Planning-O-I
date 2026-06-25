@@ -55,7 +55,7 @@
     </div>
     {% for m in monteurs %}
     <div class="route-block" id="m{{ m.id }}" style="{{ '' if loop.first else 'display:none' }}">
-      <div class="stop depot"><span class="seq">⌂</span><div class="info"><b>Start · {{ HOME_BASE }}</b><span>Bus laden</span></div></div>
+      <div class="stop depot"><span class="seq">🏠</span><div class="info"><b>Start · thuis</b><span>{{ m.home_address or HOME_BASE }}</span></div></div>
       {% for j in routes.get(m.id, []) %}
       <div class="stop"><span class="seq">{{ loop.index }}</span><div class="info"><b>{{ j.client }}</b><span>{{ j.delivery_address }} · {{ j.montage_min }} min</span></div></div>
       {% else %}

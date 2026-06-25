@@ -1,0 +1,35 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Belangrijke orders · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Belangrijke orders</h1><p>Alle toekomstige leveringen boven € {{ '{:,.0f}'.format(threshold).replace(',','.') }} · check deze dagelijks ter voorbereiding</p>{% endblock %}
+{% block page_css %}
+  .intro{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff;border-radius:14px;padding:16px 18px;margin-bottom:18px;font-size:13.5px}
+  .intro b{color:var(--gold2)}
+  .amt{font-weight:800;color:var(--accent)}
+  .src{font-size:10px;font-weight:700;border-radius:5px;padding:1px 6px}
+  .src.shopify{background:#e4f1e8;color:#2f7d4f}.src.manual{background:#ece9e2;color:#74705f}
+  .big{font-size:11px;font-weight:700;color:#9a6a17;background:#fbeccd;border-radius:6px;padding:2px 7px}
+{% endblock %}
+{% block content %}
+<div class="intro">⭐ <b>Vooruitkijken.</b> Hier verzamelen we automatisch alle bevestigde orders met een waarde vanaf € {{ '{:,.0f}'.format(threshold).replace(',','.') }} en een leverdatum in de toekomst. Loop deze lijst elke ochtend even door, zodat grote leveringen op tijd zijn voorbereid (mankracht, busruimte, montagetijd).</div>
+<div class="card" style="padding:6px">
+<table>
+  <thead><tr><th>Leverdatum</th><th>#Order</th><th>Klant</th><th>Plaats</th><th>Artikel(en)</th><th>Waarde</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for o in orders %}
+    <tr>
+      <td><b>{{ o.desired_date }}</b></td>
+      <td><b>#{{ o.order_number }}</b>{% if o.source=='shopify' %}<br><span class="src shopify">Shopify</span>{% endif %}</td>
+      <td>{{ o.client }}</td>
+      <td class="muted">{{ o.city }}</td>
+      <td class="muted" style="max-width:280px;font-size:13px">{{ items.get(o.id, '—') }}</td>
+      <td><span class="amt">€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}</span></td>
+      <td>{% if o.status=='in_te_plannen' %}<span class="pill amber">in te plannen</span>{% elif o.status=='gepland' %}<span class="pill blue">gepland</span>{% else %}<span class="pill gray">{{ o.status }}</span>{% endif %}</td>
+      <td><a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="8" class="muted" style="text-align:center;padding:24px">Geen toekomstige grote orders op dit moment.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

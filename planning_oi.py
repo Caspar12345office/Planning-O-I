@@ -2,12 +2,12 @@
 Planning O-I -- planningssysteem voor meubelbezorging & montage.
 
 Een zelfstandige Flask-blueprint met een eigen database, eigen rollen/rechten en
-eigen login. Draait naast Follow O-I op dezelfde Render-service.
+eigen login. Volledig losgekoppeld van het Follow O-I portaal.
 
 Status: productieklaar als testopstelling. Alle schermen werken met echte data en
 echte interacties; de externe koppelingen (Shopify, Gmail, Google Maps, Route API,
-Google OAuth/MFA) hebben volledig ingerichte instelschermen en staan klaar om met
-echte API-logica te worden "ingeplugd".
+Google OAuth/MFA, live GPS) hebben volledig ingerichte instelschermen en staan klaar
+om met echte API-logica te worden "ingeplugd".
 """
 
 from flask import (
@@ -15,7 +15,7 @@ from flask import (
     flash, jsonify, Response, abort,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3, os, json, secrets, csv, io
+import sqlite3, os, json, secrets, csv, io, math
 from datetime import datetime, timedelta, date
 
 bp = Blueprint(
@@ -25,33 +25,57 @@ bp = Blueprint(
     template_folder="templates",
 )
 
-# Eigen database; respecteert de persistente schijf van Render (zie render.yaml).
 DB_PATH = os.environ.get("PLANNING_OI_DB_PATH", "planning_oi.db")
-# Zorg dat de map bestaat; valt terug op een lokaal bestand als het ingestelde
-# pad (bv. een niet-gemounte /var/data op het gratis Render-plan) niet schrijfbaar is.
 _dirn = os.path.dirname(DB_PATH)
 if _dirn:
     try:
         os.makedirs(_dirn, exist_ok=True)
     except Exception:
         DB_PATH = "planning_oi.db"
-# Het bedrijf laadt/lost altijd in Breda (alle routes starten en eindigen daar).
+
+# Vaste laad-/loslocatie: alle routes eindigen hier zodat de bus opnieuw geladen wordt.
 HOME_BASE = "Breda"
+BREDA = (51.5719, 4.7683)
+# Grens waarboven een order als "belangrijke order" geldt (euro).
+IMPORTANT_THRESHOLD = 3000
+
+# Globale coördinaten van veelgebruikte plaatsen (voor kaart + afstand/ETA).
+CITY_COORDS = {
+    "Breda": (51.5719, 4.7683), "Tilburg": (51.5606, 5.0919),
+    "Eindhoven": (51.4416, 5.4697), "Utrecht": (52.0907, 5.1214),
+    "Den Haag": (52.0705, 4.3007), "Rotterdam": (51.9244, 4.4777),
+    "Amsterdam": (52.3676, 4.9041), "Den Bosch": (51.6978, 5.3037),
+    "Leiden": (52.1601, 4.4970), "Groningen": (53.2194, 6.5665),
+    "Papendrecht": (51.8302, 4.6890),
+}
 
 
-# --------------------------------------------------------------------------- #
-#  Database
-# --------------------------------------------------------------------------- #
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+def haversine(a, b):
+    """Afstand in km tussen twee (lat, lng)-punten."""
+    (la1, lo1), (la2, lo2) = a, b
+    r = 6371.0
+    p1, p2 = math.radians(la1), math.radians(la2)
+    dphi = math.radians(la2 - la1)
+    dlmb = math.radians(lo2 - lo1)
+    h = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * r * math.asin(min(1, math.sqrt(h)))
+
+
+def fmt_duration(minutes):
+    minutes = int(round(minutes))
+    h, m = divmod(minutes, 60)
+    return (f"{h} u {m} min" if h else f"{m} min")
+
+
 # --------------------------------------------------------------------------- #
-#  Rollen & rechten (volledig configureerbaar per gebruiker)
+#  Rollen & rechten
 # --------------------------------------------------------------------------- #
-# Elke rechten-sleutel met een leesbaar label en de groep waarin hij hoort.
 PERMISSIONS = [
     ("view_planning",      "Planning bekijken",          "Planning"),
     ("edit_planning",      "Planning wijzigen",          "Planning"),
@@ -66,7 +90,7 @@ PERMISSIONS = [
     ("view_invoices",      "Factuurinformatie",          "Financieel"),
     ("complete_deliveries","Leveringen afronden",        "Orders"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
-    ("view_reports",       "Rapportages bekijken",       "Rapportage"),
+    ("view_reports",       "Kilometers & cijfers",       "Rapportage"),
     ("export",             "Exporteren",                 "Rapportage"),
     ("view_kpis",          "KPI's & omzet inzien",       "Rapportage"),
     ("view_personnel",     "Personeelsgegevens",         "Personeel"),
@@ -77,123 +101,84 @@ PERMISSIONS = [
     ("monteur_app",        "Monteur-app gebruiken",      "Monteur"),
 ]
 PERMISSION_KEYS = [k for k, _, _ in PERMISSIONS]
-
 ALL_PERMS = list(PERMISSION_KEYS)
 
 ROLE_DEFAULTS = {
     "beheerder": ALL_PERMS,
-    "manager": [
-        "view_kpis", "view_planning", "view_reports", "view_orders",
-        "view_invoices", "view_personnel", "export", "view_emails",
-    ],
-    "planner": [
-        "view_planning", "edit_planning", "plan_orders", "assign_monteurs",
-        "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
-        "view_reports", "view_orders",
-    ],
-    "administratie": [
-        "view_orders", "edit_clients", "view_emails", "view_invoices",
-        "view_planning", "complete_deliveries",
-    ],
+    "manager": ["view_kpis", "view_planning", "view_reports", "view_orders",
+                "view_invoices", "view_personnel", "export", "view_emails"],
+    "planner": ["view_planning", "edit_planning", "plan_orders", "assign_monteurs",
+                "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
+                "view_reports", "view_orders", "view_personnel"],
+    "administratie": ["view_orders", "edit_clients", "view_emails", "view_invoices",
+                      "view_planning", "complete_deliveries"],
     "monteur": ["monteur_app"],
 }
-ROLE_LABELS = {
-    "beheerder": "Beheerder",
-    "manager": "Manager",
-    "planner": "Planner",
-    "administratie": "Administratie",
-    "monteur": "Monteur",
-}
+ROLE_LABELS = {"beheerder": "Beheerder", "manager": "Manager", "planner": "Planner",
+               "administratie": "Administratie", "monteur": "Monteur"}
 
 
 # --------------------------------------------------------------------------- #
-#  Koppelingen (integraties) -- alles staat klaar om in te stellen
+#  Koppelingen (integraties)
 # --------------------------------------------------------------------------- #
-# Elke koppeling met de velden die ingevuld moeten worden. type bepaalt het
-# invoerveld in de UI (text / password / toggle / select).
 INTEGRATIONS = [
-    {
-        "key": "shopify", "name": "Shopify", "icon": "🛍",
-        "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'.",
-        "fields": [
-            {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
-            {"key": "api_key", "label": "API-sleutel", "type": "password"},
-            {"key": "api_secret", "label": "API-secret", "type": "password"},
-            {"key": "access_token", "label": "Admin access token", "type": "password"},
-            {"key": "webhook_secret", "label": "Webhook-secret", "type": "password"},
-            {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
-             "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
-            {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"},
-        ],
-    },
-    {
-        "key": "gmail", "name": "Gmail (centrale mailbox)", "icon": "✉",
-        "desc": "Toon volledige e-mailhistorie per klant vanuit één centrale mailbox.",
-        "fields": [
-            {"key": "mailbox", "label": "Centrale mailbox", "type": "text", "placeholder": "planning@office-interior.nl"},
-            {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
-            {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
-            {"key": "label_filter", "label": "Labelfilter (optioneel)", "type": "text", "placeholder": "Bezorging"},
-        ],
-    },
-    {
-        "key": "google_maps", "name": "Google Maps", "icon": "🗺",
-        "desc": "Kaarten, live locatie en navigatie in de monteur-app.",
-        "fields": [
-            {"key": "api_key", "label": "Maps API-sleutel", "type": "password"},
-        ],
-    },
-    {
-        "key": "route_api", "name": "Route Optimization", "icon": "🧭",
-        "desc": "Automatische routeoptimalisatie (afstand, verkeer, capaciteit, werktijd).",
-        "fields": [
-            {"key": "provider", "label": "Provider", "type": "select",
-             "options": ["Google Route Optimization", "OptaPlanner", "Routific", "Anders"]},
-            {"key": "api_key", "label": "API-sleutel", "type": "password"},
-            {"key": "max_worktime", "label": "Max. werktijd per dag (uur)", "type": "text", "placeholder": "9"},
-            {"key": "depot", "label": "Vertrek/aankomst (depot)", "type": "text", "default": HOME_BASE},
-        ],
-    },
-    {
-        "key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐",
-        "desc": "Inloggen met Google en verplichte multi-factor authenticatie.",
-        "fields": [
-            {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
-            {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
-            {"key": "require_mfa", "label": "MFA verplicht", "type": "toggle", "default": "1"},
-            {"key": "allowed_domain", "label": "Toegestaan domein", "type": "text", "placeholder": "office-interior.nl"},
-        ],
-    },
-    {
-        "key": "gps", "name": "Live GPS-tracking", "icon": "📍",
-        "desc": "Realtime locatie van bussen en veilige klant-trackinglink (Uber/Picnic-stijl).",
-        "fields": [
-            {"key": "provider", "label": "GPS-provider", "type": "text", "placeholder": "Samsara / Webfleet / app-GPS"},
-            {"key": "api_key", "label": "API-sleutel", "type": "password"},
-            {"key": "share_precise", "label": "Exacte locatie delen met klant", "type": "toggle", "default": "0",
-             "lock_off": True, "help": "Klant ziet altijd alleen een veilige benadering, nooit exacte GPS."},
-        ],
-    },
-    {
-        "key": "email", "name": "Klantmail & tracking", "icon": "📨",
-        "desc": "Automatische bevestiging, aankomst-tijdvak en trackinglink naar de klant.",
-        "fields": [
-            {"key": "smtp_host", "label": "SMTP-host", "type": "text", "placeholder": "smtp.office-interior.nl"},
-            {"key": "smtp_user", "label": "SMTP-gebruiker", "type": "text"},
-            {"key": "smtp_pass", "label": "SMTP-wachtwoord", "type": "password"},
-            {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior Bezorging"},
-            {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"},
-        ],
-    },
-    {
-        "key": "backup", "name": "Back-ups", "icon": "💾",
-        "desc": "Automatische dagelijkse back-up van de volledige database.",
-        "fields": [
-            {"key": "enabled", "label": "Automatische back-up", "type": "toggle", "default": "1"},
-            {"key": "frequency", "label": "Frequentie", "type": "select", "options": ["Dagelijks", "Elke 6 uur", "Wekelijks"]},
-            {"key": "destination", "label": "Bestemming", "type": "text", "placeholder": "gs://oi-backups of Azure Blob"},
-        ],
-    },
+    {"key": "shopify", "name": "Shopify", "icon": "🛍",
+     "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'. Ordernummers komen overeen met Shopify.",
+     "fields": [
+        {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
+        {"key": "api_key", "label": "API-sleutel", "type": "password"},
+        {"key": "api_secret", "label": "API-secret", "type": "password"},
+        {"key": "access_token", "label": "Admin access token", "type": "password"},
+        {"key": "webhook_secret", "label": "Webhook-secret", "type": "password"},
+        {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
+         "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
+        {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"}]},
+    {"key": "gmail", "name": "Gmail (centrale mailbox)", "icon": "✉",
+     "desc": "Toon volledige e-mailhistorie per klant vanuit één centrale mailbox.",
+     "fields": [
+        {"key": "mailbox", "label": "Centrale mailbox", "type": "text", "placeholder": "planning@office-interior.nl"},
+        {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
+        {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
+        {"key": "label_filter", "label": "Labelfilter (optioneel)", "type": "text", "placeholder": "Bezorging"}]},
+    {"key": "google_maps", "name": "Google Maps", "icon": "🗺",
+     "desc": "Kaarten, live locatie en navigatie in de monteur-app en op het dashboard.",
+     "fields": [{"key": "api_key", "label": "Maps API-sleutel", "type": "password"}]},
+    {"key": "route_api", "name": "Route Optimization", "icon": "🧭",
+     "desc": "Automatische routeoptimalisatie (afstand, verkeer, capaciteit, werktijd).",
+     "fields": [
+        {"key": "provider", "label": "Provider", "type": "select",
+         "options": ["Google Route Optimization", "OptaPlanner", "Routific", "Anders"]},
+        {"key": "api_key", "label": "API-sleutel", "type": "password"},
+        {"key": "max_worktime", "label": "Max. werktijd per dag (uur)", "type": "text", "placeholder": "9"},
+        {"key": "depot", "label": "Eindpunt (depot)", "type": "text", "default": HOME_BASE}]},
+    {"key": "gps", "name": "Live GPS-tracking", "icon": "📍",
+     "desc": "Realtime locatie van monteurs op het dashboard en veilige klant-trackinglink (Uber/Picnic-stijl). De monteur-app deelt de live locatie via de telefoon.",
+     "fields": [
+        {"key": "provider", "label": "GPS-bron", "type": "text", "placeholder": "App-GPS (telefoon monteur) / Samsara / Webfleet"},
+        {"key": "api_key", "label": "API-sleutel (optioneel)", "type": "password"},
+        {"key": "share_precise", "label": "Exacte locatie delen met klant", "type": "toggle", "default": "0",
+         "lock_off": True, "help": "Klant ziet altijd alleen een veilige benadering, nooit exacte GPS."}]},
+    {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐",
+     "desc": "Inloggen met Google en verplichte multi-factor authenticatie.",
+     "fields": [
+        {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
+        {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
+        {"key": "require_mfa", "label": "MFA verplicht", "type": "toggle", "default": "1"},
+        {"key": "allowed_domain", "label": "Toegestaan domein", "type": "text", "placeholder": "office-interior.nl"}]},
+    {"key": "email", "name": "Klantmail & tracking", "icon": "📨",
+     "desc": "Automatische bevestiging, aankomst-tijdvak en trackinglink naar de klant.",
+     "fields": [
+        {"key": "smtp_host", "label": "SMTP-host", "type": "text", "placeholder": "smtp.office-interior.nl"},
+        {"key": "smtp_user", "label": "SMTP-gebruiker", "type": "text"},
+        {"key": "smtp_pass", "label": "SMTP-wachtwoord", "type": "password"},
+        {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior Bezorging"},
+        {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"}]},
+    {"key": "backup", "name": "Back-ups", "icon": "💾",
+     "desc": "Automatische dagelijkse back-up van de volledige database.",
+     "fields": [
+        {"key": "enabled", "label": "Automatische back-up", "type": "toggle", "default": "1"},
+        {"key": "frequency", "label": "Frequentie", "type": "select", "options": ["Dagelijks", "Elke 6 uur", "Wekelijks"]},
+        {"key": "destination", "label": "Bestemming", "type": "text", "placeholder": "gs://oi-backups of Azure Blob"}]},
 ]
 INTEGRATION_BY_KEY = {i["key"]: i for i in INTEGRATIONS}
 
@@ -204,71 +189,67 @@ INTEGRATION_BY_KEY = {i["key"]: i for i in INTEGRATIONS}
 def init_db():
     conn = db()
     c = conn.cursor()
-
     c.executescript("""
     CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
         role TEXT NOT NULL, permissions TEXT, phone TEXT,
-        monteur_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TEXT
-    );
+        monteur_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TEXT);
     CREATE TABLE IF NOT EXISTS clients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT, phone TEXT,
         address TEXT, postal TEXT, city TEXT, invoice_address TEXT,
-        notes TEXT, created_at TEXT
-    );
+        notes TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS orders(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_number TEXT, client_id INTEGER, source TEXT DEFAULT 'manual',
         is_draft INTEGER DEFAULT 0, status TEXT DEFAULT 'in_te_plannen',
-        delivery_address TEXT, invoice_address TEXT, phone TEXT, email TEXT,
+        delivery_address TEXT, city TEXT, postal TEXT,
+        invoice_address TEXT, phone TEXT, email TEXT,
         desired_date TEXT, notes TEXT, instructions TEXT,
-        volume REAL DEFAULT 0, weight REAL DEFAULT 0, montage_min INTEGER DEFAULT 30,
-        shopify_id TEXT, created_at TEXT
-    );
+        amount REAL DEFAULT 0, volume REAL DEFAULT 0, weight REAL DEFAULT 0,
+        montage_min INTEGER DEFAULT 30, shopify_id TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS order_items(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        order_id INTEGER, name TEXT, qty INTEGER DEFAULT 1
-    );
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, name TEXT, qty INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS monteurs(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, phone TEXT, email TEXT,
-        skill INTEGER DEFAULT 3, color TEXT, bus_id INTEGER,
-        active INTEGER NOT NULL DEFAULT 1
-    );
+        speed INTEGER DEFAULT 3, color TEXT, bus_id INTEGER,
+        home_address TEXT, home_lat REAL, home_lng REAL,
+        active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS busses(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, plate TEXT, driver TEXT,
         max_volume REAL DEFAULT 12, max_weight REAL DEFAULT 1200,
         max_stops INTEGER DEFAULT 12, apk_date TEXT, maintenance TEXT,
-        active INTEGER NOT NULL DEFAULT 1
-    );
+        active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS planning(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER UNIQUE, monteur_id INTEGER, bus_id INTEGER,
         date TEXT, slot_start TEXT, slot_end TEXT, sequence INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'gepland'
-    );
+        confirmed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
     CREATE TABLE IF NOT EXISTS free_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT
-    );
+        monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT);
     CREATE TABLE IF NOT EXISTS integrations(
-        ikey TEXT, field TEXT, value TEXT, PRIMARY KEY(ikey, field)
-    );
+        ikey TEXT, field TEXT, value TEXT, PRIMARY KEY(ikey, field));
     CREATE TABLE IF NOT EXISTS email_log(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        client_id INTEGER, direction TEXT, subject TEXT, body TEXT, ts TEXT,
-        has_attachment INTEGER DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS settings(
-        skey TEXT PRIMARY KEY, value TEXT
-    );
+        client_id INTEGER, direction TEXT, subject TEXT, body TEXT, ts TEXT, has_attachment INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS settings(skey TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS monteur_location(
+        monteur_id INTEGER PRIMARY KEY, lat REAL, lng REAL, updated_at TEXT, live INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS office_days(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person TEXT, date TEXT, status TEXT, note TEXT, UNIQUE(person, date));
+    CREATE TABLE IF NOT EXISTS vehicle_km(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, bus_id INTEGER, date TEXT, km REAL, UNIQUE(bus_id, date));
+    CREATE TABLE IF NOT EXISTS team_questions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_user_id INTEGER, to_user_id INTEGER, order_id INTEGER,
+        text TEXT, ts TEXT, resolved INTEGER DEFAULT 0);
     """)
     conn.commit()
-
-    # Seed alleen wanneer er nog geen gebruikers zijn.
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed(conn)
     conn.close()
@@ -276,33 +257,31 @@ def init_db():
 
 def _seed(conn):
     c = conn.cursor()
-    now = datetime.now()
-    today = now.date()
+    today = datetime.now().date()
 
     def iso(d):
         return d.isoformat()
 
-    # --- bussen ---
-    busses = [
+    # bussen
+    for b in [
         ("Bus 1 - Mercedes Sprinter", "VND-12-A", "Rick", 14, 1400, 14, iso(today + timedelta(days=120)), ""),
         ("Bus 2 - VW Crafter", "8-XGT-99", "Sven", 12, 1200, 12, iso(today + timedelta(days=40)), "Kleine servicebeurt gepland"),
         ("Bus 3 - Ford Transit", "GV-880-K", "Youssef", 10, 1000, 10, iso(today + timedelta(days=8)), "APK loopt bijna af"),
-    ]
-    for b in busses:
+    ]:
         c.execute("""INSERT INTO busses(name,plate,driver,max_volume,max_weight,max_stops,apk_date,maintenance)
                      VALUES(?,?,?,?,?,?,?,?)""", b)
 
-    # --- monteurs ---
+    # monteurs: speed 1-5 + thuisadres (vertrekpunt route)
     monteurs = [
-        ("Rick de Vries", "06-21110011", "rick@office-interior.nl", 5, "#0f3d3e", 1),
-        ("Sven Bakker", "06-21110022", "sven@office-interior.nl", 4, "#b88a44", 2),
-        ("Youssef El Amrani", "06-21110033", "youssef@office-interior.nl", 4, "#15595a", 3),
-        ("Daan Hofman", "06-21110044", "daan@office-interior.nl", 3, "#7a5cff", None),
+        ("Rick de Vries", "06-21110011", "rick@office-interior.nl", 5, "#0f3d3e", 1, "Ginnekenweg 200, Breda", 51.5700, 4.7800),
+        ("Sven Bakker", "06-21110022", "sven@office-interior.nl", 4, "#b88a44", 2, "Ringbaan Oost 100, Tilburg", 51.5550, 5.1050),
+        ("Youssef El Amrani", "06-21110033", "youssef@office-interior.nl", 4, "#15595a", 3, "Aalsterweg 50, Eindhoven", 51.4200, 5.4800),
+        ("Daan Hofman", "06-21110044", "daan@office-interior.nl", 3, "#6d5bd0", None, "Biltstraat 10, Utrecht", 52.0930, 5.1250),
     ]
     for m in monteurs:
-        c.execute("""INSERT INTO monteurs(name,phone,email,skill,color,bus_id) VALUES(?,?,?,?,?,?)""", m)
+        c.execute("""INSERT INTO monteurs(name,phone,email,speed,color,bus_id,home_address,home_lat,home_lng)
+                     VALUES(?,?,?,?,?,?,?,?,?)""", m)
 
-    # --- gebruikers ---
     def mk(name, email, role, monteur_id=None, phone=""):
         c.execute("""INSERT INTO users(name,email,password,role,permissions,phone,monteur_id,created_at)
                      VALUES(?,?,?,?,?,?,?,?)""",
@@ -314,7 +293,6 @@ def _seed(conn):
     mk("Ad Administratie", "admin@planning-oi.nl", "administratie")
     mk("Rick de Vries", "rick@planning-oi.nl", "monteur", monteur_id=1, phone="06-21110011")
 
-    # --- klanten ---
     clients = [
         ("Gemeente Tilburg", "inkoop@tilburg.nl", "013-5420000", "Stadhuisplein 130", "5038 TC", "Tilburg"),
         ("Brabant Advocaten", "office@brabantadvocaten.nl", "076-5300000", "Claudius Prinsenlaan 12", "4811 DJ", "Breda"),
@@ -327,86 +305,132 @@ def _seed(conn):
         c.execute("""INSERT INTO clients(name,email,phone,address,postal,city,invoice_address,created_at)
                      VALUES(?,?,?,?,?,?,?,?)""", (cl[0], cl[1], cl[2], cl[3], cl[4], cl[5], cl[3], iso(today)))
 
-    # --- orders ---
-    # mix van Shopify en handmatig; sommige al gepland, sommige nog in te plannen, 1 draft (mag niet importeren)
+    # orders: ordernummers = Shopify-bestelnummers; amount in euro (>3000 = belangrijke order)
+    # (num, client_id, source, draft, status, addr, city, postal, phone, email, days, amount, vol, weight, montage, items)
     orders = [
-        # (num, client_id, source, is_draft, status, addr, city, postal, phone, email, days_from_today, vol, weight, montage, items)
-        ("#OI-3041", 1, "shopify", 0, "in_te_plannen", "Stadhuisplein 130", "Tilburg", "5038 TC", "013-5420000", "inkoop@tilburg.nl", 1, 3.2, 280, 60, [("Bureaustoel Pro", 8), ("Vergadertafel 240cm", 1)]),
-        ("#OI-3042", 2, "shopify", 0, "in_te_plannen", "Claudius Prinsenlaan 12", "Breda", "4811 DJ", "076-5300000", "office@brabantadvocaten.nl", 2, 1.4, 120, 30, [("Boekenkast eiken", 3)]),
-        ("#OI-3043", 3, "manual", 0, "in_te_plannen", "Kennedyplein 200", "Eindhoven", "5611 ZT", "040-2900000", "facilitair@dnw.nl", 2, 5.6, 540, 120, [("Zit-sta bureau", 12), ("Monitorarm", 12)]),
-        ("#OI-3044", 4, "shopify", 0, "in_te_plannen", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 3, 2.1, 190, 45, [("Loungebank 3-zits", 2)]),
-        ("#OI-3045", 5, "manual", 0, "in_te_plannen", "Overhoeksplein 1", "Amsterdam", "1031 KS", "020-7700000", "hallo@studionoord.nl", 4, 0.9, 60, 20, [("Akoestisch paneel", 6)]),
-        ("#OI-3046", 6, "shopify", 1, "draft", "Pettelaarpark 70", "Den Bosch", "5216 PP", "073-6100000", "fm@techcampus.nl", 5, 4.0, 300, 90, [("Phonebooth", 2)]),  # DRAFT: niet importeren
-        # reeds gepland
-        ("#OI-3038", 2, "shopify", 0, "gepland", "Claudius Prinsenlaan 12", "Breda", "4811 DJ", "076-5300000", "office@brabantadvocaten.nl", 0, 1.8, 150, 40, [("Bureau wit", 4)]),
-        ("#OI-3039", 1, "manual", 0, "gepland", "Stadhuisplein 130", "Tilburg", "5038 TC", "013-5420000", "inkoop@tilburg.nl", 0, 2.4, 210, 50, [("Kastenwand", 1)]),
-        ("#OI-3040", 4, "shopify", 0, "onderweg", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 0, 1.2, 90, 25, [("Balie-element", 1)]),
+        ("36399", 1, "shopify", 0, "in_te_plannen", "Stadhuisplein 130", "Tilburg", "5038 TC", "013-5420000", "inkoop@tilburg.nl", 1, 5400, 3.2, 280, 60, [("Bureaustoel Pro", 8), ("Vergadertafel 240cm", 1)]),
+        ("36415", 2, "shopify", 0, "in_te_plannen", "Claudius Prinsenlaan 12", "Breda", "4811 DJ", "076-5300000", "office@brabantadvocaten.nl", 2, 1290, 1.4, 120, 30, [("Boekenkast eiken", 3)]),
+        ("36403", 3, "manual", 0, "in_te_plannen", "Kennedyplein 200", "Eindhoven", "5611 ZT", "040-2900000", "facilitair@dnw.nl", 2, 8600, 5.6, 540, 120, [("Zit-sta bureau", 12), ("Monitorarm", 12)]),
+        ("36686", 4, "shopify", 0, "in_te_plannen", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 3, 2100, 2.1, 190, 45, [("Loungebank 3-zits", 2)]),
+        ("36537", 5, "manual", 0, "in_te_plannen", "Overhoeksplein 1", "Amsterdam", "1031 KS", "020-7700000", "hallo@studionoord.nl", 4, 540, 0.9, 60, 20, [("Akoestisch paneel", 6)]),
+        ("36572", 6, "shopify", 1, "draft", "Pettelaarpark 70", "Den Bosch", "5216 PP", "073-6100000", "fm@techcampus.nl", 5, 3200, 4.0, 300, 90, [("Phonebooth", 2)]),
+        # toekomstige grote (belangrijke) orders
+        ("36701", 6, "shopify", 0, "in_te_plannen", "Pettelaarpark 70", "Den Bosch", "5216 PP", "073-6100000", "fm@techcampus.nl", 9, 12500, 8.5, 900, 240, [("Werkplek compleet", 18), ("Akoestische wand", 4)]),
+        ("36702", 4, "manual", 0, "in_te_plannen", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 12, 4300, 3.0, 260, 90, [("Directiebureau", 2), ("Kast hoog", 4)]),
+        # reeds gepland (vandaag)
+        ("36338", 2, "shopify", 0, "gepland", "Claudius Prinsenlaan 12", "Breda", "4811 DJ", "076-5300000", "office@brabantadvocaten.nl", 0, 1850, 1.8, 150, 40, [("Bureau wit", 4)]),
+        ("36339", 1, "manual", 0, "gepland", "Stadhuisplein 130", "Tilburg", "5038 TC", "013-5420000", "inkoop@tilburg.nl", 0, 2400, 2.4, 210, 50, [("Kastenwand", 1)]),
+        ("36340", 4, "shopify", 0, "onderweg", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 0, 990, 1.2, 90, 25, [("Balie-element", 1)]),
     ]
     order_ids = {}
     for o in orders:
         (num, cid, source, draft, status, addr, city, postal, phone, email,
-         dft, vol, weight, montage, items) = o
-        desired = iso(today + timedelta(days=dft))
+         dft, amount, vol, weight, montage, items) = o
         full_addr = f"{addr}, {postal} {city}"
-        c.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,
-                     delivery_address,invoice_address,phone,email,desired_date,volume,weight,montage_min,
-                     shopify_id,created_at,notes)
-                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                  (num, cid, source, draft, status, full_addr, full_addr, phone, email, desired,
-                   vol, weight, montage, (f"gid://shopify/Order/{5000+cid}" if source == "shopify" else None),
-                   iso(today), ""))
+        c.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
+                     invoice_address,phone,email,desired_date,amount,volume,weight,montage_min,shopify_id,created_at,notes)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  (num, cid, source, draft, status, full_addr, city, postal, full_addr, phone, email,
+                   iso(today + timedelta(days=dft)), amount, vol, weight, montage,
+                   (f"gid://shopify/Order/{1000+int(num)}" if source == "shopify" else None), iso(today), ""))
         oid = c.lastrowid
         order_ids[num] = oid
         for nm, q in items:
             c.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, nm, q))
 
-    # --- planning voor de reeds geplande orders (vandaag) ---
-    plan = [
-        ("#OI-3038", 1, 1, 0, "08:30", "09:10", "gepland"),
-        ("#OI-3039", 1, 1, 1, "09:40", "10:30", "gepland"),
-        ("#OI-3040", 2, 2, 0, "08:15", "08:40", "onderweg"),
-    ]
-    for num, mid, bid, seq, s, e, st in plan:
-        c.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,slot_start,slot_end,sequence,status)
-                     VALUES(?,?,?,?,?,?,?,?)""",
-                  (order_ids[num], mid, bid, iso(today), s, e, seq, st))
+    for num, mid, bid, seq, s, e, st, conf in [
+        ("36338", 1, 1, 0, "08:30", "09:10", "gepland", 1),
+        ("36339", 1, 1, 1, "09:40", "10:30", "gepland", 0),
+        ("36340", 2, 2, 0, "08:15", "08:40", "onderweg", 1),
+    ]:
+        c.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,slot_start,slot_end,sequence,confirmed,status)
+                     VALUES(?,?,?,?,?,?,?,?,?)""", (order_ids[num], mid, bid, iso(today), s, e, seq, conf, st))
 
-    # --- vrije dagen ---
-    c.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
+    c.execute("INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)",
               (4, "vakantie", iso(today + timedelta(days=2)), iso(today + timedelta(days=9)), "Zomervakantie"))
-    c.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
+    c.execute("INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)",
               (3, "atv", iso(today + timedelta(days=4)), iso(today + timedelta(days=4)), ""))
 
-    # --- e-mailhistorie (Gmail-mock) ---
-    c.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,?)""",
-              (2, "in", "Vraag over levertijd #OI-3038", "Kunnen jullie 's ochtends leveren?", iso(today), 0))
-    c.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,?)""",
-              (2, "out", "Re: Vraag over levertijd #OI-3038", "Zeker, we leveren tussen 08:30 en 09:10.", iso(today), 1))
+    c.execute("INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,?)",
+              (2, "in", "Vraag over levertijd #36338", "Kunnen jullie 's ochtends leveren?", iso(today), 0))
+    c.execute("INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,?)",
+              (2, "out", "Re: Vraag over levertijd #36338", "Zeker, we leveren tussen 08:30 en 09:10.", iso(today), 1))
 
-    # --- integratie-defaults ---
+    # live GPS-posities (monteur deelt live vanaf zijn telefoon; hier geseed voor de demo)
+    for mid, lat, lng, live in [(1, 51.6200, 4.9500, 1), (2, 51.5200, 5.1000, 1), (3, 52.0000, 5.1200, 0)]:
+        c.execute("INSERT INTO monteur_location(monteur_id,lat,lng,updated_at,live) VALUES(?,?,?,?,?)",
+                  (mid, lat, lng, datetime.now().isoformat(timespec="minutes"), live))
+
+    # kantoorbezetting vandaag (kantoorpersoneel = niet-monteurs)
+    for person, status, note in [
+        ("Caspar (Beheer)", "kantoor", ""), ("Petra Planner", "kantoor", ""),
+        ("Manon Manager", "afspraak", "Klantbezoek Eindhoven (hele ochtend)"),
+        ("Ad Administratie", "kantoor", ""),
+    ]:
+        c.execute("INSERT INTO office_days(person,date,status,note) VALUES(?,?,?,?)",
+                  (person, iso(today), status, note))
+
+    # kilometerregistratie per voertuig (laatste 35 dagen)
+    base = {1: 165, 2: 140, 3: 120}
+    for n in range(35):
+        d = today - timedelta(days=n)
+        if d.weekday() >= 5:   # weekend overslaan
+            continue
+        for bid, bkm in base.items():
+            km = bkm + ((n * 7 + bid * 13) % 60) - 20   # deterministische variatie
+            c.execute("INSERT OR IGNORE INTO vehicle_km(bus_id,date,km) VALUES(?,?,?)", (bid, iso(d), max(40, km)))
+
+    # voorbeeld @mention-vraag (planner -> beheer)
+    c.execute("""INSERT INTO team_questions(from_user_id,to_user_id,order_id,text,ts,resolved)
+                 VALUES((SELECT id FROM users WHERE email='planner@planning-oi.nl'),
+                        (SELECT id FROM users WHERE email='beheer@planning-oi.nl'),
+                        (SELECT id FROM orders WHERE order_number='36403'),
+                        'Kan deze grote order van Eindhoven met 2 monteurs? Lijkt me veel montage.',
+                        ?, 0)""", (datetime.now().isoformat(timespec="minutes"),))
+
     for integ in INTEGRATIONS:
         for f in integ["fields"]:
             if "default" in f:
                 c.execute("INSERT OR IGNORE INTO integrations(ikey,field,value) VALUES(?,?,?)",
                           (integ["key"], f["key"], f["default"]))
-    # depot vast op Breda
     c.execute("INSERT OR IGNORE INTO integrations(ikey,field,value) VALUES(?,?,?)", ("route_api", "depot", HOME_BASE))
 
-    # --- e-mailtemplates ---
     settings = {
         "company_name": "Office-Interior Bezorging & Montage",
         "home_base": HOME_BASE,
-        "tpl_confirm": "Beste {klant},\n\nUw levering is ingepland op {datum} tussen {tijdvak}.\n\nMet vriendelijke groet,\nOffice-Interior",
-        "tpl_arrival": "Beste {klant},\n\nOnze monteur is onderweg en arriveert naar verwachting rond {eta}. Volg live: {trackinglink}\n\nOffice-Interior",
+        "tpl_confirm": (
+            "Beste {klant},\n\n"
+            "Hartelijk dank voor uw bestelling bij Office-Interior. Wat fijn dat we uw nieuwe "
+            "meubilair mogen komen bezorgen én voor u mogen monteren.\n\n"
+            "Uw levering staat gepland op {datum}, tussen {tijdvak}. Onze monteurs plaatsen alles "
+            "netjes op de gewenste plek en nemen het verpakkingsmateriaal weer mee.\n\n"
+            "Komt de afspraak onverhoopt niet uit? Laat het ons gerust tijdig weten via {telefoon} "
+            "of {email}, dan kijken we samen naar een nieuw moment.\n\n"
+            "We kijken ernaar uit u van dienst te zijn.\n\n"
+            "Met vriendelijke groet,\nTeam Office-Interior\n{telefoon} · {email}"),
+        "tpl_arrival": (
+            "Beste {klant},\n\n"
+            "Vandaag is het zover: uw bestelling wordt geleverd.\n\n"
+            "Onze monteur is onderweg en verwacht rond {eta} bij u te arriveren. Via onderstaande "
+            "link volgt u live wanneer we ongeveer aankomen:\n\n{trackinglink}\n\n"
+            "Zou u ervoor willen zorgen dat de ruimte goed toegankelijk is? Dan kunnen wij vlot en "
+            "zorgvuldig aan de slag.\n\nTot straks!\n\n"
+            "Met vriendelijke groet,\nTeam Office-Interior\n{telefoon}"),
+        "tpl_delay": (
+            "Beste {klant},\n\n"
+            "We houden u graag eerlijk op de hoogte: door omstandigheden onderweg loopt onze "
+            "aankomst iets uit. De nieuwe verwachte aankomsttijd is {eta}.\n\n"
+            "Onze excuses voor het ongemak. We doen ons uiterste best om alsnog zo snel mogelijk "
+            "bij u te zijn. Via {trackinglink} blijft u realtime op de hoogte.\n\n"
+            "Dank voor uw begrip.\n\nMet vriendelijke groet,\nTeam Office-Interior"),
     }
     for k, v in settings.items():
         c.execute("INSERT OR IGNORE INTO settings(skey,value) VALUES(?,?)", (k, v))
-
     conn.commit()
 
 
 # --------------------------------------------------------------------------- #
-#  Auth helpers
+#  Auth & helpers
 # --------------------------------------------------------------------------- #
 def current_user():
     uid = session.get("p_user_id")
@@ -421,14 +445,12 @@ def current_user():
 def user_perms(u):
     if not u:
         return set()
-    try:
-        perms = set(json.loads(u["permissions"] or "[]"))
-    except Exception:
-        perms = set()
-    # Beheerder heeft altijd alles.
     if u["role"] == "beheerder":
         return set(ALL_PERMS)
-    return perms
+    try:
+        return set(json.loads(u["permissions"] or "[]"))
+    except Exception:
+        return set()
 
 
 def has_perm(perm):
@@ -442,48 +464,39 @@ def setting(key, default=""):
     return row["value"] if row else default
 
 
-def integ_value(ikey, field, default=""):
-    conn = db()
-    row = conn.execute("SELECT value FROM integrations WHERE ikey=? AND field=?", (ikey, field)).fetchone()
-    conn.close()
-    return row["value"] if row else default
-
-
 def integ_status(ikey):
-    """Bepaal of een koppeling 'klaar' (ingevuld) of nog 'niet gekoppeld' is."""
     integ = INTEGRATION_BY_KEY[ikey]
     conn = db()
     rows = {r["field"]: r["value"] for r in
             conn.execute("SELECT field,value FROM integrations WHERE ikey=?", (ikey,)).fetchall()}
     conn.close()
-    # Verplichte (niet-toggle) velden die ingevuld moeten zijn.
     required = [f["key"] for f in integ["fields"] if f["type"] in ("text", "password")]
     filled = [k for k in required if (rows.get(k) or "").strip()]
     if required and len(filled) == len(required):
         return "verbonden"
-    if filled:
-        return "deels"
-    return "niet_gekoppeld"
+    return "deels" if filled else "niet_gekoppeld"
 
 
-# Maak helpers beschikbaar in alle blueprint-templates.
+def open_questions_count(u):
+    if not u:
+        return 0
+    conn = db()
+    n = conn.execute("SELECT COUNT(*) FROM team_questions WHERE to_user_id=? AND resolved=0", (u["id"],)).fetchone()[0]
+    conn.close()
+    return n
+
+
 @bp.app_context_processor
 def _inject():
     if request.blueprint != "planning":
         return {}
     u = current_user()
-    return {
-        "p_user": u,
-        "p_perms": user_perms(u),
-        "p_has_perm": has_perm,
-        "ROLE_LABELS": ROLE_LABELS,
-        "HOME_BASE": HOME_BASE,
-        "p_nav": NAV,
-    }
+    return {"p_user": u, "p_perms": user_perms(u), "p_has_perm": has_perm,
+            "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV,
+            "p_open_questions": open_questions_count(u)}
 
 
 def login_required(perm=None):
-    """Geeft None terug als toegang ok is, anders een redirect/abort-respons."""
     u = current_user()
     if not u:
         return redirect(url_for("planning.login", next=request.path))
@@ -492,34 +505,62 @@ def login_required(perm=None):
     return None
 
 
-# Navigatiestructuur (label, endpoint, icon, vereist recht). Monteurs zien alleen de app.
+# Navigatie: items met 'endpoint' (link) of 'children' (uitklapbare groep onder Instellingen/Orders).
 NAV = [
-    ("Dashboard", "planning.dashboard", "▦", "view_planning"),
-    ("Planning", "planning.planning", "🗓", "view_planning"),
-    ("Orders", "planning.orders", "📦", "view_orders"),
-    ("Routes", "planning.routes", "🧭", "edit_routes"),
-    ("Klanten", "planning.clients", "👥", "view_orders"),
-    ("Monteurs", "planning.monteurs", "🧰", "view_personnel"),
-    ("Bussen", "planning.busses", "🚐", "view_personnel"),
-    ("Vrije dagen", "planning.free_days", "🏖", "manage_freedays"),
-    ("Rapportages", "planning.reports", "📊", "view_reports"),
-    ("Koppelingen", "planning.integrations", "🔌", "manage_integrations"),
-    ("Gebruikers", "planning.users", "🔑", "manage_users"),
-    ("Instellingen", "planning.company_settings", "⚙", "manage_settings"),
+    {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "▦", "perm": "view_planning"},
+    {"label": "Planning", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning"},
+    {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
+        {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
+        {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
+    {"label": "Routes", "endpoint": "planning.routes", "icon": "🧭", "perm": "edit_routes"},
+    {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
+    {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
+    {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "📈", "perm": "view_reports"},
+    {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
+    {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
+        {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
+        {"label": "Koppelingen", "endpoint": "planning.integrations", "perm": "manage_integrations"},
+        {"label": "Gebruikers", "endpoint": "planning.users", "perm": "manage_users"}]},
 ]
 
 
+def _today_iso():
+    return datetime.now().date().isoformat()
+
+
+def _items_by_order(conn, order_ids):
+    """Dict order_id -> 'Nx artikel, Nx artikel'."""
+    if not order_ids:
+        return {}
+    qmarks = ",".join("?" * len(order_ids))
+    rows = conn.execute(f"SELECT order_id, qty, name FROM order_items WHERE order_id IN ({qmarks})",
+                        list(order_ids)).fetchall()
+    out = {}
+    for r in rows:
+        out.setdefault(r["order_id"], []).append(f"{r['qty']}x {r['name']}")
+    return {k: ", ".join(v) for k, v in out.items()}
+
+
+def eta_back_to_base(lat, lng, remaining_stops, speed):
+    """Schat hoe laat de monteur terug is in Breda om te laden."""
+    km = haversine((lat, lng), BREDA)
+    speed_factor = 1.0 + (3 - (speed or 3)) * 0.08      # snellere monteur = sneller klaar
+    drive_min = km / 45 * 60
+    work_min = remaining_stops * 22 * speed_factor
+    eta = datetime.now() + timedelta(minutes=drive_min + work_min)
+    return eta.strftime("%H:%M"), round(km)
+
+
 # --------------------------------------------------------------------------- #
-#  Routes -- auth
+#  Auth-routes
 # --------------------------------------------------------------------------- #
 @bp.route("/")
 def home():
     u = current_user()
     if not u:
         return redirect(url_for("planning.login"))
-    if u["role"] == "monteur":
-        return redirect(url_for("planning.monteur_app"))
-    return redirect(url_for("planning.dashboard"))
+    return redirect(url_for("planning.monteur_app") if u["role"] == "monteur" else url_for("planning.dashboard"))
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -548,115 +589,212 @@ def logout():
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- dashboard
+#  Dashboard
 # --------------------------------------------------------------------------- #
-def _today_iso():
-    return datetime.now().date().isoformat()
-
-
 @bp.route("/dashboard")
 def dashboard():
     guard = login_required("view_planning")
     if guard:
         return guard
+    u = current_user()
     conn = db()
     today = _today_iso()
     tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
     week_end = (datetime.now().date() + timedelta(days=7)).isoformat()
 
-    def scalar(q, args=()):
-        return conn.execute(q, args).fetchone()[0]
+    def scalar(q, a=()):
+        return conn.execute(q, a).fetchone()[0]
 
     stats = {
-        "today": scalar("SELECT COUNT(*) FROM planning WHERE date=?", (today,)),
         "tomorrow": scalar("SELECT COUNT(*) FROM planning WHERE date=?", (tomorrow,)),
         "week": scalar("SELECT COUNT(*) FROM planning WHERE date>=? AND date<=?", (today, week_end)),
         "unplanned": scalar("SELECT COUNT(*) FROM orders WHERE status='in_te_plannen'"),
         "open_orders": scalar("SELECT COUNT(*) FROM orders WHERE status IN('in_te_plannen','gepland')"),
         "underway": scalar("SELECT COUNT(*) FROM planning WHERE status='onderweg'"),
-        "monteurs_total": scalar("SELECT COUNT(*) FROM monteurs WHERE active=1"),
+        "monteurs_active": scalar("SELECT COUNT(*) FROM monteurs WHERE active=1"),
         "drafts_blocked": scalar("SELECT COUNT(*) FROM orders WHERE is_draft=1"),
+        "important": scalar("SELECT COUNT(*) FROM orders WHERE amount>=? AND is_draft=0 AND desired_date>=?",
+                            (IMPORTANT_THRESHOLD, today)),
     }
-    # monteurs onderweg
-    underway = conn.execute("""
-        SELECT p.*, m.name AS monteur, m.color, o.order_number, c.name AS client, o.delivery_address
-        FROM planning p JOIN monteurs m ON m.id=p.monteur_id
-        JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-        WHERE p.status='onderweg'""").fetchall()
-    # leveringen vandaag
-    today_jobs = conn.execute("""
-        SELECT p.*, m.name AS monteur, m.color, o.order_number, c.name AS client, o.delivery_address
-        FROM planning p JOIN monteurs m ON m.id=p.monteur_id
-        JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-        WHERE p.date=? ORDER BY m.name, p.sequence""", (today,)).fetchall()
-    # nog in te plannen
-    unplanned = conn.execute("""
-        SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
-        WHERE o.status='in_te_plannen' ORDER BY o.desired_date LIMIT 6""").fetchall()
-    # bezetting per bus (volume vandaag)
-    bus_load = conn.execute("""
-        SELECT b.name, b.max_volume, COALESCE(SUM(o.volume),0) AS used
-        FROM busses b
-        LEFT JOIN planning p ON p.bus_id=b.id AND p.date=?
-        LEFT JOIN orders o ON o.id=p.order_id
-        WHERE b.active=1 GROUP BY b.id ORDER BY b.name""", (today,)).fetchall()
+    # monteurs onderweg + ETA terug in Breda
+    underway = []
+    rows = conn.execute("""
+        SELECT m.id, m.name, m.color, m.speed, l.lat, l.lng, l.updated_at
+        FROM monteurs m JOIN monteur_location l ON l.monteur_id=m.id
+        WHERE m.active=1 AND l.live=1""").fetchall()
+    for r in rows:
+        remaining = conn.execute("""SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'""",
+                                 (r["id"], today)).fetchone()[0]
+        eta, km = eta_back_to_base(r["lat"], r["lng"], remaining, r["speed"])
+        cur = conn.execute("""SELECT c.name AS client, o.delivery_address FROM planning p
+                              JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                              WHERE p.monteur_id=? AND p.date=? AND p.status='onderweg' LIMIT 1""",
+                           (r["id"], today)).fetchone()
+        underway.append({"name": r["name"], "color": r["color"], "eta_base": eta, "km_base": km,
+                         "remaining": remaining, "client": (cur["client"] if cur else None),
+                         "address": (cur["delivery_address"] if cur else None),
+                         "updated": r["updated_at"]})
+
+    unplanned = conn.execute("""SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+                                WHERE o.status='in_te_plannen' ORDER BY o.desired_date LIMIT 6""").fetchall()
+
+    # kantoorbezetting (dag selecteerbaar)
+    office_day = request.args.get("office_day", today)
+    office_staff = conn.execute("SELECT name FROM users WHERE role!='monteur' AND active=1 ORDER BY name").fetchall()
+    od = {r["person"]: r for r in conn.execute("SELECT * FROM office_days WHERE date=?", (office_day,)).fetchall()}
+    office = []
+    for s in office_staff:
+        rec = od.get(s["name"])
+        office.append({"person": s["name"], "status": (rec["status"] if rec else "kantoor"),
+                       "note": (rec["note"] if rec else "")})
+
+    # team-vragen (@mentions) aan mij
+    my_questions = conn.execute("""
+        SELECT q.*, uf.name AS from_name, o.order_number FROM team_questions q
+        LEFT JOIN users uf ON uf.id=q.from_user_id LEFT JOIN orders o ON o.id=q.order_id
+        WHERE q.to_user_id=? AND q.resolved=0 ORDER BY q.ts DESC""", (u["id"],)).fetchall()
+    all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND id!=? ORDER BY name", (u["id"],)).fetchall()
     conn.close()
-    return render_template("planning/dashboard.html", stats=stats, underway=underway,
-                           today_jobs=today_jobs, unplanned=unplanned, bus_load=bus_load)
+    return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
+                           office=office, office_day=office_day, today=today,
+                           my_questions=my_questions, all_users=all_users)
+
+
+@bp.route("/api/locations")
+def api_locations():
+    if not current_user():
+        return jsonify([]), 403
+    today = _today_iso()
+    conn = db()
+    rows = conn.execute("""SELECT m.id, m.name, m.color, m.speed, l.lat, l.lng, l.updated_at
+                           FROM monteurs m JOIN monteur_location l ON l.monteur_id=m.id
+                           WHERE m.active=1 AND l.live=1""").fetchall()
+    out = []
+    for r in rows:
+        remaining = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'",
+                                 (r["id"], today)).fetchone()[0]
+        eta, km = eta_back_to_base(r["lat"], r["lng"], remaining, r["speed"])
+        out.append({"id": r["id"], "name": r["name"], "color": r["color"],
+                    "lat": r["lat"], "lng": r["lng"], "eta_base": eta, "km_base": km,
+                    "updated": r["updated_at"]})
+    conn.close()
+    return jsonify(out)
+
+
+@bp.route("/api/location", methods=["POST"])
+def api_location():
+    """De monteur-app pusht hier de live GPS-positie van de telefoon naartoe."""
+    u = current_user()
+    if not u or not u["monteur_id"]:
+        return jsonify(ok=False, error="Geen monteur"), 403
+    data = request.get_json(force=True)
+    lat, lng = float(data["lat"]), float(data["lng"])
+    live = 1 if data.get("live", True) else 0
+    conn = db()
+    conn.execute("""INSERT INTO monteur_location(monteur_id,lat,lng,updated_at,live) VALUES(?,?,?,?,?)
+                    ON CONFLICT(monteur_id) DO UPDATE SET lat=excluded.lat,lng=excluded.lng,
+                    updated_at=excluded.updated_at,live=excluded.live""",
+                 (u["monteur_id"], lat, lng, datetime.now().isoformat(timespec="minutes"), live))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/office", methods=["POST"])
+def api_office():
+    if not has_perm("view_planning"):
+        return jsonify(ok=False), 403
+    data = request.get_json(force=True)
+    conn = db()
+    conn.execute("""INSERT INTO office_days(person,date,status,note) VALUES(?,?,?,?)
+                    ON CONFLICT(person,date) DO UPDATE SET status=excluded.status,note=excluded.note""",
+                 (data["person"], data["date"], data["status"], data.get("note", "")))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/question", methods=["POST"])
+def api_question():
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    text = (request.form.get("text") or "").strip()
+    to_user = request.form.get("to_user_id")
+    order_num = (request.form.get("order_number") or "").strip().lstrip("#")
+    if text and to_user:
+        conn = db()
+        oid = None
+        if order_num:
+            row = conn.execute("SELECT id FROM orders WHERE order_number=?", (order_num,)).fetchone()
+            oid = row["id"] if row else None
+        conn.execute("""INSERT INTO team_questions(from_user_id,to_user_id,order_id,text,ts,resolved)
+                        VALUES(?,?,?,?,?,0)""",
+                     (u["id"], to_user, oid, text, datetime.now().isoformat(timespec="minutes")))
+        conn.commit()
+        conn.close()
+        flash("Vraag verstuurd.")
+    return redirect(request.referrer or url_for("planning.dashboard"))
+
+
+@bp.route("/api/question/resolve/<int:qid>", methods=["POST"])
+def api_question_resolve(qid):
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    conn = db()
+    conn.execute("UPDATE team_questions SET resolved=1 WHERE id=?", (qid,))
+    conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for("planning.dashboard"))
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- planning (drag & drop, persistent)
+#  Planning (dagweergave in routeblokken, zoals het vertrouwde overzicht)
 # --------------------------------------------------------------------------- #
-def _week_dates(anchor=None):
-    d = datetime.strptime(anchor, "%Y-%m-%d").date() if anchor else datetime.now().date()
-    monday = d - timedelta(days=d.weekday())
-    return [monday + timedelta(days=i) for i in range(7)]
-
-
 @bp.route("/planning")
 def planning():
     guard = login_required("view_planning")
     if guard:
         return guard
-    week = _week_dates(request.args.get("week"))
+    day = request.args.get("day", _today_iso())
+    d = datetime.strptime(day, "%Y-%m-%d").date()
     conn = db()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
-    busses = conn.execute("SELECT * FROM busses WHERE active=1 ORDER BY id").fetchall()
-    # geplande jobs in deze week
-    start, end = week[0].isoformat(), week[6].isoformat()
     jobs = conn.execute("""
-        SELECT p.*, o.order_number, o.delivery_address, o.volume, o.montage_min,
-               c.name AS client FROM planning p
-        JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-        WHERE p.date>=? AND p.date<=?""", (start, end)).fetchall()
-    # vrije dagen deze week
-    frees = conn.execute("""SELECT * FROM free_days WHERE date_to>=? AND date_from<=?""",
-                         (start, end)).fetchall()
-    # nog in te plannen
-    unplanned = conn.execute("""
-        SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
-        WHERE o.status='in_te_plannen' ORDER BY o.desired_date""").fetchall()
+        SELECT p.*, o.order_number, o.delivery_address, o.city, o.postal, o.email AS o_email,
+               o.phone, o.notes, o.volume, o.montage_min, o.amount, o.source, c.name AS client
+        FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+        WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
+    unplanned = conn.execute("""SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+                                WHERE o.status='in_te_plannen' ORDER BY o.desired_date""").fetchall()
+    frees = {r["monteur_id"]: r["type"] for r in
+             conn.execute("SELECT * FROM free_days WHERE date_from<=? AND date_to>=?", (day, day)).fetchall()}
+    all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
+    items_map = _items_by_order(conn, all_order_ids)
     conn.close()
 
-    # bouw lookup: jobs[monteur_id][date] = [job,...]
-    grid = {}
+    routes_by_m, totals = {}, {}
+    mon_by_id = {m["id"]: m for m in monteurs}
     for j in jobs:
-        grid.setdefault((j["monteur_id"], j["date"]), []).append(j)
-    free_map = {}
-    for f in frees:
-        df = datetime.strptime(f["date_from"], "%Y-%m-%d").date()
-        dt = datetime.strptime(f["date_to"], "%Y-%m-%d").date()
-        for d in week:
-            if df <= d <= dt:
-                free_map[(f["monteur_id"], d.isoformat())] = f["type"]
+        routes_by_m.setdefault(j["monteur_id"], []).append(j)
+    for m in monteurs:
+        rj = routes_by_m.get(m["id"], [])
+        montage = sum((j["montage_min"] or 0) for j in rj)
+        coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
+        for j in rj:
+            coords.append(CITY_COORDS.get(j["city"], BREDA))
+        coords.append(BREDA)
+        km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1)) if len(coords) > 1 else 0
+        drive = km / 45 * 60
+        totals[m["id"]] = {"stops": len(rj), "km": round(km), "time": fmt_duration(montage + drive)}
 
-    prev7 = (week[0] - timedelta(days=7)).isoformat()
-    next7 = (week[0] + timedelta(days=7)).isoformat()
-    return render_template("planning/planning.html", week=week, monteurs=monteurs,
-                           busses=busses, grid=grid, free_map=free_map, unplanned=unplanned,
-                           today=_today_iso(), can_edit=has_perm("edit_planning"),
-                           prev7=prev7, next7=next7)
+    prev_day = (d - timedelta(days=1)).isoformat()
+    next_day = (d + timedelta(days=1)).isoformat()
+    return render_template("planning/planning.html", monteurs=monteurs, routes=routes_by_m, totals=totals,
+                           unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
+                           prev_day=prev_day, next_day=next_day, today=_today_iso(),
+                           can_edit=has_perm("edit_planning"))
 
 
 @bp.route("/api/assign", methods=["POST"])
@@ -664,18 +802,13 @@ def api_assign():
     if not has_perm("edit_planning"):
         return jsonify(ok=False, error="Geen rechten"), 403
     data = request.get_json(force=True)
-    oid = int(data["order_id"])
-    mid = int(data["monteur_id"])
-    d = data["date"]
+    oid, mid, d = int(data["order_id"]), int(data["monteur_id"]), data["date"]
     conn = db()
-    # standaard bus = bus van monteur
     m = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
     bus_id = m["bus_id"] if m else None
-    # volgnummer = aantal jobs die dag voor die monteur
     seq = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=?", (mid, d)).fetchone()[0]
-    exists = conn.execute("SELECT id FROM planning WHERE order_id=?", (oid,)).fetchone()
-    if exists:
-        conn.execute("""UPDATE planning SET monteur_id=?, bus_id=?, date=?, sequence=? WHERE order_id=?""",
+    if conn.execute("SELECT id FROM planning WHERE order_id=?", (oid,)).fetchone():
+        conn.execute("UPDATE planning SET monteur_id=?,bus_id=?,date=?,sequence=? WHERE order_id=?",
                      (mid, bus_id, d, seq, oid))
     else:
         conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status)
@@ -690,8 +823,7 @@ def api_assign():
 def api_unassign():
     if not has_perm("edit_planning"):
         return jsonify(ok=False, error="Geen rechten"), 403
-    data = request.get_json(force=True)
-    oid = int(data["order_id"])
+    oid = int(request.get_json(force=True)["order_id"])
     conn = db()
     conn.execute("DELETE FROM planning WHERE order_id=?", (oid,))
     conn.execute("UPDATE orders SET status='in_te_plannen' WHERE id=?", (oid,))
@@ -700,8 +832,21 @@ def api_unassign():
     return jsonify(ok=True)
 
 
+@bp.route("/api/confirm", methods=["POST"])
+def api_confirm():
+    if not has_perm("edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    data = request.get_json(force=True)
+    oid, val = int(data["order_id"]), 1 if data.get("confirmed") else 0
+    conn = db()
+    conn.execute("UPDATE planning SET confirmed=? WHERE order_id=?", (val, oid))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
 # --------------------------------------------------------------------------- #
-#  Routes -- orders
+#  Orders + belangrijke orders
 # --------------------------------------------------------------------------- #
 @bp.route("/orders")
 def orders():
@@ -710,8 +855,7 @@ def orders():
         return guard
     status = request.args.get("status", "")
     conn = db()
-    q = """SELECT o.*, c.name AS client,
-           (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
+    q = """SELECT o.*, c.name AS client, (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
            FROM orders o LEFT JOIN clients c ON c.id=o.client_id"""
     args = ()
     if status:
@@ -719,10 +863,27 @@ def orders():
         args = (status,)
     q += " ORDER BY o.desired_date, o.id DESC"
     rows = conn.execute(q, args).fetchall()
-    counts = {r["status"]: r["n"] for r in
-              conn.execute("SELECT status, COUNT(*) AS n FROM orders GROUP BY status").fetchall()}
+    counts = {r["status"]: r["n"] for r in conn.execute("SELECT status,COUNT(*) AS n FROM orders GROUP BY status")}
     conn.close()
     return render_template("planning/orders.html", orders=rows, counts=counts, status=status)
+
+
+@bp.route("/orders/belangrijk")
+def important_orders():
+    guard = login_required("view_orders")
+    if guard:
+        return guard
+    today = _today_iso()
+    conn = db()
+    rows = conn.execute("""SELECT o.*, c.name AS client,
+                           (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
+                           FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE o.amount>=? AND o.is_draft=0 AND o.desired_date>=?
+                           ORDER BY o.desired_date""", (IMPORTANT_THRESHOLD, today)).fetchall()
+    items = _items_by_order(conn, [o["id"] for o in rows])
+    conn.close()
+    return render_template("planning/important_orders.html", orders=rows, items=items,
+                           threshold=IMPORTANT_THRESHOLD)
 
 
 @bp.route("/orders/<int:oid>")
@@ -743,7 +904,7 @@ def order_detail(oid):
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- klanten + dossier (incl. Gmail-historie)
+#  Klanten
 # --------------------------------------------------------------------------- #
 @bp.route("/clients")
 def clients():
@@ -774,7 +935,7 @@ def client_detail(cid):
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- monteurs, bussen, vrije dagen
+#  Monteurs (incl. bewerken: snelheid, thuisadres, bus)
 # --------------------------------------------------------------------------- #
 @bp.route("/monteurs")
 def monteurs():
@@ -784,10 +945,31 @@ def monteurs():
     conn = db()
     rows = conn.execute("""SELECT m.*, b.name AS bus FROM monteurs m
                            LEFT JOIN busses b ON b.id=m.bus_id ORDER BY m.name""").fetchall()
+    busses = conn.execute("SELECT * FROM busses WHERE active=1 ORDER BY name").fetchall()
     conn.close()
-    return render_template("planning/monteurs.html", monteurs=rows)
+    return render_template("planning/monteurs.html", monteurs=rows, busses=busses,
+                           can_edit=has_perm("manage_users"))
 
 
+@bp.route("/monteurs/<int:mid>/edit", methods=["POST"])
+def monteur_edit(mid):
+    if not has_perm("manage_users"):
+        abort(403)
+    f = request.form
+    conn = db()
+    conn.execute("""UPDATE monteurs SET name=?, phone=?, email=?, speed=?, bus_id=?, home_address=?, active=? WHERE id=?""",
+                 (f.get("name"), f.get("phone"), f.get("email"), int(f.get("speed", 3)),
+                  (f.get("bus_id") or None), f.get("home_address"),
+                  1 if f.get("active") else 0, mid))
+    conn.commit()
+    conn.close()
+    flash("Monteur bijgewerkt.")
+    return redirect(url_for("planning.monteurs"))
+
+
+# --------------------------------------------------------------------------- #
+#  Bussen (bewerkbaar)
+# --------------------------------------------------------------------------- #
 @bp.route("/busses")
 def busses():
     guard = login_required("view_personnel")
@@ -796,7 +978,26 @@ def busses():
     conn = db()
     rows = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
     conn.close()
-    return render_template("planning/busses.html", busses=rows, today=_today_iso())
+    return render_template("planning/busses.html", busses=rows, today=_today_iso(),
+                           can_edit=has_perm("manage_users"))
+
+
+@bp.route("/busses/<int:bid>/edit", methods=["POST"])
+def bus_edit(bid):
+    if not has_perm("manage_users"):
+        abort(403)
+    f = request.form
+    conn = db()
+    conn.execute("""UPDATE busses SET name=?, plate=?, driver=?, max_volume=?, max_weight=?,
+                    max_stops=?, apk_date=?, maintenance=?, active=? WHERE id=?""",
+                 (f.get("name"), f.get("plate"), f.get("driver"),
+                  float(f.get("max_volume") or 0), float(f.get("max_weight") or 0),
+                  int(f.get("max_stops") or 0), f.get("apk_date"), f.get("maintenance"),
+                  1 if f.get("active") else 0, bid))
+    conn.commit()
+    conn.close()
+    flash("Bus bijgewerkt.")
+    return redirect(url_for("planning.busses"))
 
 
 @bp.route("/free-days", methods=["GET", "POST"])
@@ -806,23 +1007,22 @@ def free_days():
         return guard
     conn = db()
     if request.method == "POST":
-        conn.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note)
-                        VALUES(?,?,?,?,?)""",
+        conn.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
                      (request.form.get("monteur_id"), request.form.get("type"),
-                      request.form.get("date_from"), request.form.get("date_to") or request.form.get("date_from"),
+                      request.form.get("date_from"),
+                      request.form.get("date_to") or request.form.get("date_from"),
                       request.form.get("note", "")))
         conn.commit()
         flash("Vrije dag geregistreerd.")
     rows = conn.execute("""SELECT f.*, m.name AS monteur FROM free_days f
-                           LEFT JOIN monteurs m ON m.id=f.monteur_id
-                           ORDER BY f.date_from DESC""").fetchall()
+                           LEFT JOIN monteurs m ON m.id=f.monteur_id ORDER BY f.date_from DESC""").fetchall()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY name").fetchall()
     conn.close()
     return render_template("planning/free_days.html", rows=rows, monteurs=monteurs)
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- routes (kaart + geoptimaliseerde stops)
+#  Routes (start = thuisadres monteur, eind = Breda)
 # --------------------------------------------------------------------------- #
 @bp.route("/routes")
 def routes():
@@ -832,11 +1032,10 @@ def routes():
     day = request.args.get("day", _today_iso())
     conn = db()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
-    jobs = conn.execute("""
-        SELECT p.*, o.order_number, o.delivery_address, o.volume, o.montage_min,
-               c.name AS client, c.city FROM planning p
-        JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-        WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
+    jobs = conn.execute("""SELECT p.*, o.order_number, o.delivery_address, o.montage_min,
+                           c.name AS client, c.city FROM planning p
+                           JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
     conn.close()
     routes_by_m = {}
     for j in jobs:
@@ -847,27 +1046,44 @@ def routes():
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- rapportages
+#  Kilometerregistratie per voertuig
 # --------------------------------------------------------------------------- #
-@bp.route("/reports")
-def reports():
+@bp.route("/kilometers")
+def vehicle_km():
     guard = login_required("view_reports")
     if guard:
         return guard
+    today = datetime.now().date()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    month_start = today.replace(day=1).isoformat()
+    today_iso = today.isoformat()
     conn = db()
-    total_deliveries = conn.execute("SELECT COUNT(*) FROM orders WHERE status='afgerond'").fetchone()[0]
-    planned = conn.execute("SELECT COUNT(*) FROM planning").fetchone()[0]
-    by_monteur = conn.execute("""SELECT m.name, COUNT(p.id) AS jobs, COALESCE(SUM(o.montage_min),0) AS montage
-                                 FROM monteurs m LEFT JOIN planning p ON p.monteur_id=m.id
-                                 LEFT JOIN orders o ON o.id=p.order_id
-                                 GROUP BY m.id ORDER BY jobs DESC""").fetchall()
+    busses = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
+    rows = []
+    for b in busses:
+        def s(since):
+            return conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?",
+                                (b["id"], since)).fetchone()[0]
+        dag = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date=?",
+                           (b["id"], today_iso)).fetchone()[0]
+        rows.append({"bus": b, "dag": round(dag), "week": round(s(week_start)), "maand": round(s(month_start))})
+    # laatste 10 werkdagen voor de tabel
+    recent = conn.execute("""SELECT date FROM vehicle_km GROUP BY date ORDER BY date DESC LIMIT 10""").fetchall()
+    recent_dates = [r["date"] for r in recent]
+    daily = {}
+    for r in conn.execute("SELECT bus_id,date,km FROM vehicle_km WHERE date>=?",
+                          (recent_dates[-1] if recent_dates else today_iso,)).fetchall():
+        daily[(r["bus_id"], r["date"])] = round(r["km"])
     conn.close()
-    return render_template("planning/reports.html", total_deliveries=total_deliveries,
-                           planned=planned, by_monteur=by_monteur)
+    return render_template("planning/vehicle_km.html", rows=rows, busses=busses,
+                           recent_dates=recent_dates, daily=daily,
+                           totals_day=sum(r["dag"] for r in rows),
+                           totals_week=sum(r["week"] for r in rows),
+                           totals_month=sum(r["maand"] for r in rows))
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- koppelingen (integraties)
+#  Koppelingen
 # --------------------------------------------------------------------------- #
 @bp.route("/integrations", methods=["GET", "POST"])
 def integrations():
@@ -881,7 +1097,7 @@ def integrations():
         if integ:
             for f in integ["fields"]:
                 if f.get("lock_off"):
-                    val = "0"  # beveiligde toggle blijft altijd uit
+                    val = "0"
                 elif f["type"] == "toggle":
                     val = "1" if request.form.get(f["key"]) else "0"
                 else:
@@ -892,8 +1108,7 @@ def integrations():
             conn.commit()
             flash(f"Koppeling '{integ['name']}' opgeslagen.")
         conn.close()
-        return redirect(url_for("planning.integrations", _anchor=ikey))
-    # huidige waarden + statussen
+        return redirect(url_for("planning.integrations"))
     values = {}
     for r in conn.execute("SELECT ikey,field,value FROM integrations").fetchall():
         values.setdefault(r["ikey"], {})[r["field"]] = r["value"]
@@ -909,14 +1124,13 @@ def integration_test(ikey):
         return jsonify(ok=False, error="Geen rechten"), 403
     if ikey not in INTEGRATION_BY_KEY:
         return jsonify(ok=False, error="Onbekende koppeling"), 404
-    st = integ_status(ikey)
-    if st == "verbonden":
+    if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- gebruikers, rollen & rechten
+#  Gebruikers / rollen / rechten
 # --------------------------------------------------------------------------- #
 @bp.route("/users")
 def users():
@@ -961,7 +1175,6 @@ def user_edit(uid):
     except Exception:
         current = set()
     conn.close()
-    # groepeer rechten per groep voor de UI
     groups = {}
     for k, label, grp in PERMISSIONS:
         groups.setdefault(grp, []).append((k, label))
@@ -970,7 +1183,7 @@ def user_edit(uid):
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- bedrijfsinstellingen + e-mailtemplates
+#  Bedrijfsinstellingen + e-mailtemplates
 # --------------------------------------------------------------------------- #
 @bp.route("/settings", methods=["GET", "POST"])
 def company_settings():
@@ -979,7 +1192,7 @@ def company_settings():
         return guard
     conn = db()
     if request.method == "POST":
-        for k in ("company_name", "home_base", "tpl_confirm", "tpl_arrival"):
+        for k in ("company_name", "home_base", "tpl_confirm", "tpl_arrival", "tpl_delay"):
             conn.execute("""INSERT INTO settings(skey,value) VALUES(?,?)
                             ON CONFLICT(skey) DO UPDATE SET value=excluded.value""",
                          (k, request.form.get(k, "")))
@@ -991,7 +1204,7 @@ def company_settings():
 
 
 # --------------------------------------------------------------------------- #
-#  Routes -- monteur-app (mobiel)
+#  Monteur-app (mobiel) + live GPS delen
 # --------------------------------------------------------------------------- #
 @bp.route("/monteur")
 def monteur_app():
@@ -1000,20 +1213,17 @@ def monteur_app():
         return guard
     u = current_user()
     conn = db()
-    # bepaal gekoppelde monteur
     mid = u["monteur_id"]
     today = _today_iso()
-    jobs = []
-    monteur = None
+    jobs, monteur = [], None
     if mid:
         monteur = conn.execute("SELECT * FROM monteurs WHERE id=?", (mid,)).fetchone()
-        jobs = conn.execute("""
-            SELECT p.*, o.order_number, o.delivery_address, o.phone, o.instructions,
-                   o.montage_min, c.name AS client,
-                   (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
-            FROM planning p JOIN orders o ON o.id=p.order_id
-            LEFT JOIN clients c ON c.id=o.client_id
-            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, today)).fetchall()
+        jobs = conn.execute("""SELECT p.*, o.order_number, o.delivery_address, o.phone, o.instructions,
+                               o.montage_min, c.name AS client,
+                               (SELECT GROUP_CONCAT(qty || 'x ' || name, ', ') FROM order_items WHERE order_id=o.id) AS items
+                               FROM planning p JOIN orders o ON o.id=p.order_id
+                               LEFT JOIN clients c ON c.id=o.client_id
+                               WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, today)).fetchall()
     conn.close()
     return render_template("planning/monteur_app.html", monteur=monteur, jobs=jobs,
                            maps_ready=(integ_status("google_maps") == "verbonden"))

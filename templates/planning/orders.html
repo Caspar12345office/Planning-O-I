@@ -19,14 +19,15 @@
 </div>
 <div class="card" style="padding:6px 6px">
 <table>
-  <thead><tr><th>Order</th><th>Klant</th><th>Afleveradres</th><th>Gewenste datum</th><th>Bron</th><th>Status</th><th></th></tr></thead>
+  <thead><tr><th>#Order</th><th>Klant</th><th>Afleveradres</th><th>Gewenste datum</th><th>Waarde</th><th>Bron</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {% for o in orders %}
     <tr>
-      <td><b>{{ o.order_number }}</b><div class="muted" style="font-size:12px">{{ o.n_items }} regel(s)</div></td>
+      <td><b>#{{ o.order_number }}</b><div class="muted" style="font-size:12px">{{ o.n_items }} regel(s)</div></td>
       <td>{{ o.client }}</td>
       <td class="muted">{{ o.delivery_address }}</td>
       <td>{{ o.desired_date }}</td>
+      <td>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <span title="Belangrijke order">⭐</span>{% endif %}{% else %}—{% endif %}</td>
       <td><span class="src {{ o.source }}">{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span></td>
       <td>
         {% if o.is_draft %}<span class="pill gray">🛡 draft</span>
@@ -39,7 +40,7 @@
       <td><a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Geen orders in deze weergave.</td></tr>
+    <tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Geen orders in deze weergave.</td></tr>
   {% endfor %}
   </tbody>
 </table>
