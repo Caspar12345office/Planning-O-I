@@ -27,6 +27,14 @@ bp = Blueprint(
 
 # Eigen database; respecteert de persistente schijf van Render (zie render.yaml).
 DB_PATH = os.environ.get("PLANNING_OI_DB_PATH", "planning_oi.db")
+# Zorg dat de map bestaat; valt terug op een lokaal bestand als het ingestelde
+# pad (bv. een niet-gemounte /var/data op het gratis Render-plan) niet schrijfbaar is.
+_dirn = os.path.dirname(DB_PATH)
+if _dirn:
+    try:
+        os.makedirs(_dirn, exist_ok=True)
+    except Exception:
+        DB_PATH = "planning_oi.db"
 # Het bedrijf laadt/lost altijd in Breda (alle routes starten en eindigen daar).
 HOME_BASE = "Breda"
 
