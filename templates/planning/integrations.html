@@ -1,0 +1,127 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Koppelingen · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Koppelingen</h1><p>Alle integraties staan klaar om in te stellen · vul de gegevens in en zet de koppeling live</p>{% endblock %}
+
+{% block page_css %}
+  .intro-strip{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+  .stat-mini{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow-sm)}
+  .stat-mini .v{font-size:24px;font-weight:800;color:var(--accent)}
+  .stat-mini .l{font-size:12.5px;color:var(--muted)}
+  .ilist{display:grid;gap:16px}
+  .integ{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-sm);overflow:hidden;scroll-margin-top:90px}
+  .integ summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:15px;padding:18px 20px}
+  .integ summary::-webkit-details-marker{display:none}
+  .integ .ico{width:46px;height:46px;border-radius:13px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+  .integ .nm{flex:1;min-width:0}
+  .integ .nm b{font-size:16px;color:var(--accent);display:block}
+  .integ .nm span{font-size:13px;color:var(--muted)}
+  .st{font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px}
+  .st.verbonden{background:#e3f3da;color:#3c7a2c}
+  .st.deels{background:#fbeccd;color:#9a6a17}
+  .st.niet_gekoppeld{background:#ece9e2;color:#74705f}
+  .integ .chev{color:var(--muted);font-size:13px;transition:transform .15s}
+  .integ[open] .chev{transform:rotate(180deg)}
+  .ibody{padding:4px 20px 20px;border-top:1px solid var(--line)}
+  .fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}
+  .fgrid .full{grid-column:1/-1}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .toggle-row .tl b{font-size:14px}.toggle-row .tl span{font-size:12px;color:var(--muted);display:block}
+  .switch{position:relative;width:46px;height:26px;flex-shrink:0}
+  .switch input{opacity:0;width:0;height:0}
+  .slider{position:absolute;inset:0;background:#cfcabd;border-radius:99px;transition:.2s;cursor:pointer}
+  .slider:before{content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .switch input:checked + .slider{background:var(--accent2)}
+  .switch input:checked + .slider:before{transform:translateX(20px)}
+  .switch input:disabled + .slider{opacity:.55;cursor:not-allowed}
+  .locked{background:#f7e7d2;border-color:#eccf9f}
+  .locked .tl b{color:#7a5713}
+  .locknote{font-size:11.5px;color:#9a6a17;display:flex;align-items:center;gap:6px;margin-top:2px}
+  .iactions{display:flex;gap:10px;align-items:center;margin-top:6px}
+  .testmsg{font-size:13px;font-weight:600}
+  .testmsg.ok{color:#3c7a2c}.testmsg.no{color:#a23d2a}
+  @media(max-width:760px){.fgrid{grid-template-columns:1fr}}
+{% endblock %}
+
+{% block content %}
+{% set n_ok = statuses.values()|select('equalto','verbonden')|list|length %}
+<div class="intro-strip">
+  <div class="stat-mini"><div class="v">{{ integrations|length }}</div><div class="l">Beschikbare koppelingen</div></div>
+  <div class="stat-mini"><div class="v" style="color:#3c7a2c">{{ n_ok }}</div><div class="l">Klaar voor gebruik</div></div>
+  <div class="stat-mini"><div class="v" style="color:#9a6a17">{{ integrations|length - n_ok }}</div><div class="l">Nog in te stellen</div></div>
+  <div class="stat-mini"><div class="v">🔒</div><div class="l">Beveiligde regels actief</div></div>
+</div>
+
+<div class="ilist">
+  {% for integ in integrations %}
+  {% set vals = values.get(integ.key, {}) %}
+  {% set st = statuses[integ.key] %}
+  <details class="integ" id="{{ integ.key }}" {{ 'open' if request.url.endswith('#'+integ.key) }}>
+    <summary>
+      <span class="ico">{{ integ.icon }}</span>
+      <span class="nm"><b>{{ integ.name }}</b><span>{{ integ.desc }}</span></span>
+      <span class="st {{ st }}">{% if st=='verbonden' %}Klaar{% elif st=='deels' %}Deels ingevuld{% else %}Niet gekoppeld{% endif %}</span>
+      <span class="chev">▾</span>
+    </summary>
+    <div class="ibody">
+      <form method="post" action="{{ url_for('planning.integrations') }}">
+        <input type="hidden" name="ikey" value="{{ integ.key }}">
+        <div class="fgrid">
+          {% for f in integ.fields %}
+            {% if f.type=='toggle' %}
+            <div class="full">
+              <div class="toggle-row {{ 'locked' if f.lock_off }}">
+                <div class="tl">
+                  <b>{{ f.label }}</b>
+                  {% if f.help %}<span>{{ f.help }}</span>{% endif %}
+                  {% if f.lock_off %}<div class="locknote">🔒 Vergrendeld om veiligheidsredenen.</div>{% endif %}
+                </div>
+                <label class="switch">
+                  <input type="checkbox" name="{{ f.key }}" {{ 'checked' if (vals.get(f.key, f.get('default','0'))=='1') and not f.lock_off }} {{ 'disabled' if f.lock_off }}>
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            {% elif f.type=='select' %}
+            <div class="field">
+              <label>{{ f.label }}</label>
+              <select name="{{ f.key }}">
+                {% for opt in f.options %}<option {{ 'selected' if vals.get(f.key)==opt }}>{{ opt }}</option>{% endfor %}
+              </select>
+            </div>
+            {% else %}
+            <div class="field">
+              <label>{{ f.label }}</label>
+              <input type="{{ 'password' if f.type=='password' else 'text' }}" name="{{ f.key }}"
+                     value="{{ vals.get(f.key, f.get('default','')) }}" placeholder="{{ f.get('placeholder','') }}"
+                     autocomplete="off">
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <div class="iactions">
+          <button class="btn primary sm" type="submit">Opslaan</button>
+          <button class="btn ghost sm" type="button" onclick="testKoppeling('{{ integ.key }}', this)">Test verbinding</button>
+          <span class="testmsg" data-test="{{ integ.key }}"></span>
+        </div>
+      </form>
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function testKoppeling(key, btn){
+  var msg = document.querySelector('[data-test="'+key+'"]');
+  msg.textContent='Testen…'; msg.className='testmsg';
+  fetch('{{ url_for("planning.integration_test", ikey="__KEY__") }}'.replace('__KEY__', key), {method:'POST'})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      msg.textContent = res.message;
+      msg.className = 'testmsg ' + (res.ok ? 'ok' : 'no');
+    })
+    .catch(function(){ msg.textContent='Kon test niet uitvoeren.'; msg.className='testmsg no'; });
+}
+</script>
+{% endblock %}

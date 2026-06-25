@@ -1,0 +1,30 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Bussen · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Bussen</h1><p>Capaciteit, onderhoud en APK · overbelading wordt automatisch voorkomen</p>{% endblock %}
+{% block page_css %}
+  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+  .bcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
+  .bcard .nm{font-weight:700;font-size:16px;color:var(--accent)}
+  .bcard .plate{display:inline-block;background:#1c1a16;color:#ffd24a;font-weight:700;border-radius:6px;padding:2px 9px;font-size:12.5px;letter-spacing:1px;margin:6px 0 12px}
+  .bcard .kv{font-size:13.5px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px}
+  .bcard .kv .k{color:var(--muted)}
+  .apk-warn{color:#a23d2a;font-weight:600}
+{% endblock %}
+{% block content %}
+<div class="bgrid">
+  {% for b in busses %}
+  <div class="bcard">
+    <div class="nm">{{ b.name }}</div>
+    <div class="plate">{{ b.plate }}</div>
+    <div class="kv">
+      <span class="k">Chauffeur</span><span>{{ b.driver }}</span>
+      <span class="k">Laadvolume</span><span>{{ '%.0f'|format(b.max_volume) }} m³</span>
+      <span class="k">Max. gewicht</span><span>{{ '%.0f'|format(b.max_weight) }} kg</span>
+      <span class="k">Max. stops</span><span>{{ b.max_stops }}</span>
+      <span class="k">APK</span><span class="{{ 'apk-warn' if b.apk_date and b.apk_date <= today }}{{ '' }}">{{ b.apk_date }}{% if b.apk_date and b.apk_date < (today) %} (verlopen){% endif %}</span>
+      {% if b.maintenance %}<span class="k">Onderhoud</span><span>{{ b.maintenance }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

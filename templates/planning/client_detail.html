@@ -1,0 +1,48 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}{{ c.name }} · Planning O-I{% endblock %}
+{% block pagehead %}<h1>{{ c.name }}</h1><p>{{ c.address }}, {{ c.postal }} {{ c.city }}</p>{% endblock %}
+{% block page_css %}
+  .cols{display:grid;grid-template-columns:1.3fr 1fr;gap:18px}
+  .mail{border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:10px}
+  .mail .mh{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
+  .mail .dir{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px}
+  .mail .dir.in{background:#e4edff;color:#2f5fd0}.mail .dir.out{background:#e3f3da;color:#3c7a2c}
+  .mail .sub{font-weight:600;font-size:14px}
+  .mail .bd{font-size:13px;color:var(--muted)}
+  .gmail-badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin-bottom:12px}
+  .gmail-badge.on{background:#e3f3da;color:#3c7a2c}.gmail-badge.off{background:#fbeccd;color:#9a6a17}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ url_for('planning.clients') }}" style="margin-bottom:14px">← Alle klanten</a>
+<div class="cols">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:12px">Orders</h3>
+      <table>
+        <thead><tr><th>Order</th><th>Datum</th><th>Status</th></tr></thead>
+        <tbody>{% for o in orders %}
+          <tr><td><a href="{{ url_for('planning.order_detail', oid=o.id) }}"><b>{{ o.order_number }}</b></a></td>
+          <td>{{ o.desired_date }}</td><td><span class="pill gray">{{ o.status }}</span></td></tr>
+        {% else %}<tr><td colspan="3" class="muted">Nog geen orders.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:10px">E-mailhistorie</h3>
+      {% if gmail_ready %}<span class="gmail-badge on">✉ Gekoppeld aan centrale mailbox</span>
+      {% else %}<span class="gmail-badge off">✉ Gmail nog niet gekoppeld · <a href="{{ url_for('planning.integrations') }}#gmail">instellen</a></span>{% endif %}
+      {% for m in emails %}
+        <div class="mail">
+          <div class="mh"><span class="dir {{ m.direction }}">{{ 'Ontvangen' if m.direction=='in' else 'Verzonden' }}</span>
+            <span class="muted" style="font-size:12px">{{ m.ts }}{% if m.has_attachment %} · 📎{% endif %}</span></div>
+          <div class="sub">{{ m.subject }}</div>
+          <div class="bd">{{ m.body }}</div>
+        </div>
+      {% else %}<p class="muted">Geen e-mails gevonden voor deze klant.</p>{% endfor %}
+      <p class="muted" style="font-size:12px;margin-top:6px">Bij een actieve koppeling wordt hier automatisch de volledige Gmail-conversatie (incl. bijlagen) getoond, zonder te wisselen tussen Gmail en de software.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

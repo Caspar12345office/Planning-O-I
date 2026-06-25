@@ -1,0 +1,54 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}{{ o.order_number }} · Planning O-I{% endblock %}
+{% block pagehead %}<h1>{{ o.order_number }}</h1><p>{{ o.client }} · {{ o.delivery_address }}</p>{% endblock %}
+{% block page_css %}
+  .cols{display:grid;grid-template-columns:1.5fr 1fr;gap:18px}
+  .kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:14px}
+  .kv .k{color:var(--muted)}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ url_for('planning.orders') }}" style="margin-bottom:14px">← Alle orders</a>
+{% if o.is_draft %}
+<div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px">🛡 <b>Draft order.</b> Deze order is niet bevestigd/betaald en wordt daarom nooit automatisch ingepland.</div>
+{% endif %}
+<div class="cols">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:14px">Producten</h3>
+      <table>
+        <thead><tr><th>Artikel</th><th style="text-align:right">Aantal</th></tr></thead>
+        <tbody>{% for it in items %}<tr><td>{{ it.name }}</td><td style="text-align:right">{{ it.qty }}</td></tr>{% endfor %}</tbody>
+      </table>
+      <div class="kv" style="margin-top:16px">
+        <span class="k">Volume</span><span>{{ '%.1f'|format(o.volume) }} m³</span>
+        <span class="k">Gewicht</span><span>{{ '%.0f'|format(o.weight) }} kg</span>
+        <span class="k">Montagetijd</span><span>{{ o.montage_min }} min</span>
+      </div>
+    </div>
+  </div>
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:14px">Gegevens</h3>
+      <div class="kv">
+        <span class="k">Status</span><span>{{ o.status }}</span>
+        <span class="k">Bron</span><span>{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span>
+        <span class="k">Gewenste datum</span><span>{{ o.desired_date }}</span>
+        <span class="k">Telefoon</span><span>{{ o.phone or '—' }}</span>
+        <span class="k">E-mail</span><span>{{ o.email or '—' }}</span>
+        <span class="k">Afleveradres</span><span>{{ o.delivery_address }}</span>
+        <span class="k">Factuuradres</span><span>{{ o.invoice_address or o.delivery_address }}</span>
+        {% if o.shopify_id %}<span class="k">Shopify-ID</span><span class="muted" style="font-size:12px">{{ o.shopify_id }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:10px">Planning</h3>
+      {% if plan %}
+        <div class="kv"><span class="k">Monteur</span><span>{{ plan.monteur }}</span>
+        <span class="k">Datum</span><span>{{ plan.date }}</span>
+        <span class="k">Tijdvak</span><span>{{ plan.slot_start or '—' }} – {{ plan.slot_end or '—' }}</span></div>
+      {% else %}<p class="muted">Nog niet ingepland. Sleep deze order in de <a href="{{ url_for('planning.planning') }}">planning</a>.</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

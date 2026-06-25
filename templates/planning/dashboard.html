@@ -1,0 +1,107 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Dashboard · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Dashboard</h1><p>Goedemorgen{{ ', ' + p_user.name.split(' ')[0] if p_user }} · overzicht van vandaag</p>{% endblock %}
+
+{% block page_css %}
+  .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+  .kpi .ic{position:absolute;right:14px;top:14px;font-size:20px;opacity:.5}
+  .kpi .v{font-size:34px;font-weight:800;color:var(--accent);line-height:1;letter-spacing:-.02em}
+  .kpi .l{font-size:13px;color:var(--muted);margin-top:7px}
+  .kpi .trend{font-size:12px;font-weight:600;margin-top:8px;display:inline-block}
+  .kpi.gold{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff}
+  .kpi.gold .v,.kpi.gold .l{color:#fff}.kpi.gold .l{color:#cfe1da}
+  .cols{display:grid;grid-template-columns:1.6fr 1fr;gap:18px}
+  .sec-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .sec-h h3{font-size:17px;color:var(--accent)}
+  .job{display:flex;align-items:center;gap:13px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .job:last-child{border-bottom:0}
+  .job .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .job .who{flex:1;min-width:0}
+  .job .who b{font-size:14.5px}
+  .job .who span{display:block;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .job .time{font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap}
+  .busbar{margin:11px 0}
+  .busbar .top{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}
+  .busbar .track{height:9px;background:var(--soft);border-radius:99px;overflow:hidden}
+  .busbar .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent2),var(--gold))}
+  .busbar .fill.full{background:linear-gradient(90deg,#d9962b,#c0533f)}
+  .tray-card{display:flex;align-items:center;gap:11px;padding:11px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+  .tray-card .num{font-weight:700;font-size:13px;color:var(--accent)}
+  .tray-card .meta{flex:1;min-width:0}.tray-card .meta span{font-size:12.5px;color:var(--muted)}
+  .draft-banner{display:flex;align-items:center;gap:12px;background:#fbeccd;border:1px solid #f0d49a;border-radius:13px;padding:13px 16px;margin-bottom:20px;font-size:13.5px;color:#7a5713}
+  .draft-banner b{color:#5e430d}
+  @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+{% endblock %}
+
+{% block content %}
+{% if stats.drafts_blocked %}
+<div class="draft-banner">🛡 <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
+{% endif %}
+
+<div class="kpis">
+  <div class="kpi"><span class="ic">🚚</span><div class="v">{{ stats.today }}</div><div class="l">Leveringen vandaag</div><span class="trend pill blue">{{ stats.underway }} onderweg</span></div>
+  <div class="kpi"><span class="ic">📅</span><div class="v">{{ stats.tomorrow }}</div><div class="l">Leveringen morgen</div><span class="trend pill gray">komende week {{ stats.week }}</span></div>
+  <div class="kpi"><span class="ic">📦</span><div class="v">{{ stats.unplanned }}</div><div class="l">Nog in te plannen</div><span class="trend pill amber">{{ stats.open_orders }} open orders</span></div>
+  <div class="kpi gold"><span class="ic">🧰</span><div class="v">{{ stats.monteurs_total }}</div><div class="l">Monteurs actief</div><span class="trend pill green" style="background:rgba(255,255,255,.18);color:#fff">vandaag inzetbaar</span></div>
+</div>
+
+<div class="cols">
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="sec-h"><h3>Leveringen vandaag</h3><a class="pill" href="{{ url_for('planning.planning') }}">Naar planning →</a></div>
+      {% if today_jobs %}
+        {% for j in today_jobs %}
+        <div class="job">
+          <span class="dot" style="background:{{ j.color or '#0f3d3e' }}"></span>
+          <div class="who"><b>{{ j.order_number }} · {{ j.client }}</b><span>{{ j.delivery_address }} · {{ j.monteur }}</span></div>
+          {% if j.status=='onderweg' %}<span class="pill blue">onderweg</span>
+          {% elif j.status=='afgerond' %}<span class="pill green">afgerond</span>
+          {% else %}<span class="time">{{ j.slot_start or '—' }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      {% else %}<p class="muted">Nog niets ingepland voor vandaag.</p>{% endif %}
+    </div>
+
+    <div class="card">
+      <div class="sec-h"><h3>Monteurs onderweg</h3><span class="live"><span class="dot"></span>realtime</span></div>
+      {% if underway %}
+        {% for j in underway %}
+        <div class="job">
+          <span class="dot" style="background:{{ j.color or '#0f3d3e' }}"></span>
+          <div class="who"><b>{{ j.monteur }}</b><span>nu bij {{ j.client }} · {{ j.delivery_address }}</span></div>
+          <span class="pill blue">ETA {{ j.slot_end or '—' }}</span>
+        </div>
+        {% endfor %}
+      {% else %}<p class="muted">Geen monteurs onderweg op dit moment.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="grid" style="align-content:start">
+    <div class="card">
+      <div class="sec-h"><h3>Busbezetting vandaag</h3></div>
+      {% for b in bus_load %}
+      {% set pct = ((b.used / b.max_volume * 100) if b.max_volume else 0)|round|int %}
+      <div class="busbar">
+        <div class="top"><span>{{ b.name }}</span><span class="muted">{{ '%.1f'|format(b.used) }} / {{ '%.0f'|format(b.max_volume) }} m³</span></div>
+        <div class="track"><div class="fill {{ 'full' if pct>=85 }}" style="width:{{ [pct,100]|min }}%"></div></div>
+      </div>
+      {% endfor %}
+      <p class="muted" style="font-size:12.5px;margin:12px 0 0">Overbelading wordt automatisch gesignaleerd op basis van volume en gewicht.</p>
+    </div>
+
+    <div class="card">
+      <div class="sec-h"><h3>Nog in te plannen</h3><a class="pill amber" href="{{ url_for('planning.orders', status='in_te_plannen') }}">{{ stats.unplanned }}</a></div>
+      {% if unplanned %}
+        {% for o in unplanned %}
+        <a class="tray-card" href="{{ url_for('planning.order_detail', oid=o.id) }}">
+          <span class="num">{{ o.order_number }}</span>
+          <div class="meta"><b style="font-size:13.5px">{{ o.client }}</b><span>{{ o.delivery_address }}</span></div>
+          {% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}
+        </a>
+        {% endfor %}
+      {% else %}<p class="muted">Alles is ingepland. 🎉</p>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

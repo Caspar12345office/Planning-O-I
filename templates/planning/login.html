@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inloggen · Planning O-I</title>
+<style>
+  @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:swap;src:url("{{ url_for('static', filename='fonts/jost-latin.woff2') }}") format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+  :root{--accent:#0f3d3e;--accent2:#15595a;--gold:#b88a44;--gold2:#cda35a;--bg:#f3efe8;--ink:#1c1a16;--muted:#74705f;--line:#e7e1d6;--panel:#fff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Jost',Arial,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  .split{display:grid;grid-template-columns:1.05fr .95fr;min-height:100vh}
+  /* left brand panel */
+  .brandside{position:relative;overflow:hidden;background:linear-gradient(150deg,#0f3d3e 0%,#15595a 55%,#0c2f30 100%);color:#fff;padding:54px 56px;display:flex;flex-direction:column;justify-content:space-between}
+  .brandside:before{content:"";position:absolute;right:-150px;top:-130px;width:480px;height:480px;border-radius:50%;border:60px solid rgba(255,255,255,.05)}
+  .brandside:after{content:"";position:absolute;left:-120px;bottom:-170px;width:420px;height:420px;border-radius:50%;background:rgba(184,138,68,.12)}
+  .logo{position:relative;z-index:1;font-weight:700;letter-spacing:.2em;text-transform:uppercase;font-size:20px;display:flex;align-items:center;gap:11px}
+  .logo .oi{display:inline-flex;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold2));align-items:center;justify-content:center;font-size:14px;color:#1c1a16;letter-spacing:0}
+  .logo small{display:block;font-size:10px;letter-spacing:.16em;color:#9fc2b9;font-weight:500;text-transform:none}
+  .pitch{position:relative;z-index:1;max-width:430px}
+  .pitch h1{font-size:38px;line-height:1.14;letter-spacing:-.02em;margin:0 0 16px}
+  .pitch h1 .hl{color:var(--gold2)}
+  .pitch p{font-size:16px;color:#cfe1da;line-height:1.6}
+  .feats{position:relative;z-index:1;display:grid;gap:12px;margin-top:6px}
+  .feats div{display:flex;align-items:center;gap:11px;font-size:14.5px;color:#e8f1ec}
+  .feats .c{width:24px;height:24px;border-radius:7px;background:rgba(184,138,68,.25);display:flex;align-items:center;justify-content:center;color:var(--gold2);font-weight:800;font-size:12px}
+  .brandfoot{position:relative;z-index:1;font-size:12.5px;color:#8fb3aa}
+  /* right form */
+  .formside{display:flex;align-items:center;justify-content:center;padding:40px}
+  .box{width:100%;max-width:380px}
+  .box h2{font-size:26px;color:var(--accent);margin:0 0 4px}
+  .box .sub{color:var(--muted);font-size:14.5px;margin:0 0 26px}
+  label{display:block;font-weight:600;font-size:13px;margin:0 0 6px}
+  input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:12px;background:#fff;font:inherit;font-size:15px;margin-bottom:14px}
+  input:focus{outline:0;border-color:var(--accent2);box-shadow:0 0 0 3px rgba(21,89,90,.12)}
+  .btn{width:100%;border:0;border-radius:12px;padding:14px;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:15px;cursor:pointer;box-shadow:0 12px 26px rgba(15,61,62,.22)}
+  .btn:hover{filter:brightness(1.08)}
+  .err{background:#f7e2dc;color:#a23d2a;border:1px solid #eac4ba;border-radius:11px;padding:11px 14px;font-size:14px;margin-bottom:16px}
+  .demo{margin-top:24px;background:var(--panel);border:1px dashed var(--line);border-radius:13px;padding:15px 16px;font-size:13px;color:var(--muted)}
+  .demo b{color:var(--accent)}
+  .demo code{background:#f3efe8;border-radius:6px;padding:1px 6px;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--ink)}
+  .demo .row{display:flex;justify-content:space-between;gap:10px;padding:3px 0}
+  @media(max-width:900px){.split{grid-template-columns:1fr}.brandside{display:none}}
+</style>
+</head>
+<body>
+<div class="split">
+  <div class="brandside">
+    <div class="logo"><span class="oi">O-I</span><div>Planning O-I<small>Bezorging &amp; montage</small></div></div>
+    <div class="pitch">
+      <h1>De hele bezorging en montage in <span class="hl">één realtime overzicht.</span></h1>
+      <p>Van Shopify-order tot afgetekende levering. Plan met drag &amp; drop, optimaliseer routes vanuit Breda en houd klant en monteur automatisch op de hoogte.</p>
+      <div class="feats" style="margin-top:22px">
+        <div><span class="c">✓</span> Drag &amp; drop weekplanning</div>
+        <div><span class="c">✓</span> Automatische routeoptimalisatie</div>
+        <div><span class="c">✓</span> Live GPS &amp; klant-tracking</div>
+        <div><span class="c">✓</span> Realtime Shopify- &amp; Gmail-koppeling</div>
+      </div>
+    </div>
+    <div class="brandfoot">© 2026 Office-Interior · info@office-interior.com · 085-0481444</div>
+  </div>
+  <div class="formside">
+    <div class="box">
+      <h2>Welkom terug</h2>
+      <p class="sub">Log in op het planningsysteem.</p>
+      {% if error %}<div class="err">{{ error }}</div>{% endif %}
+      <form method="post">
+        <label>E-mailadres</label>
+        <input type="email" name="email" placeholder="jij@office-interior.nl" autofocus required>
+        <label>Wachtwoord</label>
+        <input type="password" name="password" placeholder="••••••••" required>
+        <button class="btn" type="submit">Inloggen</button>
+      </form>
+      <div class="demo">
+        <div style="margin-bottom:7px"><b>Demo-accounts</b> · wachtwoord <code>PlanningOI2025!</code></div>
+        <div class="row"><span>Beheerder</span><code>beheer@planning-oi.nl</code></div>
+        <div class="row"><span>Planner</span><code>planner@planning-oi.nl</code></div>
+        <div class="row"><span>Manager</span><code>manager@planning-oi.nl</code></div>
+        <div class="row"><span>Monteur</span><code>rick@planning-oi.nl</code></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

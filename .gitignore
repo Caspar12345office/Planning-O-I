@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+planning_oi.db
+.secret_key
+.venv/

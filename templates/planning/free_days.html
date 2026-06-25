@@ -1,0 +1,36 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Vrije dagen · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Vrije dagen</h1><p>Vakantie, ATV, ziekte en feestdagen · wie vrij is, kan niet worden ingepland</p>{% endblock %}
+{% block page_css %}
+  .cols{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+  .ty{font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px}
+  .ty.vakantie{background:#e4edff;color:#2f5fd0}.ty.atv{background:#e3f3da;color:#3c7a2c}
+  .ty.ziekte{background:#f7e2dc;color:#a23d2a}.ty.vrij{background:#ece9e2;color:#74705f}.ty.feestdag{background:#fbeccd;color:#9a6a17}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<div class="cols">
+  <div class="card">
+    <h3 style="color:var(--accent);margin-bottom:14px">Vrije dag registreren</h3>
+    <form method="post">
+      <div class="field"><label>Monteur</label>
+        <select name="monteur_id" required>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label>Type</label>
+        <select name="type"><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziekte</option><option value="vrij">Vrije dag</option><option value="feestdag">Feestdag</option></select></div>
+      <div class="field"><label>Van</label><input type="date" name="date_from" required></div>
+      <div class="field"><label>Tot en met</label><input type="date" name="date_to"></div>
+      <div class="field"><label>Notitie</label><input name="note" placeholder="optioneel"></div>
+      <button class="btn primary" type="submit">Registreren</button>
+    </form>
+  </div>
+  <div class="card" style="padding:6px">
+    <table>
+      <thead><tr><th>Monteur</th><th>Type</th><th>Van</th><th>Tot</th><th>Notitie</th></tr></thead>
+      <tbody>{% for r in rows %}
+        <tr><td><b>{{ r.monteur }}</b></td><td><span class="ty {{ r.type }}">{{ r.type }}</span></td>
+        <td>{{ r.date_from }}</td><td>{{ r.date_to }}</td><td class="muted">{{ r.note }}</td></tr>
+      {% else %}<tr><td colspan="5" class="muted" style="text-align:center;padding:20px">Nog niets geregistreerd.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

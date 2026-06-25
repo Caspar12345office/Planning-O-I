@@ -1,0 +1,166 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Planning · Planning O-I{% endblock %}
+{% set days = ['ma','di','wo','do','vr','za','zo'] %}
+{% block pagehead %}<h1>Planning</h1><p>Sleep orders naar een monteur en dag · alle routes starten en eindigen in {{ HOME_BASE }}</p>{% endblock %}
+
+{% block page_css %}
+  .planwrap{display:grid;grid-template-columns:288px minmax(0,1fr);gap:18px;align-items:start}
+  .tray{position:sticky;top:96px}
+  .tray .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .tray .hd h3{font-size:15px;color:var(--accent)}
+  .tray .count{background:var(--gold);color:#1c1a16;border-radius:999px;font-size:12px;font-weight:700;padding:2px 9px}
+  .ocard{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:11px 12px;margin-bottom:9px;cursor:grab;box-shadow:var(--shadow-sm);transition:box-shadow .12s,transform .12s}
+  .ocard:hover{box-shadow:var(--shadow);transform:translateY(-1px)}
+  .ocard.dragging{opacity:.45}
+  .ocard .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .ocard .num{font-weight:700;font-size:13px;color:var(--accent)}
+  .ocard .cl{font-size:13.5px;font-weight:600;margin:3px 0 1px}
+  .ocard .ad{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ocard .mt{display:flex;gap:6px;margin-top:7px}
+  .chip{font-size:10.5px;font-weight:600;background:var(--soft);color:var(--accent);border-radius:6px;padding:2px 7px}
+
+  .board{overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow-sm)}
+  .board table{border-collapse:separate;border-spacing:0;min-width:880px}
+  .board th,.board td{border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+  .board th{background:#fbfaf7;padding:10px 8px;font-size:12px;text-align:center;position:sticky;top:0;z-index:2}
+  .board th.today{background:#eef3ec;color:var(--accent)}
+  .board th .dn{font-size:13px;font-weight:700;color:var(--ink);text-transform:none;letter-spacing:0}
+  .mcell{width:150px;background:#fbfaf7;position:sticky;left:0;z-index:1;padding:12px;vertical-align:top}
+  .mcell .mn{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px}
+  .mcell .sw{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+  .mcell .bus{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .cell{vertical-align:top;padding:7px;min-width:108px;height:96px;transition:background .12s}
+  .cell.over{background:#eef6ee;box-shadow:inset 0 0 0 2px var(--accent2)}
+  .cell.free{background:repeating-linear-gradient(45deg,#f6f1e6,#f6f1e6 8px,#efe7d6 8px,#efe7d6 16px)}
+  .cell .freelbl{font-size:11px;color:#9a6a17;font-weight:600}
+  .jcard{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff;border-radius:9px;padding:6px 8px;margin-bottom:5px;cursor:grab;font-size:11.5px}
+  .jcard.dragging{opacity:.45}
+  .jcard b{display:block;font-size:11.5px}
+  .jcard span{color:#cfe1da;font-size:10.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .jcard.onderweg{background:linear-gradient(135deg,#2f5fd0,#3f78e8)}
+  .jcard.afgerond{background:linear-gradient(135deg,#3c7a2c,#4f9d3a)}
+  .weeknav{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+  .weeknav a{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 13px;font-weight:600;font-size:13.5px;color:var(--accent)}
+  .weeknav .lbl{font-weight:700;color:var(--accent);font-size:15px}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:10px}
+  @media(max-width:1100px){.planwrap{grid-template-columns:1fr}.tray{position:relative;top:0}}
+{% endblock %}
+
+{% block content %}
+<div class="weeknav">
+  <a href="{{ url_for('planning.planning') }}?week={{ prev7 }}">← Vorige</a>
+  <span class="lbl">Week {{ week[0].isocalendar()[1] }} · {{ week[0].strftime('%d %b') }} – {{ week[6].strftime('%d %b') }}</span>
+  <a href="{{ url_for('planning.planning') }}?week={{ next7 }}">Volgende →</a>
+  <a href="{{ url_for('planning.planning') }}">Deze week</a>
+</div>
+
+<div class="planwrap">
+  <!-- TRAY -->
+  <div class="tray">
+    <div class="card" style="padding:16px" id="tray" data-tray="1">
+      <div class="hd"><h3>Nog in te plannen</h3><span class="count">{{ unplanned|length }}</span></div>
+      {% if unplanned %}
+        {% for o in unplanned %}
+        <div class="ocard" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ o.id }}">
+          <div class="r1"><span class="num">{{ o.order_number }}</span>{% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}</div>
+          <div class="cl">{{ o.client }}</div>
+          <div class="ad">{{ o.delivery_address }}</div>
+          <div class="mt"><span class="chip">{{ '%.1f'|format(o.volume) }} m³</span><span class="chip">{{ o.montage_min }} min montage</span></div>
+        </div>
+        {% endfor %}
+      {% else %}<p class="muted" style="font-size:13px">Alles ingepland. 🎉</p>{% endif %}
+    </div>
+    {% if can_edit %}<p class="hint">Sleep een kaart naar het rooster. Sleep een geplande kaart hierheen om uit te plannen.</p>{% endif %}
+  </div>
+
+  <!-- BOARD -->
+  <div class="board">
+    <table>
+      <thead>
+        <tr>
+          <th class="mcell" style="text-align:left">Monteur</th>
+          {% for d in week %}
+          <th class="{{ 'today' if d.isoformat()==today }}"><div>{{ days[loop.index0] }}</div><div class="dn">{{ d.strftime('%d/%m') }}</div></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in monteurs %}
+        <tr>
+          <td class="mcell">
+            <div class="mn"><span class="sw" style="background:{{ m.color or '#0f3d3e' }}"></span>{{ m.name }}</div>
+            <div class="bus">skill {{ m.skill }}/5</div>
+          </td>
+          {% for d in week %}
+          {% set ds = d.isoformat() %}
+          {% set free = free_map.get((m.id, ds)) %}
+          <td class="cell {{ 'free' if free }}" data-monteur="{{ m.id }}" data-date="{{ ds }}" data-free="{{ '1' if free else '0' }}">
+            {% if free %}<div class="freelbl">🏖 {{ free }}</div>{% endif %}
+            {% for j in grid.get((m.id, ds), []) %}
+            <div class="jcard {{ j.status }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ j.order_id }}" title="{{ j.client }} · {{ j.delivery_address }}">
+              <b>{{ j.order_number }}</b><span>{{ j.client }}</span>
+            </div>
+            {% endfor %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  var canEdit = {{ 'true' if can_edit else 'false' }};
+  if(!canEdit) return;
+  var dragOrder = null;
+
+  function bindCards(){
+    document.querySelectorAll('[data-order]').forEach(function(el){
+      el.addEventListener('dragstart', function(e){
+        dragOrder = el.getAttribute('data-order');
+        el.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+        try{e.dataTransfer.setData('text/plain', dragOrder);}catch(_){}
+      });
+      el.addEventListener('dragend', function(){ el.classList.remove('dragging'); });
+    });
+  }
+  function post(url, body){
+    return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();});
+  }
+  // cellen
+  document.querySelectorAll('.cell').forEach(function(cell){
+    cell.addEventListener('dragover', function(e){
+      if(cell.getAttribute('data-free')==='1') return; // niet op vrije dag
+      e.preventDefault(); cell.classList.add('over');
+    });
+    cell.addEventListener('dragleave', function(){ cell.classList.remove('over'); });
+    cell.addEventListener('drop', function(e){
+      e.preventDefault(); cell.classList.remove('over');
+      if(!dragOrder || cell.getAttribute('data-free')==='1') return;
+      post('{{ url_for("planning.api_assign") }}', {
+        order_id: dragOrder,
+        monteur_id: cell.getAttribute('data-monteur'),
+        date: cell.getAttribute('data-date')
+      }).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
+    });
+  });
+  // tray = uitplannen
+  var tray = document.getElementById('tray');
+  tray.addEventListener('dragover', function(e){ e.preventDefault(); tray.style.outline='2px dashed var(--accent2)'; });
+  tray.addEventListener('dragleave', function(){ tray.style.outline='none'; });
+  tray.addEventListener('drop', function(e){
+    e.preventDefault(); tray.style.outline='none';
+    if(!dragOrder) return;
+    post('{{ url_for("planning.api_unassign") }}', {order_id: dragOrder})
+      .then(function(res){ if(res.ok) location.reload(); });
+  });
+  bindCards();
+})();
+</script>
+{% endblock %}

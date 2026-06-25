@@ -1,0 +1,30 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Monteurs · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Monteurs</h1><p>Team en koppeling aan bussen</p>{% endblock %}
+{% block page_css %}
+  .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+  .mcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
+  .mcard .top{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+  .mcard .av{width:46px;height:46px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px}
+  .mcard .nm{font-weight:700;font-size:16px}
+  .mcard .kv{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+  .stars{color:var(--gold);letter-spacing:2px}
+{% endblock %}
+{% block content %}
+<div class="mgrid">
+  {% for m in monteurs %}
+  <div class="mcard">
+    <div class="top">
+      <div class="av" style="background:{{ m.color or '#0f3d3e' }}">{{ m.name[:1]|upper }}</div>
+      <div><div class="nm">{{ m.name }}</div><div class="stars">{{ '★' * m.skill }}<span style="color:var(--line)">{{ '★' * (5-m.skill) }}</span></div></div>
+    </div>
+    <div class="kv">
+      <span>📞</span><span>{{ m.phone or '—' }}</span>
+      <span>✉</span><span>{{ m.email or '—' }}</span>
+      <span>🚐</span><span>{{ m.bus or 'Geen vaste bus' }}</span>
+      <span>●</span><span>{{ 'Actief' if m.active else 'Inactief' }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

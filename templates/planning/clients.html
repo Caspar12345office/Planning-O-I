@@ -1,0 +1,22 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Klanten · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Klanten</h1><p>Klik op een klant voor het volledige dossier en de e-mailhistorie</p>{% endblock %}
+{% block content %}
+<div class="card" style="padding:6px">
+<table>
+  <thead><tr><th>Klant</th><th>Plaats</th><th>Telefoon</th><th>E-mail</th><th>Orders</th><th></th></tr></thead>
+  <tbody>
+  {% for c in clients %}
+    <tr>
+      <td><b>{{ c.name }}</b></td>
+      <td>{{ c.city }}</td>
+      <td class="muted">{{ c.phone }}</td>
+      <td class="muted">{{ c.email }}</td>
+      <td><span class="pill">{{ c.n_orders }}</span></td>
+      <td><a class="btn ghost sm" href="{{ url_for('planning.client_detail', cid=c.id) }}">Dossier</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

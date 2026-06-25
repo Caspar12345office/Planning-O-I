@@ -1,0 +1,54 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Rechten · {{ u.name }}{% endblock %}
+{% block pagehead %}<h1>{{ u.name }}</h1><p>Rol en rechten instellen</p>{% endblock %}
+{% block page_css %}
+  .grp{margin-bottom:18px}
+  .grp h4{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+  .perms{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+  .perm{display:flex;align-items:center;gap:10px;background:var(--soft);border:1px solid var(--line);border-radius:11px;padding:11px 13px;font-size:13.5px;font-weight:500;cursor:pointer}
+  .perm input{width:auto}
+  .rolerow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .rolerow select{width:auto;min-width:180px}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px">← Alle gebruikers</a>
+<form method="post">
+  <div class="card" style="margin-bottom:18px">
+    <div class="rolerow">
+      <div><label>Rol</label>
+        <select name="role" onchange="applyRole(this.value)">
+          {% for key,label in roles.items() %}<option value="{{ key }}" {{ 'selected' if u.role==key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <label class="perm" style="align-self:end;background:#fff"><input type="checkbox" name="active" {{ 'checked' if u.active }}> Account actief</label>
+      <div style="flex:1"></div>
+      <button class="btn primary" type="submit">Opslaan</button>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:0">Kies een rol om een standaard rechtenset toe te passen, of vink hieronder individuele rechten aan voor volledige controle.</p>
+  </div>
+
+  <div class="card">
+    {% for grp, items in groups.items() %}
+    <div class="grp">
+      <h4>{{ grp }}</h4>
+      <div class="perms">
+        {% for key,label in items %}
+        <label class="perm"><input type="checkbox" class="permchk" name="perm_{{ key }}" data-key="{{ key }}" {{ 'checked' if key in current }}> {{ label }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+  var ROLE_DEFAULTS = {{ role_defaults|tojson }};
+  function applyRole(role){
+    var set = ROLE_DEFAULTS[role] || [];
+    document.querySelectorAll('.permchk').forEach(function(c){
+      c.checked = (role==='beheerder') ? true : set.indexOf(c.getAttribute('data-key'))>=0;
+    });
+  }
+</script>
+{% endblock %}

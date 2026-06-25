@@ -1,0 +1,79 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Mijn route · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Monteur-app</h1><p>De mobiele weergave voor de monteur · route, navigatie en afronden</p>{% endblock %}
+{% block page_css %}
+  .phonewrap{display:flex;justify-content:center;padding:10px 0 40px}
+  .phone{width:390px;max-width:100%;background:#0c2f30;border-radius:38px;padding:12px;box-shadow:0 30px 70px rgba(15,61,62,.28)}
+  .screen{background:var(--bg);border-radius:28px;overflow:hidden;min-height:720px}
+  .ph-top{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff;padding:20px 18px 18px}
+  .ph-top .d{font-size:12.5px;color:#9fc2b9}
+  .ph-top h2{font-size:20px;margin:3px 0 0}
+  .ph-top .sum{display:flex;gap:8px;margin-top:14px}
+  .ph-top .sum div{flex:1;background:rgba(255,255,255,.1);border-radius:11px;padding:9px;text-align:center}
+  .ph-top .sum b{display:block;font-size:18px}
+  .ph-top .sum span{font-size:10.5px;color:#cfe1da}
+  .ph-body{padding:14px}
+  .jc{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+  .jc .r1{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+  .jc .seq{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .jc .num{font-weight:700;font-size:13px;color:var(--accent)}
+  .jc.done{opacity:.62}
+  .jc .cl{font-weight:700;font-size:15.5px}
+  .jc .ad{font-size:13px;color:var(--muted);margin:2px 0 10px}
+  .jc .meta{display:flex;gap:6px;margin-bottom:11px}
+  .jc .navbtns{display:flex;gap:7px}
+  .navb{flex:1;text-align:center;font-size:12px;font-weight:600;padding:9px 6px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--accent)}
+  .acts{display:flex;gap:8px;margin-top:9px}
+  .acts form{flex:1}
+  .donebtn{width:100%;border:0;border-radius:10px;padding:11px;background:var(--accent);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+  .ghostbtn{flex:1;border:1px solid var(--line);border-radius:10px;padding:11px;background:var(--panel);color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
+  .donepill{font-size:12px;font-weight:700;color:#3c7a2c}
+{% endblock %}
+{% block content %}
+<div class="phonewrap">
+  <div class="phone"><div class="screen">
+    <div class="ph-top">
+      <div class="d">{{ HOME_BASE }} · vandaag</div>
+      <h2>{{ monteur.name if monteur else p_user.name }}</h2>
+      <div class="sum">
+        <div><b>{{ jobs|length }}</b><span>stops</span></div>
+        <div><b>{{ jobs|selectattr('status','equalto','afgerond')|list|length }}</b><span>afgerond</span></div>
+        <div><b>{{ jobs|sum(attribute='montage_min') }}</b><span>min montage</span></div>
+      </div>
+    </div>
+    <div class="ph-body">
+      {% if not monteur %}
+        <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
+      {% elif not jobs %}
+        <div class="jc"><b>Geen leveringen vandaag.</b><div class="ad">Je route is leeg. Fijne dag!</div></div>
+      {% else %}
+        {% for j in jobs %}
+        <div class="jc {{ 'done' if j.status=='afgerond' }}">
+          <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">{{ j.order_number }}</span>
+            {% if j.status=='afgerond' %}<span class="donepill" style="margin-left:auto">✓ Afgerond</span>
+            {% elif j.status=='onderweg' %}<span class="pill blue" style="margin-left:auto">onderweg</span>{% endif %}</div>
+          <div class="cl">{{ j.client }}</div>
+          <div class="ad">{{ j.delivery_address }}</div>
+          <div class="meta"><span class="pill gray">{{ j.n_items }} artikelen</span><span class="pill gray">{{ j.montage_min }} min</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel</a>{% endif %}</div>
+          {% set q = j.delivery_address|urlencode %}
+          <div class="navbtns">
+            <a class="navb" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google Maps</a>
+            <a class="navb" target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple Maps</a>
+            <a class="navb" target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
+          </div>
+          {% if j.status!='afgerond' %}
+          <div class="acts">
+            <button class="ghostbtn" onclick="alert('Hier opent de afleverbon: foto’s toevoegen en handtekening van de klant.')">📷 Bon &amp; handtekening</button>
+            <form method="post" action="{{ url_for('planning.monteur_complete', pid=j.id) }}">
+              <button class="donebtn" type="submit">Levering afronden</button>
+            </form>
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% endif %}
+      <p class="muted" style="font-size:11.5px;text-align:center;margin-top:6px">Navigatie opent in Google Maps, Apple Maps of Waze. Bij actieve GPS-koppeling deelt de app automatisch de live locatie en ETA met de planner en klant.</p>
+    </div>
+  </div></div>
+</div>
+{% endblock %}

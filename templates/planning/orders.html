@@ -1,0 +1,47 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Orders · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Orders</h1><p>Alle orders · bevestigde Shopify-orders verschijnen automatisch als “nog in te plannen”</p>{% endblock %}
+{% block page_css %}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .filters a{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:13px;font-weight:600;color:var(--muted)}
+  .filters a.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .src{font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px}
+  .src.shopify{background:#e4f1e8;color:#2f7d4f}.src.manual{background:#ece9e2;color:#74705f}
+{% endblock %}
+{% block content %}
+<div class="filters">
+  <a class="{{ 'active' if not status }}" href="{{ url_for('planning.orders') }}">Alle</a>
+  <a class="{{ 'active' if status=='in_te_plannen' }}" href="{{ url_for('planning.orders', status='in_te_plannen') }}">Nog in te plannen ({{ counts.get('in_te_plannen',0) }})</a>
+  <a class="{{ 'active' if status=='gepland' }}" href="{{ url_for('planning.orders', status='gepland') }}">Gepland ({{ counts.get('gepland',0) }})</a>
+  <a class="{{ 'active' if status=='onderweg' }}" href="{{ url_for('planning.orders', status='onderweg') }}">Onderweg ({{ counts.get('onderweg',0) }})</a>
+  <a class="{{ 'active' if status=='afgerond' }}" href="{{ url_for('planning.orders', status='afgerond') }}">Afgerond ({{ counts.get('afgerond',0) }})</a>
+  <a class="{{ 'active' if status=='draft' }}" href="{{ url_for('planning.orders', status='draft') }}">🛡 Drafts ({{ counts.get('draft',0) }})</a>
+</div>
+<div class="card" style="padding:6px 6px">
+<table>
+  <thead><tr><th>Order</th><th>Klant</th><th>Afleveradres</th><th>Gewenste datum</th><th>Bron</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for o in orders %}
+    <tr>
+      <td><b>{{ o.order_number }}</b><div class="muted" style="font-size:12px">{{ o.n_items }} regel(s)</div></td>
+      <td>{{ o.client }}</td>
+      <td class="muted">{{ o.delivery_address }}</td>
+      <td>{{ o.desired_date }}</td>
+      <td><span class="src {{ o.source }}">{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span></td>
+      <td>
+        {% if o.is_draft %}<span class="pill gray">🛡 draft</span>
+        {% elif o.status=='in_te_plannen' %}<span class="pill amber">in te plannen</span>
+        {% elif o.status=='gepland' %}<span class="pill blue">gepland</span>
+        {% elif o.status=='onderweg' %}<span class="pill blue">onderweg</span>
+        {% elif o.status=='afgerond' %}<span class="pill green">afgerond</span>
+        {% else %}<span class="pill gray">{{ o.status }}</span>{% endif %}
+      </td>
+      <td><a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted" style="padding:24px;text-align:center">Geen orders in deze weergave.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

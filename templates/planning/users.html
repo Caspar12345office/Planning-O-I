@@ -1,0 +1,27 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Gebruikers · Planning O-I{% endblock %}
+{% block pagehead %}<h1>Gebruikers</h1><p>Rollen en volledig configureerbare rechten per gebruiker</p>{% endblock %}
+{% block page_css %}
+  .rl{font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px}
+  .rl.beheerder{background:#ece8fb;color:#5847b8}.rl.manager{background:#e4edff;color:#2f5fd0}
+  .rl.planner{background:#e3f3da;color:#3c7a2c}.rl.administratie{background:#fbeccd;color:#9a6a17}.rl.monteur{background:#ece9e2;color:#74705f}
+{% endblock %}
+{% block content %}
+<div class="card" style="padding:6px">
+<table>
+  <thead><tr><th>Naam</th><th>E-mail</th><th>Rol</th><th>Rechten</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}
+    <tr>
+      <td><b>{{ u.name }}</b></td>
+      <td class="muted">{{ u.email }}</td>
+      <td><span class="rl {{ u.role }}">{{ ROLE_LABELS.get(u.role, u.role) }}</span></td>
+      <td><span class="pill">{{ u.perm_count if u.role!='beheerder' else 'alle' }}</span></td>
+      <td>{% if u.active %}<span class="pill green">actief</span>{% else %}<span class="pill gray">inactief</span>{% endif %}</td>
+      <td>{% if p_has_perm('manage_roles') %}<a class="btn ghost sm" href="{{ url_for('planning.user_edit', uid=u.id) }}">Rechten</a>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
