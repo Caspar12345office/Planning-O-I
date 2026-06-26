@@ -1074,7 +1074,7 @@ def planning():
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     jobs = conn.execute("""
         SELECT p.*, o.order_number, o.delivery_address, o.city, o.postal, o.email AS o_email,
-               o.phone, o.notes, o.volume, o.montage_min, o.amount, o.source, o.service_type,
+               o.phone, o.notes, o.instructions, o.volume, o.montage_min, o.amount, o.source, o.service_type,
                o.client_id, c.name AS client
         FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
         WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
@@ -1162,6 +1162,21 @@ def api_unassign():
     conn = db()
     conn.execute("DELETE FROM planning WHERE order_id=?", (oid,))
     conn.execute("UPDATE orders SET status='in_te_plannen' WHERE id=?", (oid,))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/order-note", methods=["POST"])
+def api_order_note():
+    """Interne opmerking (alleen planning) en opmerking voor de monteur (zichtbaar in app)."""
+    if not has_perm("edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    data = request.get_json(force=True)
+    oid = int(data["order_id"])
+    conn = db()
+    conn.execute("UPDATE orders SET notes=?, instructions=? WHERE id=?",
+                 (data.get("internal", "").strip(), data.get("monteur", "").strip(), oid))
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -1992,8 +2007,9 @@ def signatures():
              LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id"""
     args = ()
     if q:
-        sql += " WHERE o.order_number LIKE ?"
-        args = ("%" + q + "%",)
+        like = "%" + q + "%"
+        sql += """ WHERE o.order_number LIKE ? OR c.name LIKE ? OR d.receiver LIKE ? OR m.name LIKE ?"""
+        args = (like, like, like, like)
     sql += " ORDER BY d.ts DESC LIMIT 500"
     rows = conn.execute(sql, args).fetchall()
     conn.close()

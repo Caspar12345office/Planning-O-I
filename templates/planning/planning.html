@@ -104,6 +104,8 @@
 <div id="liveBanner" onclick="location.reload()" style="display:none;align-items:center;gap:8px;background:#e4edff;border:1px solid #b5d4f4;color:#185fa5;border-radius:11px;padding:9px 13px;margin-bottom:12px;font-size:13.5px;font-weight:600;cursor:pointer">🔄 De planning is bijgewerkt door een collega — klik om te vernieuwen</div>
 <div id="focusBackdrop" onclick="clearFocus()"></div>
 
+<div style="margin-bottom:12px"><input id="planSearch" oninput="filterPlanning(this.value)" placeholder="🔍 Zoek in de planning op klant, ordernummer, plaats of artikel…" style="max-width:460px"></div>
+
 <div class="tray" id="tray">
   <div class="hd"><h3>Nog in te plannen</h3><span class="count">{{ unplanned|length }}</span>
     {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route. Sleep een rij hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€2000+)</b></span>{% endif %}</div>
@@ -156,7 +158,7 @@
         </td>
         <td class="nm"><b>{{ j.client }}</b> <span>· {{ j.items or '—' }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
-        <td style="text-align:center">{% if j.notes %}<i title="{{ j.notes }}" style="color:#185fa5">✎</i>{% else %}<span class="muted" style="opacity:.4">–</span>{% endif %}</td>
+        <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5">✎</span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56">📱</span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
         <td style="text-align:center"><input type="checkbox" class="akk" {{ 'checked' if j.confirmed }} {{ 'disabled' if not can_edit }} onchange="confirmRow({{ j.order_id }}, this.checked)"></td>
         <td style="text-align:center"><span class="ic-btn" onclick="showAddr(event,'{{ j.client|e }}','{{ j.delivery_address|e }}')">📍 adres</span></td>{# adres-popup met kopiëren + Street View #}
@@ -238,6 +240,21 @@
     <div class="row" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <button class="btn ghost" onclick="document.getElementById('manualModal').style.display='none'">Annuleren</button>
       <button class="btn primary" onclick="saveManual(this)">Toevoegen</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="noteModal">
+  <div class="box" style="width:min(460px,92vw)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="color:var(--accent)">Opmerkingen bij deze klant</h3><span class="x" style="cursor:pointer;color:var(--muted)" onclick="document.getElementById('noteModal').style.display='none'">✕</span></div>
+    <input type="hidden" id="noteOid">
+    <label style="font-size:13px;font-weight:600;margin:6px 0 4px;display:block">🔒 Interne opmerking <span class="muted" style="font-weight:400">(alleen zichtbaar in de planning)</span></label>
+    <textarea id="noteInternal" rows="3" placeholder="bv. let op: lastige parkeersituatie / factuur apart"></textarea>
+    <label style="font-size:13px;font-weight:600;margin:12px 0 4px;display:block">📱 Opmerking voor de monteur <span class="muted" style="font-weight:400">(zichtbaar in zijn app)</span></label>
+    <textarea id="noteMonteur" rows="3" placeholder="bv. aanbellen bij buren / 2e verdieping, geen lift"></textarea>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn ghost" onclick="document.getElementById('noteModal').style.display='none'">Annuleren</button>
+      <button class="btn primary" onclick="saveNote()">Opslaan</button>
     </div>
   </div>
 </div>
@@ -397,6 +414,24 @@ function sendMail(){
 function confirmRow(orderId, checked){
   fetch('{{ url_for("planning.api_confirm") }}',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({order_id:orderId, confirmed:checked})});
+}
+function filterPlanning(q){
+  q=(q||'').toLowerCase().trim();
+  document.querySelectorAll('.rowcard, .ocard').forEach(function(el){
+    el.style.display = (!q || el.textContent.toLowerCase().indexOf(q)>=0) ? '' : 'none';
+  });
+}
+function openNote(el){
+  document.getElementById('noteOid').value=el.getAttribute('data-oid');
+  document.getElementById('noteInternal').value=el.getAttribute('data-internal')||'';
+  document.getElementById('noteMonteur').value=el.getAttribute('data-monteur')||'';
+  document.getElementById('noteModal').style.display='flex';
+}
+function saveNote(){
+  fetch('{{ url_for("planning.api_order_note") }}',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({order_id:document.getElementById('noteOid').value,
+      internal:document.getElementById('noteInternal').value, monteur:document.getElementById('noteMonteur').value})})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
 }
 function optimizeRoute(ev, mid){
   ev.stopPropagation();

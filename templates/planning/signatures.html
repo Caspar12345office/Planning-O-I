@@ -19,7 +19,7 @@
 {% endblock %}
 {% block content %}
 <form class="srch" method="get">
-  <input name="q" value="{{ q }}" placeholder="🔍 Zoek op ordernummer (bv. 36399)">
+  <input name="q" value="{{ q }}" placeholder="🔍 Zoek op naam, ordernummer of ontvanger">
   <button class="btn primary sm" type="submit">Zoek</button>
   {% if q %}<a class="btn ghost sm" href="{{ url_for('planning.signatures') }}">Wis</a>{% endif %}
 </form>

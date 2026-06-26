@@ -221,19 +221,22 @@ function planOrder(btn, oid){
   var map=L.map('map',{zoomControl:true, attributionControl:false}).setView([51.7,4.9],7);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
     maxZoom:18, subdomains:'abcd'}).addTo(map);
+  function dot(color, letter){
+    return L.divIcon({className:'', iconSize:[28,28], iconAnchor:[14,14],
+      html:'<div style="width:28px;height:28px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center">'+letter+'</div>'});
+  }
   // depot Breda
-  L.circleMarker([51.5719,4.7683],{radius:8,color:'#fff',weight:2,fillColor:'#b88a44',fillOpacity:1})
-    .addTo(map).bindTooltip('Depot Breda',{permanent:false});
+  L.marker([51.5719,4.7683],{icon:dot('#b88a44','B')}).addTo(map).bindTooltip('Depot Breda');
   var layer=L.layerGroup().addTo(map);
   var legend=document.getElementById('maplegend');
   function refresh(){
     fetch('{{ url_for("planning.api_locations") }}').then(function(r){return r.json();}).then(function(list){
       layer.clearLayers();
-      legend.innerHTML='<span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span>';
+      legend.innerHTML='<span class="lg"><span class="d" style="background:#b88a44;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700">B</span>Depot Breda</span>';
       list.forEach(function(m){
-        L.circleMarker([m.lat,m.lng],{radius:9,color:'#fff',weight:2,fillColor:m.color,fillOpacity:1})
-          .addTo(layer).bindTooltip(m.name+' · terug ± '+m.eta_base,{permanent:false});
-        legend.innerHTML+='<span class="lg"><span class="d" style="background:'+m.color+'"></span>'+m.name.split(' ')[0]+' · terug ± '+m.eta_base+'</span>';
+        var init=(m.name||'?').trim().charAt(0).toUpperCase();
+        L.marker([m.lat,m.lng],{icon:dot(m.color, init)}).addTo(layer).bindTooltip(m.name+' · terug ± '+m.eta_base);
+        legend.innerHTML+='<span class="lg"><span class="d" style="background:'+m.color+';color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:8px;font-weight:700">'+init+'</span>'+m.name.split(' ')[0]+' · terug ± '+m.eta_base+'</span>';
       });
     }).catch(function(){});
   }

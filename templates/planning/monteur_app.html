@@ -96,7 +96,7 @@
           <div class="ad">{{ j.delivery_address }}</div>
           <div class="items">📦 {{ j.items or '—' }}</div>
           {% if j.service_type=='ophalen' %}<div class="ad" style="margin-top:-6px"><span style="background:#fbeccd;color:#9a6a17;border-radius:5px;padding:1px 7px;font-weight:600">Ophalen</span>{% if j.pakbon %} <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:600">📄 Pakbon bekijken</a>{% endif %}</div>{% endif %}
-          {% if j.instructions %}<div class="ad" style="margin-top:-6px">📝 {{ j.instructions }}</div>{% endif %}
+          {% if j.instructions %}<div style="font-size:12.5px;background:#fff8ef;border:1px solid #f0d49a;color:#7a5713;border-radius:8px;padding:7px 9px;margin-bottom:10px">📝 Van de planning: {{ j.instructions }}</div>{% endif %}
           <div class="meta"><span class="pill gray">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
           {% set q = j.delivery_address|urlencode %}
           <div class="navbtns">
