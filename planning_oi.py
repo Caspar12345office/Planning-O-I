@@ -107,13 +107,32 @@ IS_PG = bool(_PG_URL)
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings"}
 
 
+def _sub_placeholders(sql):
+    """Vervang '?'-parameters door '%s', maar laat vraagtekens BINNEN
+    string-literals ('…') met rust (anders telt psycopg te veel placeholders)."""
+    out = []
+    in_str = False
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            out.append(ch)
+            if in_str and i + 1 < n and sql[i + 1] == "'":  # geëscapete '' binnen tekst
+                out.append("'"); i += 2; continue
+            in_str = not in_str
+            i += 1; continue
+        out.append("%s" if (ch == "?" and not in_str) else ch)
+        i += 1
+    return "".join(out)
+
+
 def _xlate(sql):
     """Vertaal SQLite-SQL naar PostgreSQL. Geeft (sql, append_returning) terug."""
     is_ignore = "INSERT OR IGNORE" in sql.upper()
     s = _re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', sql, flags=_re.I)
     s = s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
     s = s.replace("qty || 'x ' || name", "qty::text || 'x ' || name")
-    s = s.replace("?", "%s")
+    s = _sub_placeholders(s)
     s = _re.sub(r'\bLIKE\b', 'ILIKE', s)
     if is_ignore and "ON CONFLICT" not in s.upper():
         s += " ON CONFLICT DO NOTHING"
