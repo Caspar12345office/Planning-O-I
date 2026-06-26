@@ -79,6 +79,8 @@
   <input type="date" value="{{ day }}" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">
   {% if can_edit %}
   <span style="flex:1"></span>
+  <button class="btn ghost sm" onclick="document.getElementById('manualModal').style.display='flex'">+ Handmatig adres</button>
+  <button class="btn ghost sm" id="incBtn" onclick="toggleInc(this)">+ Incidentele monteurs</button>
   <button class="btn gold sm" onclick="autoPlan(this)" title="Plant openstaande Shopify-orders automatisch op de best passende dag/route">⚡ Automatisch inplannen</button>
   <button class="btn primary sm" onclick="sendConfirmations(this)" title="Stuur in één klik de bevestigingsmails naar de klanten">✉ Bevestigingen versturen</button>
   {% endif %}
@@ -103,10 +105,12 @@
 {% for m in monteurs %}
 {% set rj = routes.get(m.id, []) %}
 {% set t = totals.get(m.id, {}) %}
-<div class="route" data-monteur="{{ m.id }}">
+{% set hidden = (not m.standard) and (rj|length == 0) %}
+<div class="route {{ 'inc-hidden' if hidden }}" data-monteur="{{ m.id }}" {% if hidden %}style="display:none"{% endif %}>
   <div class="rhead" style="background:linear-gradient(135deg,{{ m.color or '#0f3d3e' }},#0f3d3e)">
     <span class="sw"></span>
     <span class="mn">{{ m.name }}</span>
+    {% if not m.standard %}<span class="chip" style="background:rgba(255,255,255,.28)">incidenteel</span>{% endif %}
     <span class="chip">📍 {{ t.region or '—' }}</span>
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     <div class="spacer"></div>
@@ -135,7 +139,7 @@
         <td style="text-align:center">{% if j.notes %}<i title="{{ j.notes }}" style="color:#185fa5">✎</i>{% else %}<span class="muted" style="opacity:.4">–</span>{% endif %}</td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
         <td style="text-align:center"><input type="checkbox" class="akk" {{ 'checked' if j.confirmed }} {{ 'disabled' if not can_edit }} onchange="confirmRow({{ j.order_id }}, this.checked)"></td>
-        <td style="text-align:center"><span class="ic-btn" onclick="showAddr(event,'{{ j.client|e }}','{{ j.delivery_address|e }}')">📍 adres</span></td>
+        <td style="text-align:center"><span class="ic-btn" onclick="showAddr(event,'{{ j.client|e }}','{{ j.delivery_address|e }}')">📍 adres</span></td>{# adres-popup met kopiëren + Street View #}
         <td style="text-align:center"><span class="ic-btn" onclick="openMail({{ j.order_id }},'{{ j.client|e }}','{{ j.o_email|e }}','{{ j.order_number }}')">✉</span></td>
       </tr>
       {% else %}
@@ -150,7 +154,22 @@
 <div class="pop" id="addrPop">
   <div class="ph"><span id="addrTitle">Leveradres</span><span class="x" onclick="document.getElementById('addrPop').style.display='none'">✕</span></div>
   <div id="addrBody" style="font-size:12.5px;line-height:1.5"></div>
+  <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+    <button class="btn ghost sm" onclick="copyAddr()" id="copyBtn">📋 Kopieer</button>
+    <button class="btn primary sm" onclick="showStreet()">👁 Laat adres zien</button>
+  </div>
   <a id="addrMaps" href="#" target="_blank" style="display:inline-block;margin-top:9px;font-size:11.5px;color:#0f6e56;font-weight:600">🗺 Open in Maps</a>
+</div>
+
+<div class="modal" id="svModal">
+  <div class="box" style="width:min(760px,95vw);padding:0;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px">
+      <div><h3 style="margin:0" id="svTitle">Leveradres</h3><div class="muted" id="svAddr" style="font-size:13px"></div></div>
+      <span class="x" style="cursor:pointer;font-size:18px;color:var(--muted)" onclick="document.getElementById('svModal').style.display='none'">✕</span>
+    </div>
+    <iframe id="svFrame" style="width:100%;height:420px;border:0;display:block" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <div class="muted" style="font-size:11.5px;padding:8px 18px">Street View / kaartweergave van het leveradres — zo zie je hoe het pand eruitziet.</div>
+  </div>
 </div>
 
 <div class="modal" id="mailModal">
@@ -169,19 +188,74 @@
     </div>
   </div>
 </div>
+
+<div class="modal" id="manualModal">
+  <div class="box">
+    <div class="mh" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3>Handmatig adres toevoegen</h3><span class="x" style="cursor:pointer;color:var(--muted)" onclick="document.getElementById('manualModal').style.display='none'">✕</span></div>
+    <p class="muted" style="font-size:12.5px;margin:0 0 10px">Na toevoegen worden tijden (GT/AT), ETA, regio en kilometers automatisch herberekend.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><label>Klant / naam</label><input id="mo_client"></div>
+      <div><label>E-mail (optioneel)</label><input id="mo_email"></div>
+      <div style="grid-column:1/-1"><label>Adres (straat + nr)</label><input id="mo_address"></div>
+      <div><label>Postcode</label><input id="mo_postal"></div>
+      <div><label>Plaats</label><input id="mo_city" placeholder="bv. Tilburg / Antwerpen"></div>
+      <div style="grid-column:1/-1"><label>Artikel(en)</label><input id="mo_items" placeholder="bv. 4x Bureau, 8x stoel"></div>
+      <div><label>Monteur</label><select id="mo_monteur"><option value="">Nog niet toewijzen (in te plannen)</option>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}{{ ' (incidenteel)' if not m.standard }}</option>{% endfor %}</select></div>
+      <div><label>Datum</label><input type="date" id="mo_date" value="{{ day }}"></div>
+      <div><label>Montagetijd (min)</label><input type="number" id="mo_montage" value="30"></div>
+      <div><label>Type</label><select id="mo_service"><option value="montage">Montage</option><option value="levering">Levering</option></select></div>
+      <div><label>Orderwaarde (€)</label><input type="number" id="mo_amount" value="0"></div>
+    </div>
+    <div class="row" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn ghost" onclick="document.getElementById('manualModal').style.display='none'">Annuleren</button>
+      <button class="btn primary" onclick="saveManual(this)">Toevoegen</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+var curAddr='', curClient='';
 function showAddr(ev, client, addr){
+  curAddr=addr; curClient=client;
   var p=document.getElementById('addrPop');
   document.getElementById('addrTitle').textContent=client;
   document.getElementById('addrBody').innerHTML='<div style="font-weight:500">Leveradres</div>'+addr;
   document.getElementById('addrMaps').href='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr);
   p.style.display='block';
   var x=ev.pageX, y=ev.pageY;
-  if(x+250>window.scrollX+document.documentElement.clientWidth) x-=250;
+  if(x+260>window.scrollX+document.documentElement.clientWidth) x-=260;
   p.style.left=x+'px'; p.style.top=(y+10)+'px';
+}
+function copyAddr(){
+  var done=function(){var b=document.getElementById('copyBtn');b.textContent='✓ Gekopieerd';setTimeout(function(){b.textContent='📋 Kopieer';},1500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(curAddr).then(done,function(){fallbackCopy(curAddr);done();});}
+  else {fallbackCopy(curAddr);done();}
+}
+function fallbackCopy(t){var ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta);}
+function showStreet(){
+  document.getElementById('addrPop').style.display='none';
+  document.getElementById('svTitle').textContent=curClient;
+  document.getElementById('svAddr').textContent=curAddr;
+  document.getElementById('svFrame').src='https://maps.google.com/maps?q='+encodeURIComponent(curAddr)+'&layer=c&output=svembed';
+  document.getElementById('svModal').style.display='flex';
+}
+function toggleInc(btn){
+  var hidden=document.querySelectorAll('.route.inc-hidden'); var show=btn.getAttribute('data-on')!=='1';
+  hidden.forEach(function(r){ r.style.display = show ? '' : 'none'; });
+  btn.setAttribute('data-on', show?'1':'0');
+  btn.textContent = show ? '− Incidentele monteurs' : '+ Incidentele monteurs';
+}
+function saveManual(btn){
+  var g=function(id){return document.getElementById(id).value;};
+  if(!g('mo_client').trim() && !g('mo_address').trim()){ alert('Vul minimaal een naam of adres in.'); return; }
+  btn.disabled=true; btn.textContent='Bezig…';
+  var body=new URLSearchParams({client:g('mo_client'),email:g('mo_email'),address:g('mo_address'),postal:g('mo_postal'),
+    city:g('mo_city'),items:g('mo_items'),monteur_id:g('mo_monteur'),date:g('mo_date'),
+    montage_min:g('mo_montage'),service_type:g('mo_service'),amount:g('mo_amount')});
+  fetch('{{ url_for("planning.api_manual_order") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else {alert(res.error||'Mislukt');btn.disabled=false;btn.textContent='Toevoegen';} });
 }
 document.addEventListener('click',function(e){
   var p=document.getElementById('addrPop');

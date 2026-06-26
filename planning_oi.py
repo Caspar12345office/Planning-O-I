@@ -252,7 +252,7 @@ def init_db():
         name TEXT NOT NULL, phone TEXT, email TEXT,
         speed INTEGER DEFAULT 3, color TEXT, bus_id INTEGER,
         home_address TEXT, home_lat REAL, home_lng REAL,
-        active INTEGER NOT NULL DEFAULT 1);
+        standard INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS busses(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, plate TEXT, driver TEXT,
@@ -288,7 +288,8 @@ def init_db():
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
                  "ALTER TABLE planning ADD COLUMN mailed INTEGER DEFAULT 0",
-                 "ALTER TABLE orders ADD COLUMN service_type TEXT DEFAULT 'montage'"):
+                 "ALTER TABLE orders ADD COLUMN service_type TEXT DEFAULT 'montage'",
+                 "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -315,27 +316,41 @@ def _seed(conn):
         c.execute("""INSERT INTO busses(name,plate,driver,max_volume,max_weight,max_stops,apk_date,maintenance)
                      VALUES(?,?,?,?,?,?,?,?)""", b)
 
-    # monteurs: speed 1-5 + thuisadres (vertrekpunt route)
+    # monteurs: speed 1-5 + thuisadres (vertrekpunt route); standard=0 = incidenteel (niet altijd zichtbaar)
+    # (name, phone, email, speed, color, bus_id, home_address, lat, lng, standard)
     monteurs = [
-        ("Rick de Vries", "06-21110011", "rick@office-interior.nl", 5, "#0f3d3e", 1, "Ginnekenweg 200, Breda", 51.5700, 4.7800),
-        ("Sven Bakker", "06-21110022", "sven@office-interior.nl", 4, "#b88a44", 2, "Ringbaan Oost 100, Tilburg", 51.5550, 5.1050),
-        ("Youssef El Amrani", "06-21110033", "youssef@office-interior.nl", 4, "#15595a", 3, "Aalsterweg 50, Eindhoven", 51.4200, 5.4800),
-        ("Daan Hofman", "06-21110044", "daan@office-interior.nl", 3, "#6d5bd0", None, "Biltstraat 10, Utrecht", 52.0930, 5.1250),
+        ("Tom", "06-21110011", "tom@office-interior.nl", 5, "#0f3d3e", 1, "Ginnekenweg 200, Breda", 51.5700, 4.7800, 1),
+        ("Stijn v Gurp", "06-21110022", "stijnvgurp@office-interior.nl", 4, "#b88a44", 2, "Ringbaan Oost 100, Tilburg", 51.5550, 5.1050, 1),
+        ("Stijn Pas", "06-21110033", "stijnpas@office-interior.nl", 4, "#15595a", 3, "Aalsterweg 50, Eindhoven", 51.4200, 5.4800, 0),
+        ("Jorik", "06-21110044", "jorik@office-interior.nl", 3, "#6d5bd0", None, "Pettelaarpark 5, Den Bosch", 51.6900, 5.3000, 0),
+        ("Delon", "06-21110055", "delon@office-interior.nl", 4, "#2f6df0", None, "Coolsingel 5, Rotterdam", 51.9200, 4.4800, 1),
+        ("Sem", "06-21110066", "sem@office-interior.nl", 3, "#c2410c", None, "Biltstraat 10, Utrecht", 52.0930, 5.1250, 1),
+        ("Mathijs", "06-21110077", "mathijs@office-interior.nl", 5, "#3b6d11", None, "Haagweg 10, Breda", 51.5800, 4.7600, 1),
     ]
     for m in monteurs:
-        c.execute("""INSERT INTO monteurs(name,phone,email,speed,color,bus_id,home_address,home_lat,home_lng)
-                     VALUES(?,?,?,?,?,?,?,?,?)""", m)
+        c.execute("""INSERT INTO monteurs(name,phone,email,speed,color,bus_id,home_address,home_lat,home_lng,standard)
+                     VALUES(?,?,?,?,?,?,?,?,?,?)""", m)
 
-    def mk(name, email, role, monteur_id=None, phone=""):
+    def mk(name, email, role, monteur_id=None, phone="", extra=None):
+        perms = list(ROLE_DEFAULTS[role]) + (extra or [])
         c.execute("""INSERT INTO users(name,email,password,role,permissions,phone,monteur_id,created_at)
                      VALUES(?,?,?,?,?,?,?,?)""",
                   (name, email, generate_password_hash("PlanningOI2025!"), role,
-                   json.dumps(ROLE_DEFAULTS[role]), phone, monteur_id, iso(today)))
-    mk("Caspar (Beheer)", "beheer@planning-oi.nl", "beheerder", phone="085-0481444")
-    mk("Petra Planner", "planner@planning-oi.nl", "planner")
-    mk("Manon Manager", "manager@planning-oi.nl", "manager")
-    mk("Ad Administratie", "admin@planning-oi.nl", "administratie")
-    mk("Rick de Vries", "rick@planning-oi.nl", "monteur", monteur_id=1, phone="06-21110011")
+                   json.dumps(perms), phone, monteur_id, iso(today)))
+    # kantoor
+    mk("Caspar", "caspar@office-interior.nl", "beheerder", phone="085-0481444")
+    mk("Aleks", "aleks@office-interior.nl", "beheerder")
+    mk("Jorik", "jorik@office-interior.nl", "planner", monteur_id=4, extra=["monteur_app"])   # soms op de weg
+    mk("Stijn", "stijn@office-interior.nl", "planner", monteur_id=3, extra=["monteur_app"])    # NIET Stijn v Gurp; soms op de weg
+    mk("Chris", "chris@office-interior.nl", "planner")
+    mk("Thom", "thom@office-interior.nl", "planner")
+    mk("Yelith", "yelith@office-interior.nl", "planner")
+    # monteur-app accounts
+    mk("Tom", "tom@office-interior.nl", "monteur", monteur_id=1, phone="06-21110011")
+    mk("Stijn v Gurp", "stijnvgurp@office-interior.nl", "monteur", monteur_id=2)
+    mk("Delon", "delon@office-interior.nl", "monteur", monteur_id=5)
+    mk("Sem", "sem@office-interior.nl", "monteur", monteur_id=6)
+    mk("Mathijs", "mathijs@office-interior.nl", "monteur", monteur_id=7)
 
     clients = [
         ("Gemeente Tilburg", "inkoop@tilburg.nl", "013-5420000", "Stadhuisplein 130", "5038 TC", "Tilburg"),
@@ -416,9 +431,10 @@ def _seed(conn):
 
     # kantoorbezetting vandaag (kantoorpersoneel = niet-monteurs)
     for person, status, note in [
-        ("Caspar (Beheer)", "kantoor", ""), ("Petra Planner", "kantoor", ""),
-        ("Manon Manager", "afspraak", "Klantbezoek Eindhoven (hele ochtend)"),
-        ("Ad Administratie", "kantoor", ""),
+        ("Caspar", "kantoor", ""), ("Aleks", "kantoor", ""),
+        ("Jorik", "afspraak", "Soms op de weg — incidenteel inzetbaar als monteur"),
+        ("Stijn", "afspraak", "Klantbezoek Eindhoven (hele ochtend)"),
+        ("Chris", "kantoor", ""), ("Thom", "kantoor", ""), ("Yelith", "kantoor", ""),
     ]:
         c.execute("INSERT INTO office_days(person,date,status,note) VALUES(?,?,?,?)",
                   (person, iso(today), status, note))
@@ -435,8 +451,8 @@ def _seed(conn):
 
     # voorbeeld @mention-vraag (planner -> beheer)
     c.execute("""INSERT INTO team_questions(from_user_id,to_user_id,order_id,text,ts,resolved)
-                 VALUES((SELECT id FROM users WHERE email='planner@planning-oi.nl'),
-                        (SELECT id FROM users WHERE email='beheer@planning-oi.nl'),
+                 VALUES((SELECT id FROM users WHERE email='chris@office-interior.nl'),
+                        (SELECT id FROM users WHERE email='caspar@office-interior.nl'),
                         (SELECT id FROM orders WHERE order_number='36403'),
                         'Kan deze grote order van Eindhoven met 2 monteurs? Lijkt me veel montage.',
                         ?, 0)""", (datetime.now().isoformat(timespec="minutes"),))
@@ -444,16 +460,16 @@ def _seed(conn):
     # teamchat (voorbeeldgesprek over lopende orders)
     now_min = datetime.now().isoformat(timespec="minutes")
     chat = [
-        ("planner@planning-oi.nl", "Order #36403 (Eindhoven) is groot — zal ik er 2 monteurs op zetten?", "36403"),
-        ("beheer@planning-oi.nl", "Ja prima, plan Rick en Sven samen. Ik stem de levertijd af met de klant.", "36403"),
-        ("admin@planning-oi.nl", "Antwerpen #36720 staat klaar, factuuradres klopt.", "36720"),
+        ("chris@office-interior.nl", "Order #36403 (Eindhoven) is groot — zal ik er 2 monteurs op zetten?", "36403"),
+        ("caspar@office-interior.nl", "Ja prima, plan Tom en Stijn v Gurp samen. Ik stem de levertijd af met de klant.", "36403"),
+        ("thom@office-interior.nl", "Antwerpen #36720 staat klaar, factuuradres klopt.", "36720"),
     ]
     for email, text, onum in chat:
         c.execute("""INSERT INTO chat_messages(user_id,text,order_number,ts)
                      VALUES((SELECT id FROM users WHERE email=?),?,?,?)""", (email, text, onum, now_min))
 
     # markeer een paar gebruikers als recent actief (live gebruikers-demo)
-    for email in ("beheer@planning-oi.nl", "planner@planning-oi.nl"):
+    for email in ("caspar@office-interior.nl", "chris@office-interior.nl"):
         c.execute("UPDATE users SET last_seen=? WHERE email=?", (datetime.now().isoformat(timespec="seconds"), email))
 
     for integ in INTEGRATIONS:
@@ -1082,6 +1098,53 @@ def api_autoplan():
     conn.commit()
     conn.close()
     return jsonify(ok=True, planned=planned)
+
+
+@bp.route("/api/manual-order", methods=["POST"])
+def api_manual_order():
+    """Handmatig een adres/levering toevoegen aan de planning. Bij heropenen worden
+    alle tijden (GT/AT), ETA, regio en km automatisch herberekend."""
+    if not has_perm("edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    f = request.form
+    name = (f.get("client") or "Handmatige klant").strip()
+    address = (f.get("address") or "").strip()
+    city = (f.get("city") or "").strip()
+    postal = (f.get("postal") or "").strip()
+    full = ", ".join([p for p in [address, (postal + " " + city).strip()] if p])
+    mid = f.get("monteur_id") or None
+    day = f.get("date") or _today_iso()
+    montage = int(f.get("montage_min") or 30)
+    amount = float(f.get("amount") or 0)
+    service = f.get("service_type") or "montage"
+    items = (f.get("items") or "").strip()
+    email = (f.get("email") or "").strip()
+    conn = db()
+    cl = conn.execute("SELECT id FROM clients WHERE name=?", (name,)).fetchone()
+    if cl:
+        cid = cl["id"]
+    else:
+        conn.execute("INSERT INTO clients(name,email,address,postal,city,created_at) VALUES(?,?,?,?,?,?)",
+                     (name, email, address, postal, city, _today_iso()))
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    onum = "H" + datetime.now().strftime("%y%m%d%H%M%S")[-6:]
+    conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
+                    invoice_address,email,desired_date,amount,montage_min,service_type,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (onum, cid, "manual", 0, "gepland", full, city, postal, full, email, day, amount, montage, service, _today_iso()))
+    oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    if items:
+        conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,1)", (oid, items))
+    if mid:
+        seq = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=?", (mid, day)).fetchone()[0]
+        mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
+        conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
+                        VALUES(?,?,?,?,?,'gepland',0)""", (oid, mid, (mb["bus_id"] if mb else None), day, seq))
+    else:
+        conn.execute("UPDATE orders SET status='in_te_plannen' WHERE id=?", (oid,))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
 
 
 @bp.route("/api/send-confirmations", methods=["POST"])
