@@ -12,10 +12,11 @@ om met echte API-logica te worden "ingeplugd".
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session,
-    flash, jsonify, Response, abort,
+    flash, jsonify, Response, abort, send_from_directory,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3, os, json, secrets, csv, io, math
+from werkzeug.utils import secure_filename
+import sqlite3, os, json, secrets, csv, io, math, time
 from datetime import datetime, timedelta, date
 
 bp = Blueprint(
@@ -33,6 +34,14 @@ if _dirn:
     except Exception:
         DB_PATH = "planning_oi.db"
 
+# Map voor geüploade pakbonnen (PDF). Op het gratis Render-plan tijdelijk; via env naar disk.
+UPLOAD_DIR = os.environ.get("PLANNING_OI_UPLOADS", os.path.join(_dirn or ".", "oi_uploads"))
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except Exception:
+    UPLOAD_DIR = "oi_uploads"
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 # Merknaam van de tool (overal getoond).
 BRAND = "OfficeRoute"
 
@@ -41,6 +50,8 @@ HOME_BASE = "Breda"
 BREDA = (51.5719, 4.7683)
 # Grens waarboven een order als "belangrijke order" geldt (euro).
 IMPORTANT_THRESHOLD = 3000
+# File/werkzaamheden pas tonen/notificeren vanaf deze extra vertraging (minuten).
+ALERT_THRESHOLD = 20
 
 # Globale coördinaten van veelgebruikte plaatsen (NL + BE) voor kaart + afstand/ETA.
 CITY_COORDS = {
@@ -76,8 +87,15 @@ def region_for(cities):
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
+    # WAL + busy_timeout: meerdere gebruikers tegelijk lezen/schrijven zonder locks.
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        pass
     return conn
 
 
@@ -244,7 +262,7 @@ def init_db():
         desired_date TEXT, notes TEXT, instructions TEXT,
         amount REAL DEFAULT 0, volume REAL DEFAULT 0, weight REAL DEFAULT 0,
         montage_min INTEGER DEFAULT 30, service_type TEXT DEFAULT 'montage',
-        shopify_id TEXT, created_at TEXT);
+        pakbon TEXT, shopify_id TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS order_items(
         id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, name TEXT, qty INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS monteurs(
@@ -289,6 +307,7 @@ def init_db():
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
                  "ALTER TABLE planning ADD COLUMN mailed INTEGER DEFAULT 0",
                  "ALTER TABLE orders ADD COLUMN service_type TEXT DEFAULT 'montage'",
+                 "ALTER TABLE orders ADD COLUMN pakbon TEXT",
                  "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1"):
         try:
             conn.execute(stmt)
@@ -555,15 +574,21 @@ def _stamp_last_seen():
     if request.blueprint != "planning":
         return
     uid = session.get("p_user_id")
-    if uid:
-        try:
-            conn = db()
-            conn.execute("UPDATE users SET last_seen=? WHERE id=?",
-                         (datetime.now().isoformat(timespec="seconds"), uid))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
+    if not uid:
+        return
+    # Throttle: hooguit 1 schrijf per 30s per gebruiker (minder DB-belasting bij veel users).
+    now = time.time()
+    if session.get("_seen_ts", 0) + 30 > now:
+        return
+    session["_seen_ts"] = now
+    try:
+        conn = db()
+        conn.execute("UPDATE users SET last_seen=? WHERE id=?",
+                     (datetime.now().isoformat(timespec="seconds"), uid))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def setting(key, default=""):
@@ -721,6 +746,16 @@ def _live_loc(conn, mid):
     return (r["lat"], r["lng"]) if (r and r["live"]) else None
 
 
+def route_alerts(monteur_id, has_stops):
+    """Significante files/werkzaamheden op de route (>= ALERT_THRESHOLD min).
+    Stub — wordt live gevoed door de route-/verkeerskoppeling. Onder de drempel = vrije route."""
+    out = []
+    if has_stops and monteur_id == 1:        # demo: één route met een echte file
+        out.append({"icon": "🚗", "desc": "File A2 richting Den Bosch", "min": 25})
+        out.append({"icon": "🚧", "desc": "Wegwerkzaamheden N65 (Tilburg)", "min": 10})
+    return [a for a in out if a["min"] >= ALERT_THRESHOLD]
+
+
 # --------------------------------------------------------------------------- #
 #  Auth-routes
 # --------------------------------------------------------------------------- #
@@ -732,28 +767,74 @@ def home():
     return redirect(url_for("planning.monteur_app") if u["role"] == "monteur" else url_for("planning.dashboard"))
 
 
+def _office_demo_accounts():
+    conn = db()
+    rows = conn.execute("SELECT name, email, role FROM users WHERE role!='monteur' AND active=1 ORDER BY id").fetchall()
+    conn.close()
+    return [{"name": r["name"], "email": r["email"], "role": ROLE_LABELS.get(r["role"], r["role"])} for r in rows]
+
+
+def _finish_login(u, nxt):
+    session["p_user_id"] = u["id"]
+    session.pop("twofa", None)
+    if u["role"] == "monteur":
+        return redirect(url_for("planning.monteur_app"))
+    return redirect(nxt or url_for("planning.dashboard"))
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     error = ""
+    show_2fa = False
+    demo_code = None
+    twofa_email = None
     if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()
-        pw = request.form.get("password") or ""
-        conn = db()
-        u = conn.execute("SELECT * FROM users WHERE lower(email)=? AND active=1", (email,)).fetchone()
-        conn.close()
-        if u and check_password_hash(u["password"], pw):
-            session["p_user_id"] = u["id"]
-            nxt = request.args.get("next")
-            if u["role"] == "monteur":
-                return redirect(url_for("planning.monteur_app"))
-            return redirect(nxt or url_for("planning.dashboard"))
-        error = "Onjuiste inloggegevens."
-    return render_template("planning/login.html", error=error)
+        if request.form.get("twofa_code") is not None:
+            # Stap 2: 2FA-code verifiëren
+            tf = session.get("twofa") or {}
+            code = (request.form.get("twofa_code") or "").strip()
+            if not tf:
+                error = "Sessie verlopen. Log opnieuw in."
+            elif time.time() > tf.get("exp", 0):
+                session.pop("twofa", None)
+                error = "Code verlopen. Log opnieuw in."
+            elif code == tf.get("code"):
+                conn = db()
+                u = conn.execute("SELECT * FROM users WHERE id=? AND active=1", (tf["uid"],)).fetchone()
+                conn.close()
+                if u:
+                    return _finish_login(u, tf.get("next"))
+                error = "Account niet gevonden."
+            else:
+                error = "Onjuiste 2FA-code."
+                show_2fa = True
+                demo_code = tf.get("code")
+                twofa_email = tf.get("email")
+        else:
+            # Stap 1: e-mail + wachtwoord
+            email = (request.form.get("email") or "").strip().lower()
+            pw = request.form.get("password") or ""
+            conn = db()
+            u = conn.execute("SELECT * FROM users WHERE lower(email)=? AND active=1", (email,)).fetchone()
+            conn.close()
+            if u and check_password_hash(u["password"], pw):
+                code = "%06d" % secrets.randbelow(1000000)
+                session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
+                                    "next": request.args.get("next"), "email": u["email"]}
+                show_2fa = True
+                demo_code = code
+                twofa_email = u["email"]
+            else:
+                error = "Onjuiste inloggegevens."
+    return render_template("planning/login.html", error=error, show_2fa=show_2fa,
+                           demo_code=demo_code, twofa_email=twofa_email,
+                           office_accounts=_office_demo_accounts())
 
 
 @bp.route("/logout")
 def logout():
     session.pop("p_user_id", None)
+    session.pop("twofa", None)
     return redirect(url_for("planning.login"))
 
 
@@ -966,7 +1047,8 @@ def planning():
             d2["at_status"] = a["status"]
             d2["at_delta"] = a["delta"]
             d2["important"] = (s["amount"] or 0) >= 2000
-            d2["ml"] = "L" if (s["service_type"] == "levering") else "M"
+            st = s["service_type"]
+            d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
             d2["items"] = items_map.get(s["order_id"], "")
             enriched.append(d2)
         routes_by_m[m["id"]] = enriched
@@ -976,10 +1058,12 @@ def planning():
             coords.append(CITY_COORDS.get(j["city"], BREDA))
         coords.append(BREDA)
         km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1)) if len(coords) > 1 else 0
+        alerts = route_alerts(m["id"], bool(rj))
         totals[m["id"]] = {"stops": len(rj), "km": round(km),
                            "time": fmt_duration(montage + km / 45 * 60),
                            "region": region_for([j["city"] for j in rj]),
-                           "eta_back": eta_back, "live": bool(live)}
+                           "eta_back": eta_back, "live": bool(live),
+                           "alerts": alerts, "delay": sum(a["min"] for a in alerts)}
     conn.close()
 
     prev_day = (d - timedelta(days=1)).isoformat()
@@ -1137,6 +1221,15 @@ def api_manual_order():
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     if items:
         conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,1)", (oid, items))
+    # Pakbon-PDF (bij ophalen): opslaan en koppelen aan de order voor de monteur.
+    pf = request.files.get("pakbon")
+    if pf and pf.filename and pf.filename.lower().endswith(".pdf"):
+        fn = "pakbon_%d_%s" % (oid, secure_filename(pf.filename))
+        try:
+            pf.save(os.path.join(UPLOAD_DIR, fn))
+            conn.execute("UPDATE orders SET pakbon=? WHERE id=?", (fn, oid))
+        except Exception:
+            pass
     if mid:
         seq = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=?", (mid, day)).fetchone()[0]
         mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
@@ -1179,6 +1272,32 @@ def api_send_confirmations():
     conn.close()
     gmail_live = (integ_status("gmail") == "verbonden")
     return jsonify(ok=True, sent=sent, gmail_live=gmail_live)
+
+
+@bp.route("/pakbon/<int:oid>")
+def pakbon(oid):
+    if not current_user():
+        abort(403)
+    conn = db()
+    o = conn.execute("SELECT pakbon FROM orders WHERE id=?", (oid,)).fetchone()
+    conn.close()
+    if not o or not o["pakbon"]:
+        abort(404)
+    return send_from_directory(UPLOAD_DIR, o["pakbon"])
+
+
+@bp.route("/api/planning-version")
+def api_planning_version():
+    """Versie-stempel van de dagplanning; de planning-pagina pollt dit voor live updates."""
+    if not current_user():
+        return jsonify(v=""), 403
+    day = request.args.get("day", _today_iso())
+    conn = db()
+    r = conn.execute("""SELECT COUNT(*) c, COALESCE(MAX(id),0) m, COALESCE(SUM(confirmed),0) cf,
+                        COALESCE(SUM(CASE WHEN status='afgerond' THEN 1 ELSE 0 END),0) af
+                        FROM planning WHERE date=?""", (day,)).fetchone()
+    conn.close()
+    return jsonify(v="%d-%d-%d-%d" % (r["c"], r["m"], r["cf"], r["af"]))
 
 
 @bp.route("/api/order-contact/<int:oid>")
@@ -1646,14 +1765,15 @@ def monteur_app():
     jobs, monteur = [], None
     if mid:
         monteur = conn.execute("SELECT * FROM monteurs WHERE id=?", (mid,)).fetchone()
-        jobs = conn.execute("""SELECT p.*, o.order_number, o.delivery_address, o.phone, o.instructions,
-                               o.montage_min, c.name AS client,
+        jobs = conn.execute("""SELECT p.*, o.id AS oid, o.order_number, o.delivery_address, o.phone, o.instructions,
+                               o.montage_min, o.service_type, o.pakbon, c.name AS client,
                                (SELECT GROUP_CONCAT(qty || 'x ' || name, ', ') FROM order_items WHERE order_id=o.id) AS items
                                FROM planning p JOIN orders o ON o.id=p.order_id
                                LEFT JOIN clients c ON c.id=o.client_id
                                WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, today)).fetchall()
     conn.close()
-    return render_template("planning/monteur_app.html", monteur=monteur, jobs=jobs,
+    alerts = route_alerts(mid, bool(jobs)) if mid else []
+    return render_template("planning/monteur_app.html", monteur=monteur, jobs=jobs, alerts=alerts,
                            maps_ready=(integ_status("google_maps") == "verbonden"))
 
 

@@ -52,7 +52,7 @@
   .at-done{color:#3b6d11;font-weight:600}.at-none{color:var(--muted)}
   .at-sub{font-size:9.5px;font-weight:400}
   .ml{font-size:10px;font-weight:600;border-radius:4px;padding:1px 5px}
-  .ml.M{background:#ece8fb;color:#534ab7}.ml.L{background:#e6f1fb;color:#185fa5}
+  .ml.M{background:#ece8fb;color:#534ab7}.ml.L{background:#e6f1fb;color:#185fa5}.ml.O{background:#fbeccd;color:#9a6a17}
   .ic-btn{color:#0f6e56;cursor:pointer;font-weight:500;font-size:10.5px}
   .akk{width:16px;height:16px;cursor:pointer;accent-color:var(--green)}
   .empty td{color:var(--muted);text-align:center;padding:16px}
@@ -101,6 +101,7 @@
   </a>
   {% endfor %}
 </div>
+<div id="liveBanner" onclick="location.reload()" style="display:none;align-items:center;gap:8px;background:#e4edff;border:1px solid #b5d4f4;color:#185fa5;border-radius:11px;padding:9px 13px;margin-bottom:12px;font-size:13.5px;font-weight:600;cursor:pointer">🔄 De planning is bijgewerkt door een collega — klik om te vernieuwen</div>
 <div id="focusBackdrop" onclick="clearFocus()"></div>
 
 <div class="tray" id="tray">
@@ -128,6 +129,7 @@
     <span class="mn">{{ m.name }}</span>
     {% if not m.standard %}<span class="chip" style="background:rgba(255,255,255,.28)">incidenteel</span>{% endif %}
     <span class="chip">📍 {{ t.region or '—' }}</span>
+    {% if t.stops %}{% if t.alerts %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="{% for a in t.alerts %}{{ a.desc }} (+{{ a.min }} min) {% endfor %}">⚠ +{{ t.delay }} min file/werk</span>{% else %}<span class="chip" style="background:rgba(115,191,82,.35)">✓ vrije route</span>{% endif %}{% endif %}
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     <div class="spacer"></div>
     {% if t.eta_back %}<span class="eta">🏠 terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
@@ -224,8 +226,12 @@
       <div><label>Monteur</label><select id="mo_monteur"><option value="">Nog niet toewijzen (in te plannen)</option>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}{{ ' (incidenteel)' if not m.standard }}</option>{% endfor %}</select></div>
       <div><label>Datum</label><input type="date" id="mo_date" value="{{ day }}"></div>
       <div><label>Montagetijd (min)</label><input type="number" id="mo_montage" value="30"></div>
-      <div><label>Type</label><select id="mo_service"><option value="montage">Montage</option><option value="levering">Levering</option></select></div>
+      <div><label>Type</label><select id="mo_service" onchange="togglePakbon()"><option value="montage">Montage</option><option value="levering">Levering</option><option value="ophalen">Ophalen (bij leverancier)</option></select></div>
       <div><label>Orderwaarde (€)</label><input type="number" id="mo_amount" value="0"></div>
+      <div style="grid-column:1/-1;display:none" id="pakbonRow">
+        <label>Pakbon (PDF) — de monteur kan deze op locatie controleren</label>
+        <input type="file" id="mo_pakbon" accept="application/pdf">
+      </div>
     </div>
     <div class="row" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <button class="btn ghost" onclick="document.getElementById('manualModal').style.display='none'">Annuleren</button>
@@ -289,16 +295,33 @@ function toggleInc(btn){
   btn.setAttribute('data-on', show?'1':'0');
   btn.textContent = show ? '− Incidentele monteurs' : '+ Incidentele monteurs';
 }
+function togglePakbon(){
+  document.getElementById('pakbonRow').style.display = (document.getElementById('mo_service').value==='ophalen') ? 'block' : 'none';
+}
 function saveManual(btn){
   var g=function(id){return document.getElementById(id).value;};
   if(!g('mo_client').trim() && !g('mo_address').trim()){ alert('Vul minimaal een naam of adres in.'); return; }
   btn.disabled=true; btn.textContent='Bezig…';
-  var body=new URLSearchParams({client:g('mo_client'),email:g('mo_email'),address:g('mo_address'),postal:g('mo_postal'),
-    city:g('mo_city'),items:g('mo_items'),monteur_id:g('mo_monteur'),date:g('mo_date'),
-    montage_min:g('mo_montage'),service_type:g('mo_service'),amount:g('mo_amount')});
-  fetch('{{ url_for("planning.api_manual_order") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()})
+  var fd=new FormData();
+  fd.append('client',g('mo_client')); fd.append('email',g('mo_email')); fd.append('address',g('mo_address'));
+  fd.append('postal',g('mo_postal')); fd.append('city',g('mo_city')); fd.append('items',g('mo_items'));
+  fd.append('monteur_id',g('mo_monteur')); fd.append('date',g('mo_date')); fd.append('montage_min',g('mo_montage'));
+  fd.append('service_type',g('mo_service')); fd.append('amount',g('mo_amount'));
+  var pf=document.getElementById('mo_pakbon'); if(pf && pf.files && pf.files[0]) fd.append('pakbon', pf.files[0]);
+  fetch('{{ url_for("planning.api_manual_order") }}',{method:'POST',body:fd})
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else {alert(res.error||'Mislukt');btn.disabled=false;btn.textContent='Toevoegen';} });
 }
+// Live updates: pollt of een collega de planning wijzigt
+(function(){
+  var base=null;
+  function check(){
+    fetch('{{ url_for("planning.api_planning_version") }}?day={{ day }}').then(function(r){return r.json();}).then(function(d){
+      if(base===null){ base=d.v; return; }
+      if(d.v!==base){ var b=document.getElementById('liveBanner'); if(b) b.style.display='flex'; }
+    }).catch(function(){});
+  }
+  check(); setInterval(check, 15000);
+})();
 function openMail(oid, client, email, onum){
   document.getElementById('mailOid').value=oid;
   document.getElementById('mailTo').textContent='Aan: '+client+(email?' <'+email+'>':'');

@@ -65,12 +65,11 @@
     </div>
     <div class="ph-body">
       {% if monteur and jobs %}
-      <div class="alert" id="fileAlert">⚠ <div><b>File op de A2 richting Den Bosch</b>Verwachte vertraging <b style="display:inline">+20 min</b> — je AT en terugkomst zijn hierop bijgewerkt.</div><span class="ax" onclick="this.closest('.alert').style.display='none'">✕</span></div>
-      <div class="routealerts">
-        <div class="ra-h">Voorspeld op je route vandaag</div>
-        <div class="ra"><span>🚧</span> <b>Wegwerkzaamheden N65</b> (Tilburg) · +10 min</div>
-        <div class="ra"><span>🚗</span> <b>Drukte rond Eindhoven</b> rond 15:00 · +15 min</div>
-      </div>
+        {% if alerts %}
+        <div class="alert" id="fileAlert">⚠ <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · <b style="display:inline">+{{ a.min }} min</b><br>{% endfor %}Je aankomsttijden zijn hierop bijgewerkt.</div><span class="ax" onclick="this.closest('.alert').style.display='none'">✕</span></div>
+        {% else %}
+        <div class="ra" style="background:#eaf4e4;color:#3b6d11;border-radius:11px;padding:10px 12px;margin-bottom:12px;font-size:12.5px"><span>✓</span> Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
+        {% endif %}
       {% endif %}
       {% if not monteur %}
         <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
@@ -85,6 +84,7 @@
           <div class="cl">{{ j.client }}</div>
           <div class="ad">{{ j.delivery_address }}</div>
           <div class="items">📦 {{ j.items or '—' }}</div>
+          {% if j.service_type=='ophalen' %}<div class="ad" style="margin-top:-6px"><span style="background:#fbeccd;color:#9a6a17;border-radius:5px;padding:1px 7px;font-weight:600">Ophalen</span>{% if j.pakbon %} <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:600">📄 Pakbon bekijken</a>{% endif %}</div>{% endif %}
           {% if j.instructions %}<div class="ad" style="margin-top:-6px">📝 {{ j.instructions }}</div>{% endif %}
           <div class="meta"><span class="pill gray">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
           {% set q = j.delivery_address|urlencode %}
