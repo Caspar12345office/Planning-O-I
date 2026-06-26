@@ -60,6 +60,13 @@
   .modal .to{font-size:13px;color:var(--muted);margin-bottom:12px}
   .modal label{font-size:12px;font-weight:600;margin:8px 0 4px;display:block}
   .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+  .rhead .exp{cursor:pointer;font-size:13px;background:rgba(255,255,255,.2);border-radius:6px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .rhead .exp:hover{background:rgba(255,255,255,.32)}
+  .blocks.has-focus .route{opacity:.22;filter:saturate(.55)}
+  .blocks.has-focus .route.focus{opacity:1;filter:none;grid-column:1/-1;box-shadow:0 24px 60px rgba(15,61,62,.28)}
+  .rtbl tr.done td{background:#eaf4e4}
+  .rtbl tr.done .nm b{color:#3b6d11}
+  .rtbl tr.done .seq{background:#cfe8c2;color:#2c5410;border-radius:50%}
   @media(max-width:980px){.blocks{grid-template-columns:1fr}}
 {% endblock %}
 
@@ -98,6 +105,7 @@
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     <div class="spacer"></div>
     {% if t.eta_back %}<span class="eta">🏠 terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
+    <span class="exp" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
     <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
   <table class="rtbl">
@@ -108,7 +116,7 @@
     </tr></thead>
     <tbody>
       {% for j in rj %}
-      <tr class="rowcard {{ 'imp' if j.important }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ j.order_id }}">
+      <tr class="rowcard {{ 'imp' if j.important }} {{ 'done' if j.status=='afgerond' }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ j.order_id }}">
         <td class="seq">{{ loop.index }}</td>
         <td>{{ j.gt or '—' }}</td>
         <td>
@@ -193,6 +201,15 @@ function sendMail(){
 function confirmRow(orderId, checked){
   fetch('{{ url_for("planning.api_confirm") }}',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({order_id:orderId, confirmed:checked})});
+}
+function toggleFocus(ev, el){
+  ev.stopPropagation();
+  var route=el.closest('.route'), blocks=document.querySelector('.blocks');
+  var willFocus=!route.classList.contains('focus');
+  document.querySelectorAll('.route.focus').forEach(function(x){x.classList.remove('focus');var e=x.querySelector('.exp');if(e)e.textContent='⤢';});
+  if(willFocus){ route.classList.add('focus'); blocks.classList.add('has-focus'); el.textContent='✕';
+    route.scrollIntoView({behavior:'smooth',block:'center'}); }
+  else { blocks.classList.remove('has-focus'); }
 }
 (function(){
   var canEdit = {{ 'true' if can_edit else 'false' }};

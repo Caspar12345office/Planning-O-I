@@ -46,6 +46,16 @@
   .q .qt{font-size:14px}
   .askform .row{display:flex;gap:10px;margin-bottom:10px}
   .askform .row > *{flex:1}
+  .col{display:grid;gap:18px;align-content:start}
+  .modal{position:fixed;inset:0;background:rgba(15,30,28,.45);display:none;align-items:center;justify-content:center;z-index:80}
+  .modal .box{background:#fff;border-radius:16px;width:min(640px,94vw);max-height:86vh;overflow:auto;padding:20px;box-shadow:0 30px 70px rgba(0,0,0,.3)}
+  .modal .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+  .modal h3{color:var(--accent);font-size:18px}
+  .prow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+  .prow:last-child{border-bottom:0}
+  .prow .pi b{font-size:13.5px}.prow .pi span{display:block;font-size:12px;color:var(--muted)}
+  .prow .pa{display:flex;gap:6px;align-items:center}
+  .prow select,.prow input{padding:7px 9px;font-size:12.5px;width:auto}
   @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.cols,.cols2{grid-template-columns:1fr}}
 {% endblock %}
 
@@ -62,14 +72,39 @@
 </div>
 
 <div class="cols">
-  <div class="card mapcard">
-    <div class="sec-h"><h3>Live op de kaart</h3><span class="live"><span class="dot"></span>realtime</span></div>
-    <div id="map" class="leaflet-map"></div>
-    <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
-    <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
+  <!-- KOLOM A: kaart + kantoorbezetting -->
+  <div class="col">
+    <div class="card mapcard">
+      <div class="sec-h"><h3>Live op de kaart</h3><span class="live"><span class="dot"></span>realtime</span></div>
+      <div id="map" class="leaflet-map"></div>
+      <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
+      <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
+    </div>
+
+    <div class="card">
+      <div class="sec-h"><h3>Kantoorbezetting</h3>
+        <input type="date" value="{{ office_day }}" style="width:auto;padding:7px 10px"
+               onchange="location.href='{{ url_for('planning.dashboard') }}?office_day='+this.value+'#kantoor'">
+      </div>
+      <div id="kantoor">
+      {% for o in office %}
+        <div class="office-row" data-person="{{ o.person }}">
+          <span class="nm">{{ o.person }}</span>
+          <select onchange="saveOffice(this)">
+            <option value="kantoor" {{ 'selected' if o.status=='kantoor' }}>🟢 Op kantoor</option>
+            <option value="afspraak" {{ 'selected' if o.status=='afspraak' }}>🟠 Afspraak/extern</option>
+            <option value="vrij" {{ 'selected' if o.status=='vrij' }}>⚪ Vrij/afwezig</option>
+          </select>
+          <input class="note" placeholder="toelichting (bv. vergadering op locatie)" value="{{ o.note }}" onchange="saveOffice(this)">
+        </div>
+      {% endfor %}
+      </div>
+      <p class="gpsnote">Selecteer een dag om te zien wie er op kantoor is en wie een afspraak heeft.</p>
+    </div>
   </div>
 
-  <div class="grid" style="align-content:start">
+  <!-- KOLOM B: onderweg + nog in te plannen + vragen -->
+  <div class="col">
     <div class="card">
       <div class="sec-h"><h3>Monteurs onderweg</h3><span class="pill gray">ETA terug Breda</span></div>
       {% if underway %}
@@ -80,11 +115,11 @@
           <div class="eta"><b>{{ m.eta_base }}</b><span>± {{ m.km_base }} km</span></div>
         </div>
         {% endfor %}
-        <p class="gpsnote">Geschatte terugkomst in Breda op basis van live locatie, resterende stops en de snelheid van de monteur — zo weet je wanneer je kunt laden.</p>
       {% else %}<p class="muted">Geen monteurs onderweg op dit moment.</p>{% endif %}
     </div>
+
     <div class="card">
-      <div class="sec-h"><h3>Nog in te plannen</h3><a class="pill amber" href="{{ url_for('planning.orders', status='in_te_plannen') }}">{{ stats.unplanned }}</a></div>
+      <div class="sec-h"><h3>Nog in te plannen</h3><span class="pill amber">{{ stats.unplanned }}</span></div>
       {% for o in unplanned %}
       <a class="tray-card" href="{{ url_for('planning.order_detail', oid=o.id) }}">
         <span class="num">#{{ o.order_number }}</span>
@@ -92,33 +127,10 @@
         {% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}
       </a>
       {% else %}<p class="muted">Alles ingepland. 🎉</p>{% endfor %}
+      {% if stats.unplanned %}<button class="btn primary sm" style="margin-top:6px;width:100%" onclick="document.getElementById('planModal').style.display='flex'">Alle {{ stats.unplanned }} openstaande orders inplannen →</button>{% endif %}
     </div>
-  </div>
-</div>
 
-<div class="cols2">
-  <div class="card">
-    <div class="sec-h"><h3>Kantoorbezetting</h3>
-      <input type="date" value="{{ office_day }}" style="width:auto;padding:7px 10px"
-             onchange="location.href='{{ url_for('planning.dashboard') }}?office_day='+this.value+'#kantoor'">
-    </div>
-    <div id="kantoor">
-    {% for o in office %}
-      <div class="office-row" data-person="{{ o.person }}">
-        <span class="nm">{{ o.person }}</span>
-        <select onchange="saveOffice(this)">
-          <option value="kantoor" {{ 'selected' if o.status=='kantoor' }}>🟢 Op kantoor</option>
-          <option value="afspraak" {{ 'selected' if o.status=='afspraak' }}>🟠 Afspraak/extern</option>
-          <option value="vrij" {{ 'selected' if o.status=='vrij' }}>⚪ Vrij/afwezig</option>
-        </select>
-        <input class="note" placeholder="toelichting (bv. vergadering op locatie)" value="{{ o.note }}" onchange="saveOffice(this)">
-      </div>
-    {% endfor %}
-    </div>
-    <p class="gpsnote">Selecteer een dag om te zien wie er op kantoor is en wie een afspraak heeft — handig om rekening te houden met de bezetting.</p>
-  </div>
-
-  <div class="card" id="vragen">
+    <div class="card" id="vragen">
     <div class="sec-h"><h3>Vragen aan jou</h3>{% if my_questions %}<span class="pill red">{{ my_questions|length }}</span>{% endif %}</div>
     {% for q in my_questions %}
       <div class="q">
@@ -142,6 +154,26 @@
       <textarea name="text" rows="2" placeholder="Stel je vraag…" required style="margin-bottom:10px"></textarea>
       <button class="btn primary sm" type="submit">Vraag versturen</button>
     </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="planModal">
+  <div class="box">
+    <div class="mh"><h3>Nog in te plannen — snel inplannen</h3><span class="x" style="cursor:pointer;color:var(--color-text-secondary,#74705f)" onclick="document.getElementById('planModal').style.display='none'">✕</span></div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px">Kies een monteur en datum en klik op inplannen — de order verdwijnt dan uit deze lijst.</p>
+    <div id="planList">
+      {% for o in unplanned_all %}
+      <div class="prow" data-oid="{{ o.id }}">
+        <div class="pi"><b>#{{ o.order_number }} · {{ o.client }}</b><span>{{ o.delivery_address }} · {{ o.items or '—' }}</span></div>
+        <div class="pa">
+          <select class="pm">{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select>
+          <input type="date" class="pd" value="{{ today }}">
+          <button class="btn primary sm" onclick="planOrder(this,{{ o.id }})">Inplannen</button>
+        </div>
+      </div>
+      {% else %}<p class="muted">Alles is ingepland. 🎉</p>{% endfor %}
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -155,6 +187,19 @@ function saveOffice(el){
   fetch('{{ url_for("planning.api_office") }}', {method:'POST',headers:{'Content-Type':'application/json'},
     body: JSON.stringify({person:row.getAttribute('data-person'), date:'{{ office_day }}',
       status:row.querySelector('select').value, note:row.querySelector('input.note').value})});
+}
+function planOrder(btn, oid){
+  var row = btn.closest('.prow');
+  var mid = row.querySelector('.pm').value, d = row.querySelector('.pd').value;
+  btn.disabled = true; btn.textContent = '…';
+  fetch('{{ url_for("planning.api_assign") }}', {method:'POST',headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({order_id:oid, monteur_id:mid, date:d})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(res.ok){ row.style.transition='opacity .2s'; row.style.opacity='0';
+        setTimeout(function(){ row.remove();
+          if(!document.querySelectorAll('#planList .prow').length){ location.reload(); } }, 220);
+      } else { alert(res.error||'Mislukt'); btn.disabled=false; btn.textContent='Inplannen'; }
+    });
 }
 (function(){
   if(typeof L==='undefined'){return;}

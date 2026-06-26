@@ -389,7 +389,7 @@ def _seed(conn):
         c.execute("UPDATE orders SET service_type='levering' WHERE order_number=?", (onum,))
 
     for num, mid, bid, seq, s, e, st, conf in [
-        ("36338", 1, 1, 0, "08:30", "09:10", "gepland", 1),
+        ("36338", 1, 1, 0, "08:30", "09:10", "afgerond", 1),
         ("36339", 1, 1, 1, "09:40", "10:30", "gepland", 0),
         ("36340", 2, 2, 0, "08:15", "08:40", "onderweg", 1),
     ]:
@@ -599,16 +599,16 @@ def login_required(perm=None):
 # Navigatie: items met 'endpoint' (link) of 'children' (uitklapbare groep onder Instellingen/Orders).
 NAV = [
     {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "▦", "perm": "view_planning"},
-    {"label": "Planning", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning"},
+    {"label": "Planning", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning",
+     "subs": [{"label": "Routes", "endpoint": "planning.routes", "perm": "edit_routes"}]},
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
-    {"label": "Routes", "endpoint": "planning.routes", "icon": "🧭", "perm": "edit_routes"},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
-    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
-    {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "📈", "perm": "view_reports"},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel",
+     "subs": [{"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
@@ -783,8 +783,12 @@ def dashboard():
                          "address": (cur["delivery_address"] if cur else None),
                          "updated": r["updated_at"]})
 
-    unplanned = conn.execute("""SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
-                                WHERE o.status='in_te_plannen' ORDER BY o.desired_date LIMIT 6""").fetchall()
+    unplanned_all = conn.execute("""SELECT o.*, c.name AS client,
+                                     (SELECT GROUP_CONCAT(qty || 'x ' || name, ', ') FROM order_items WHERE order_id=o.id) AS items
+                                     FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+                                     WHERE o.status='in_te_plannen' ORDER BY o.desired_date""").fetchall()
+    unplanned = unplanned_all[:4]
+    monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
 
     # kantoorbezetting (dag selecteerbaar)
     office_day = request.args.get("office_day", today)
@@ -804,6 +808,7 @@ def dashboard():
     all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND id!=? ORDER BY name", (u["id"],)).fetchall()
     conn.close()
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
+                           unplanned_all=unplanned_all, monteurs=monteurs,
                            office=office, office_day=office_day, today=today,
                            my_questions=my_questions, all_users=all_users)
 
