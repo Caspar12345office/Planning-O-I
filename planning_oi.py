@@ -91,7 +91,123 @@ def region_for(cities):
     return " · ".join(provs) if provs else "—"
 
 
+# --------------------------------------------------------------------------- #
+#  Database-laag: SQLite (lokaal/standaard) of PostgreSQL (als DATABASE_URL is gezet).
+#  Zo kunnen de kantoorsoftware en de monteur-app als aparte services dezelfde
+#  PostgreSQL-database delen.
+# --------------------------------------------------------------------------- #
+import re as _re
+_PG_URL = os.environ.get("DATABASE_URL", "")
+if _PG_URL.startswith("postgres://"):
+    _PG_URL = _PG_URL.replace("postgres://", "postgresql://", 1)
+IS_PG = bool(_PG_URL)
+
+
+# Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
+_NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings"}
+
+
+def _xlate(sql):
+    """Vertaal SQLite-SQL naar PostgreSQL. Geeft (sql, append_returning) terug."""
+    is_ignore = "INSERT OR IGNORE" in sql.upper()
+    s = _re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', sql, flags=_re.I)
+    s = s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    s = s.replace("qty || 'x ' || name", "qty::text || 'x ' || name")
+    s = s.replace("?", "%s")
+    s = _re.sub(r'\bLIKE\b', 'ILIKE', s)
+    if is_ignore and "ON CONFLICT" not in s.upper():
+        s += " ON CONFLICT DO NOTHING"
+    up = s.lstrip().upper()
+    m = _re.match(r'INSERT\s+INTO\s+([a-z_]+)', s.lstrip(), flags=_re.I)
+    target = (m.group(1).lower() if m else "")
+    append_returning = (up.startswith("INSERT") and "RETURNING" not in up
+                        and "ON CONFLICT" not in up and target not in _NO_ID_TABLES)
+    if append_returning:
+        s += " RETURNING id"
+    return s, append_returning
+
+
+class _Row:
+    __slots__ = ("_c", "_v")
+    def __init__(self, cols, vals):
+        self._c = cols; self._v = vals
+    def __getitem__(self, k):
+        return self._v[k] if isinstance(k, int) else self._v[self._c.index(k)]
+    def keys(self):
+        return self._c
+    def get(self, k, d=None):
+        try:
+            return self[k]
+        except Exception:
+            return d
+
+
+def _pg_rowfactory(cur):
+    cols = [d.name for d in cur.description] if cur.description else []
+    def make(values):
+        return _Row(cols, list(values))
+    return make
+
+
+class _PgCur:
+    def __init__(self, conn):
+        self._conn = conn
+        self._cur = conn._raw.cursor(row_factory=_pg_rowfactory)
+        self.lastrowid = None
+        self._scalar = None
+    def execute(self, sql, params=()):
+        if "last_insert_rowid()" in sql.lower():
+            self._scalar = self._conn._lastid
+            return self
+        s, ret = _xlate(sql)
+        self._cur.execute(s, tuple(params) if params else None)
+        if ret:
+            try:
+                row = self._cur.fetchone()
+                self.lastrowid = row[0]
+                self._conn._lastid = row[0]
+            except Exception:
+                pass
+        return self
+    def executescript(self, script):
+        for stmt in script.split(";"):
+            if stmt.strip():
+                self.execute(stmt)
+        return self
+    def fetchone(self):
+        if self._scalar is not None:
+            v = self._scalar; self._scalar = None
+            return [v]
+        return self._cur.fetchone()
+    def fetchall(self):
+        return self._cur.fetchall()
+    def __iter__(self):
+        return iter(self._cur)
+
+
+class _PgConn:
+    def __init__(self):
+        import psycopg
+        self._raw = psycopg.connect(_PG_URL, autocommit=True)
+        self._lastid = None
+    def cursor(self):
+        return _PgCur(self)
+    def execute(self, sql, params=()):
+        return _PgCur(self).execute(sql, params)
+    def executescript(self, script):
+        return _PgCur(self).executescript(script)
+    def commit(self):
+        pass
+    def close(self):
+        try:
+            self._raw.close()
+        except Exception:
+            pass
+
+
 def db():
+    if IS_PG:
+        return _PgConn()
     # WAL + busy_timeout: meerdere gebruikers tegelijk lezen/schrijven zonder locks.
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
