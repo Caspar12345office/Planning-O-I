@@ -243,7 +243,8 @@ def init_db():
         invoice_address TEXT, phone TEXT, email TEXT,
         desired_date TEXT, notes TEXT, instructions TEXT,
         amount REAL DEFAULT 0, volume REAL DEFAULT 0, weight REAL DEFAULT 0,
-        montage_min INTEGER DEFAULT 30, shopify_id TEXT, created_at TEXT);
+        montage_min INTEGER DEFAULT 30, service_type TEXT DEFAULT 'montage',
+        shopify_id TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS order_items(
         id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, name TEXT, qty INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS monteurs(
@@ -382,6 +383,10 @@ def _seed(conn):
         order_ids[num] = oid
         for nm, q in items:
             c.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, nm, q))
+
+    # een paar orders als 'levering' (rest blijft montage) -> Mon/Lev-kolom
+    for onum in ("36339", "36686", "36537", "36340"):
+        c.execute("UPDATE orders SET service_type='levering' WHERE order_number=?", (onum,))
 
     for num, mid, bid, seq, s, e, st, conf in [
         ("36338", 1, 1, 0, "08:30", "09:10", "gepland", 1),
@@ -639,6 +644,62 @@ def eta_back_to_base(lat, lng, remaining_stops, speed):
     return eta.strftime("%H:%M"), round(km)
 
 
+def _gt_today(gt):
+    """Geplande tijd 'HH:MM' als datetime van vandaag (of None)."""
+    if not gt:
+        return None
+    try:
+        h, m = map(int, gt.split(":"))
+        return datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def compute_arrivals(stops, monteur, live, is_today):
+    """Live aankomsttijden (AT) per stop + ETA terug in Breda, o.b.v. GPS + route.
+
+    stops: lijst met city, montage_min, status, slot_start (op volgorde).
+    Geeft (arrivals, eta_back). arrivals[i] = {at, status, delta}.
+    status: done | ontime | late | none(niet live)."""
+    speed = monteur["speed"] or 3
+    mfac = 1.0 + (3 - speed) * 0.08
+    arrivals = []
+    eta_back = None
+    if live and is_today:
+        pos, t = live, datetime.now()
+        for s in stops:
+            if s["status"] == "afgerond":
+                arrivals.append({"at": None, "status": "done", "delta": None})
+                continue
+            city = CITY_COORDS.get(s["city"], BREDA)
+            t = t + timedelta(minutes=haversine(pos, city) / 45 * 60)
+            gtdt = _gt_today(s["slot_start"])
+            delta = round((t - gtdt).total_seconds() / 60) if gtdt else None
+            arrivals.append({"at": t.strftime("%H:%M"),
+                             "status": ("late" if (delta or 0) > 5 else "ontime"),
+                             "delta": delta})
+            t = t + timedelta(minutes=(s["montage_min"] or 0) * mfac)
+            pos = city
+        eta_back = (t + timedelta(minutes=haversine(pos, BREDA) / 45 * 60)).strftime("%H:%M")
+    else:
+        for s in stops:
+            arrivals.append({"at": None, "status": "none", "delta": None})
+        if stops:
+            last = stops[-1]
+            base = _gt_today(last["slot_start"])
+            if base:
+                lastcity = CITY_COORDS.get(last["city"], BREDA)
+                eta = base + timedelta(minutes=(last["montage_min"] or 0) * mfac
+                                       + haversine(lastcity, BREDA) / 45 * 60)
+                eta_back = eta.strftime("%H:%M")
+    return arrivals, eta_back
+
+
+def _live_loc(conn, mid):
+    r = conn.execute("SELECT lat,lng,live FROM monteur_location WHERE monteur_id=?", (mid,)).fetchone()
+    return (r["lat"], r["lng"]) if (r and r["live"]) else None
+
+
 # --------------------------------------------------------------------------- #
 #  Auth-routes
 # --------------------------------------------------------------------------- #
@@ -850,7 +911,8 @@ def planning():
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     jobs = conn.execute("""
         SELECT p.*, o.order_number, o.delivery_address, o.city, o.postal, o.email AS o_email,
-               o.phone, o.notes, o.volume, o.montage_min, o.amount, o.source, c.name AS client
+               o.phone, o.notes, o.volume, o.montage_min, o.amount, o.source, o.service_type,
+               o.client_id, c.name AS client
         FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
         WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
     unplanned = conn.execute("""SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
@@ -859,23 +921,40 @@ def planning():
              conn.execute("SELECT * FROM free_days WHERE date_from<=? AND date_to>=?", (day, day)).fetchall()}
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
-    conn.close()
 
-    routes_by_m, totals = {}, {}
-    mon_by_id = {m["id"]: m for m in monteurs}
+    is_today = (day == _today_iso())
+    raw, totals = {}, {}
     for j in jobs:
-        routes_by_m.setdefault(j["monteur_id"], []).append(j)
+        raw.setdefault(j["monteur_id"], []).append(j)
+
+    routes_by_m = {}
     for m in monteurs:
-        rj = routes_by_m.get(m["id"], [])
+        rj = raw.get(m["id"], [])
+        live = _live_loc(conn, m["id"])
+        arrivals, eta_back = compute_arrivals(rj, m, live, is_today)
+        enriched = []
+        for s, a in zip(rj, arrivals):
+            d2 = dict(s)
+            d2["gt"] = s["slot_start"]
+            d2["at"] = a["at"]
+            d2["at_status"] = a["status"]
+            d2["at_delta"] = a["delta"]
+            d2["important"] = (s["amount"] or 0) >= 200
+            d2["ml"] = "L" if (s["service_type"] == "levering") else "M"
+            d2["items"] = items_map.get(s["order_id"], "")
+            enriched.append(d2)
+        routes_by_m[m["id"]] = enriched
         montage = sum((j["montage_min"] or 0) for j in rj)
         coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
         for j in rj:
             coords.append(CITY_COORDS.get(j["city"], BREDA))
         coords.append(BREDA)
         km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1)) if len(coords) > 1 else 0
-        drive = km / 45 * 60
-        region = region_for([j["city"] for j in rj])
-        totals[m["id"]] = {"stops": len(rj), "km": round(km), "time": fmt_duration(montage + drive), "region": region}
+        totals[m["id"]] = {"stops": len(rj), "km": round(km),
+                           "time": fmt_duration(montage + km / 45 * 60),
+                           "region": region_for([j["city"] for j in rj]),
+                           "eta_back": eta_back, "live": bool(live)}
+    conn.close()
 
     prev_day = (d - timedelta(days=1)).isoformat()
     next_day = (d + timedelta(days=1)).isoformat()
@@ -931,6 +1010,44 @@ def api_confirm():
     conn.commit()
     conn.close()
     return jsonify(ok=True)
+
+
+@bp.route("/api/order-contact/<int:oid>")
+def api_order_contact(oid):
+    """Adres + e-mailgegevens van een order (voor het adres-popupje en de mailknop)."""
+    if not current_user():
+        return jsonify(ok=False), 403
+    conn = db()
+    o = conn.execute("""SELECT o.order_number, o.delivery_address, o.email, o.phone, c.name AS client
+                        FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
+    conn.close()
+    if not o:
+        return jsonify(ok=False), 404
+    return jsonify(ok=True, **dict(o))
+
+
+@bp.route("/api/mail", methods=["POST"])
+def api_mail():
+    """Verstuur (via de centrale Gmail-mailbox) en bewaar in het klantdossier."""
+    if not has_perm("inform_clients") and not has_perm("edit_clients"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    data = request.get_json(force=True)
+    oid = int(data["order_id"])
+    subject = (data.get("subject") or "").strip()
+    body = (data.get("body") or "").strip()
+    conn = db()
+    o = conn.execute("SELECT client_id, email FROM orders WHERE id=?", (oid,)).fetchone()
+    if o:
+        conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
+                        VALUES(?,?,?,?,?,0)""",
+                     (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
+        conn.commit()
+    conn.close()
+    gmail_live = (integ_status("gmail") == "verbonden")
+    return jsonify(ok=True, gmail_live=gmail_live,
+                   message=("Verzonden via centrale mailbox en bewaard in het klantdossier."
+                            if gmail_live else
+                            "Opgeslagen in het klantdossier. Zodra de Gmail-koppeling live staat, wordt de mail ook echt verstuurd."))
 
 
 # --------------------------------------------------------------------------- #
