@@ -134,6 +134,7 @@
     <div class="spacer"></div>
     {% if t.eta_back %}<span class="eta">🏠 terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
     {% if t.stops %}<span class="exp" title="Bekijk route op kaart" onclick="showRouteMap(event,{{ m.id }},'{{ m.name|e }}')">🗺</span>{% endif %}
+    {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer stopvolgorde (kortste route)" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
     <span class="exp" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
     <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
@@ -396,6 +397,12 @@ function sendMail(){
 function confirmRow(orderId, checked){
   fetch('{{ url_for("planning.api_confirm") }}',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({order_id:orderId, confirmed:checked})});
+}
+function optimizeRoute(ev, mid){
+  ev.stopPropagation();
+  fetch('{{ url_for("planning.api_optimize_route", mid=0) }}'.slice(0,-1)+mid,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'{{ day }}'})})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
 }
 function clearFocus(){
   document.querySelectorAll('.route.focus').forEach(function(x){x.classList.remove('focus');var e=x.querySelector('.exp');if(e)e.textContent='⤢';});

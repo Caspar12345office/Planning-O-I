@@ -11,8 +11,8 @@
 {% endblock %}
 {% block content %}
 <div class="exp">
-  <button class="btn ghost sm" onclick="alert('Export naar Excel staat klaar.')">⬇ Excel</button>
-  <button class="btn ghost sm" onclick="alert('Export naar PDF staat klaar.')">⬇ PDF</button>
+  <a class="btn ghost sm" href="{{ url_for('planning.vehicle_km_export') }}">⬇ Excel (CSV)</a>
+  <button class="btn ghost sm" onclick="window.print()">⬇ PDF / print</button>
 </div>
 <div class="kpis">
   <div class="kpi"><div class="v">{{ totals_day }} km</div><div class="l">Totaal vandaag (alle bussen)</div></div>

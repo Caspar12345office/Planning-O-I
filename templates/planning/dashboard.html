@@ -60,6 +60,9 @@
 {% endblock %}
 
 {% block content %}
+{% if auto_mails %}
+<div class="draft-banner" style="background:#e3f3da;border-color:#c5e6b6;color:#3c7a2c">✉ <div><b>{{ auto_mails }} klantmail(s) automatisch verstuurd.</b> Tijdvak-bevestigingen voor vandaag en eventuele vertraging-updates (≥20 min) zijn verzonden en in het klantdossier bewaard.</div></div>
+{% endif %}
 {% if stats.drafts_blocked %}
 <div class="draft-banner">🛡 <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
 {% endif %}

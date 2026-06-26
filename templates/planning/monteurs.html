@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Monteurs · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Monteurs</h1><p>Team, snelheid (inschaalbaar) en thuisadres (vertrekpunt van de route)</p>{% endblock %}
+{% block pagehead %}<h1>Monteurs</h1><p>Team, bus en thuisadres (vertrekpunt van de route)</p>{% endblock %}
 {% block page_css %}
   .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
   .mcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
@@ -25,7 +25,7 @@
     <div class="top">
       <div class="av" style="background:{{ m.color or '#0f3d3e' }}">{{ m.name[:1]|upper }}</div>
       <div><div class="nm">{{ m.name }}</div>
-        <div class="speed">{% for i in range(5) %}<span class="b {{ 'on' if i < m.speed }}"></span>{% endfor %}<small>snelheid {{ m.speed }}/5</small></div>
+        {% if p_has_perm('view_speed') %}<div class="speed">{% for i in range(5) %}<span class="b {{ 'on' if i < m.speed }}"></span>{% endfor %}<small>snelheid {{ m.speed }}/5</small></div>{% endif %}
       </div>
     </div>
     <div class="kv">

@@ -133,7 +133,10 @@ PERMISSIONS = [
     ("view_invoices",      "Factuurinformatie",          "Financieel"),
     ("complete_deliveries","Leveringen afronden",        "Orders"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
-    ("view_reports",       "Kilometers & cijfers",       "Rapportage"),
+    ("view_reports",       "Kilometerrapportage",        "Rapportage"),
+    ("view_performance",   "Monteursprestaties",         "Rapportage"),
+    ("view_signatures",    "Handtekeningen inzien",      "Rapportage"),
+    ("view_speed",         "Snelheid monteur zien",      "Rapportage"),
     ("export",             "Exporteren",                 "Rapportage"),
     ("view_kpis",          "KPI's & omzet inzien",       "Rapportage"),
     ("view_personnel",     "Personeelsgegevens",         "Personeel"),
@@ -148,8 +151,9 @@ ALL_PERMS = list(PERMISSION_KEYS)
 
 ROLE_DEFAULTS = {
     "beheerder": ALL_PERMS,
-    "manager": ["view_kpis", "view_planning", "view_reports", "view_orders",
-                "view_invoices", "view_personnel", "export", "view_emails"],
+    "manager": ["view_kpis", "view_planning", "view_reports", "view_performance",
+                "view_signatures", "view_speed", "view_orders", "view_invoices",
+                "view_personnel", "export", "view_emails"],
     "planner": ["view_planning", "edit_planning", "plan_orders", "assign_monteurs",
                 "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
                 "view_reports", "view_orders", "view_personnel"],
@@ -287,7 +291,8 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER UNIQUE, monteur_id INTEGER, bus_id INTEGER,
         date TEXT, slot_start TEXT, slot_end TEXT, sequence INTEGER DEFAULT 0,
-        confirmed INTEGER DEFAULT 0, mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
+        confirmed INTEGER DEFAULT 0, mailed INTEGER DEFAULT 0,
+        arrival_mailed INTEGER DEFAULT 0, delay_mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
     CREATE TABLE IF NOT EXISTS free_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT);
@@ -316,6 +321,8 @@ def init_db():
                  "ALTER TABLE orders ADD COLUMN pakbon TEXT",
                  "ALTER TABLE orders ADD COLUMN fulfilled INTEGER DEFAULT 0",
                  "ALTER TABLE orders ADD COLUMN fulfilled_at TEXT",
+                 "ALTER TABLE planning ADD COLUMN arrival_mailed INTEGER DEFAULT 0",
+                 "ALTER TABLE planning ADD COLUMN delay_mailed INTEGER DEFAULT 0",
                  "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1"):
         try:
             conn.execute(stmt)
@@ -655,13 +662,14 @@ NAV = [
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
-    {"label": "Leveringen", "endpoint": "planning.deliveries", "icon": "✍", "perm": "view_reports"},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
-    {"label": "Bussen", "icon": "🚐", "perm": "view_personnel", "children": [
-        {"label": "Bussenoverzicht", "endpoint": "planning.busses", "perm": "view_personnel"},
-        {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"}]},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
+    {"label": "Rapportages", "icon": "📊", "perm": None, "children": [
+        {"label": "Monteursprestaties", "endpoint": "planning.performance", "perm": "view_performance"},
+        {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"},
+        {"label": "Handtekeningen", "endpoint": "planning.signatures", "perm": "view_signatures"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
@@ -846,6 +854,41 @@ def logout():
 
 
 # --------------------------------------------------------------------------- #
+#  PWA: manifest + service worker (monteur-app installeerbaar + offline)
+# --------------------------------------------------------------------------- #
+@bp.route("/manifest.webmanifest")
+def manifest():
+    icon = url_for("static", filename="icon.svg")
+    data = {
+        "name": "OfficeRoute", "short_name": "OfficeRoute",
+        "description": "Routes en leveringen voor monteurs",
+        "start_url": "/monteur", "scope": "/", "display": "standalone",
+        "background_color": "#0f3d3e", "theme_color": "#0f3d3e",
+        "icons": [{"src": icon, "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}],
+    }
+    return Response(json.dumps(data), mimetype="application/manifest+json")
+
+
+@bp.route("/sw.js")
+def service_worker():
+    js = """
+const C='officeroute-v1';
+self.addEventListener('install', e=>{ self.skipWaiting(); });
+self.addEventListener('activate', e=>{ self.clients.claim(); });
+self.addEventListener('fetch', e=>{
+  const u=new URL(e.request.url);
+  if(e.request.method!=='GET' || u.origin!==location.origin) return;
+  e.respondWith(
+    fetch(e.request).then(r=>{ const cp=r.clone(); caches.open(C).then(c=>c.put(e.request,cp)); return r; })
+      .catch(()=> caches.match(e.request).then(m=> m || caches.match('/monteur')))
+  );
+});
+"""
+    return Response(js, mimetype="application/javascript",
+                    headers={"Service-Worker-Allowed": "/"})
+
+
+# --------------------------------------------------------------------------- #
 #  Dashboard
 # --------------------------------------------------------------------------- #
 @bp.route("/dashboard")
@@ -854,6 +897,12 @@ def dashboard():
     if guard:
         return guard
     u = current_user()
+    auto_mails = 0
+    if has_perm("inform_clients") or u["role"] == "beheerder":
+        try:
+            auto_mails = auto_send_daily_mails()
+        except Exception:
+            auto_mails = 0
     conn = db()
     today = _today_iso()
     tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
@@ -918,7 +967,7 @@ def dashboard():
     conn.close()
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
                            unplanned_all=unplanned_all, monteurs=monteurs,
-                           office=office, office_day=office_day, today=today,
+                           office=office, office_day=office_day, today=today, auto_mails=auto_mails,
                            my_questions=my_questions, all_users=all_users)
 
 
@@ -1869,34 +1918,207 @@ def api_route_geo(mid):
     return jsonify(ok=True, name=(m["name"] if m else ""), points=pts)
 
 
-@bp.route("/deliveries")
-def deliveries():
-    """Office: leverrapport per monteur (week/maand) + handtekeningenlog (30 dagen)."""
-    guard = login_required("view_reports")
-    if guard:
-        return guard
-    cleanup_old_signatures()
+OUTCOMES = ["succesvol", "beschadigd", "niet_thuis"]
+OUTCOME_LABELS = {"succesvol": "Succesvol", "beschadigd": "Beschadigd/incompleet", "niet_thuis": "Niet thuis"}
+
+
+def _performance_data():
     today = datetime.now().date()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     month_start = today.replace(day=1).isoformat()
     conn = db()
     monteurs = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
-    OUTCOMES = ["succesvol", "beschadigd", "niet_thuis"]
     report = []
+    tot_wk = {oc: 0 for oc in OUTCOMES}
+    tot_mo = {oc: 0 for oc in OUTCOMES}
     for m in monteurs:
         def cnt(since, oc):
             return conn.execute("SELECT COUNT(*) FROM deliveries WHERE monteur_id=? AND ts>=? AND outcome=?",
                                 (m["id"], since, oc)).fetchone()[0]
         wk = {oc: cnt(week_start, oc) for oc in OUTCOMES}
         mo = {oc: cnt(month_start, oc) for oc in OUTCOMES}
+        # 'adres in 1x correct'-ratio (kwaliteit)
+        ok1 = conn.execute("""SELECT COUNT(*) FROM deliveries WHERE monteur_id=? AND ts>=? AND sub_outcome=?""",
+                           (m["id"], month_start, "adres in 1x correct")).fetchone()[0]
+        succ_mo = mo["succesvol"] or 0
         if sum(wk.values()) + sum(mo.values()) > 0:
-            report.append({"name": m["name"], "week": wk, "month": mo})
-    log = conn.execute("""SELECT d.*, o.order_number, c.name AS client, m.name AS monteur
-                          FROM deliveries d LEFT JOIN orders o ON o.id=d.order_id
-                          LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id
-                          ORDER BY d.ts DESC LIMIT 200""").fetchall()
+            for oc in OUTCOMES:
+                tot_wk[oc] += wk[oc]; tot_mo[oc] += mo[oc]
+            report.append({"name": m["name"], "week": wk, "month": mo,
+                           "wk_total": sum(wk.values()), "mo_total": sum(mo.values()),
+                           "addr_ok_pct": (round(ok1 / succ_mo * 100) if succ_mo else None)})
     conn.close()
-    return render_template("planning/deliveries.html", report=report, log=log)
+    return report, tot_wk, tot_mo
+
+
+@bp.route("/rapportages/prestaties")
+def performance():
+    guard = login_required("view_performance")
+    if guard:
+        return guard
+    report, tot_wk, tot_mo = _performance_data()
+    return render_template("planning/performance.html", report=report, tot_wk=tot_wk, tot_mo=tot_mo,
+                           labels=OUTCOME_LABELS)
+
+
+@bp.route("/rapportages/prestaties/export.csv")
+def performance_export():
+    guard = login_required("view_performance")
+    if guard:
+        return guard
+    report, _, _ = _performance_data()
+    out = io.StringIO()
+    w = csv.writer(out, delimiter=";")
+    w.writerow(["Monteur", "Week succesvol", "Week beschadigd", "Week niet thuis",
+                "Maand succesvol", "Maand beschadigd", "Maand niet thuis", "Adres-1x-correct %"])
+    for r in report:
+        w.writerow([r["name"], r["week"]["succesvol"], r["week"]["beschadigd"], r["week"]["niet_thuis"],
+                    r["month"]["succesvol"], r["month"]["beschadigd"], r["month"]["niet_thuis"],
+                    (r["addr_ok_pct"] if r["addr_ok_pct"] is not None else "")])
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=monteursprestaties.csv"})
+
+
+@bp.route("/rapportages/handtekeningen")
+def signatures():
+    guard = login_required("view_signatures")
+    if guard:
+        return guard
+    cleanup_old_signatures()
+    q = (request.args.get("q") or "").strip().lstrip("#")
+    conn = db()
+    sql = """SELECT d.*, o.order_number, c.name AS client, m.name AS monteur
+             FROM deliveries d LEFT JOIN orders o ON o.id=d.order_id
+             LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id"""
+    args = ()
+    if q:
+        sql += " WHERE o.order_number LIKE ?"
+        args = ("%" + q + "%",)
+    sql += " ORDER BY d.ts DESC LIMIT 500"
+    rows = conn.execute(sql, args).fetchall()
+    conn.close()
+    by_date = {}
+    for r in rows:
+        d = (r["ts"] or "")[:10]
+        by_date.setdefault(d, []).append(r)
+    days = sorted(by_date.keys(), reverse=True)
+    return render_template("planning/signatures.html", by_date=by_date, days=days, q=q)
+
+
+@bp.route("/kilometers/export.csv")
+def vehicle_km_export():
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    today = datetime.now().date()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    month_start = today.replace(day=1).isoformat()
+    conn = db()
+    busses = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
+    out = io.StringIO()
+    w = csv.writer(out, delimiter=";")
+    w.writerow(["Voertuig", "Kenteken", "Vandaag (km)", "Deze week (km)", "Deze maand (km)"])
+    for b in busses:
+        dag = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date=?", (b["id"], today.isoformat())).fetchone()[0]
+        wk = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?", (b["id"], week_start)).fetchone()[0]
+        mo = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?", (b["id"], month_start)).fetchone()[0]
+        w.writerow([b["name"], b["plate"], round(dag), round(wk), round(mo)])
+    conn.close()
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=kilometers.csv"})
+
+
+@bp.route("/api/optimize-route/<int:mid>", methods=["POST"])
+def api_optimize_route(mid):
+    """Optimaliseer de stopvolgorde binnen een route (nearest-neighbor vanaf thuisadres)."""
+    if not has_perm("optimize_routes") and not has_perm("edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    data = request.get_json(silent=True) or {}
+    day = data.get("day") or _today_iso()
+    conn = db()
+    m = conn.execute("SELECT home_lat,home_lng,speed FROM monteurs WHERE id=?", (mid,)).fetchone()
+    rows = conn.execute("""SELECT p.id pid, o.city, o.montage_min FROM planning p JOIN orders o ON o.id=p.order_id
+                           WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
+    if not rows:
+        conn.close()
+        return jsonify(ok=True, optimized=0)
+    start = (m["home_lat"], m["home_lng"]) if m and m["home_lat"] else BREDA
+    speed = (m["speed"] if m else 3) or 3
+    mfac = 1.0 + (3 - speed) * 0.08
+    remaining = [{"pid": r["pid"], "coord": CITY_COORDS.get(r["city"], BREDA), "montage": r["montage_min"] or 0} for r in rows]
+    order, cur = [], start
+    while remaining:
+        nxt = min(remaining, key=lambda x: haversine(cur, x["coord"]))
+        order.append(nxt); remaining.remove(nxt); cur = nxt["coord"]
+    # nieuwe volgorde + geplande tijden vanaf 08:00
+    t = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+    pos = start
+    for i, it in enumerate(order):
+        t = t + timedelta(minutes=haversine(pos, it["coord"]) / 45 * 60)
+        st = t.strftime("%H:%M")
+        t2 = t + timedelta(minutes=it["montage"] * mfac)
+        conn.execute("UPDATE planning SET sequence=?, slot_start=?, slot_end=? WHERE id=?",
+                     (i, st, t2.strftime("%H:%M"), it["pid"]))
+        t = t2; pos = it["coord"]
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, optimized=len(order))
+
+
+def auto_send_daily_mails():
+    """Automatisch: 's ochtends het tijdvak en bij vertraging (>=20 min) een update.
+    Draait wanneer de planner het dashboard opent (geen externe cron op gratis plan)."""
+    today = _today_iso()
+    conn = db()
+    s = {r["skey"]: r["value"] for r in conn.execute("SELECT skey,value FROM settings").fetchall()}
+    tpl_a = s.get("tpl_arrival", "Beste {klant}, vandaag leveren wij tussen {tijdvak}. Volg: {trackinglink}")
+    tpl_d = s.get("tpl_delay", "Beste {klant}, door vertraging is de nieuwe verwachte tijd {eta}.")
+    sent = 0
+    # 1) aankomst-/tijdvakmails
+    rows = conn.execute("""SELECT p.id pid, p.slot_start, p.slot_end, o.order_number, o.client_id, c.name AS client
+                           FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE p.date=? AND p.arrival_mailed=0 AND p.status!='afgerond'""", (today,)).fetchall()
+    for r in rows:
+        tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
+        link = "https://planning-o-i.onrender.com/track/%s" % r["order_number"]
+        try:
+            body = tpl_a.format(klant=(r["client"] or "klant"), datum=today, tijdvak=tijdvak,
+                                eta=tijdvak, trackinglink=link, telefoon="085-0481444", email="info@office-interior.com")
+        except Exception:
+            body = tpl_a
+        conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
+                     (r["client_id"], "out", "Uw levering vandaag #" + r["order_number"], body,
+                      datetime.now().isoformat(timespec="minutes")))
+        conn.execute("UPDATE planning SET arrival_mailed=1 WHERE id=?", (r["pid"],))
+        sent += 1
+    # 2) vertraging-updates (>= ALERT_THRESHOLD) op basis van live AT
+    monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1").fetchall()
+    for m in monteurs:
+        live = _live_loc(conn, m["id"])
+        if not live:
+            continue
+        stops = conn.execute("""SELECT p.id pid, p.slot_start, p.delay_mailed, o.city, o.montage_min, o.status AS ostatus,
+                                o.order_number, o.client_id, c.name AS client, p.status
+                                FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                                WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (m["id"], today)).fetchall()
+        arrivals, _ = compute_arrivals(stops, m, live, True)
+        for st, a in zip(stops, arrivals):
+            if a["status"] in ("late",) and (a["delta"] or 0) >= ALERT_THRESHOLD and not st["delay_mailed"]:
+                try:
+                    body = tpl_d.format(klant=(st["client"] or "klant"), datum=today,
+                                        tijdvak=a["at"], eta=a["at"],
+                                        trackinglink="https://planning-o-i.onrender.com/track/%s" % st["order_number"],
+                                        telefoon="085-0481444", email="info@office-interior.com")
+                except Exception:
+                    body = tpl_d
+                conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
+                             (st["client_id"], "out", "Update levertijd #" + st["order_number"], body,
+                              datetime.now().isoformat(timespec="minutes")))
+                conn.execute("UPDATE planning SET delay_mailed=1 WHERE id=?", (st["pid"],))
+                sent += 1
+    conn.commit()
+    conn.close()
+    return sent
 
 
 # Idempotent initialiseren bij import (ook onder gunicorn).

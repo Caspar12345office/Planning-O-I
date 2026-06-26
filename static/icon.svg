@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="104" fill="#0f3d3e"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#b88a44" stroke-width="22"/>
+  <text x="256" y="312" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="156" font-weight="700" fill="#ffffff">OR</text>
+</svg>

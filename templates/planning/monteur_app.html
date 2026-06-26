@@ -1,5 +1,13 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Mijn route · OfficeRoute{% endblock %}
+{% block head_extra %}
+<link rel="manifest" href="{{ url_for('planning.manifest') }}">
+<meta name="theme-color" content="#0f3d3e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OfficeRoute">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
+{% endblock %}
 {% block pagehead %}<h1>Monteur-app</h1><p>De mobiele weergave voor de monteur · route, navigatie en afronden</p>{% endblock %}
 {% block page_css %}
   .phonewrap{display:flex;justify-content:center;padding:10px 0 40px}
@@ -169,6 +177,7 @@
 
 {% block scripts %}
 <script>
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(function(){}); }
 function wmoIcon(c){ if(c===0)return'☀'; if(c<=3)return'⛅'; if(c<=48)return'🌫'; if(c<=67)return'🌧'; if(c<=77)return'🌨'; if(c<=82)return'🌦'; if(c<=99)return'⛈'; return'☁'; }
 (function(){
   var el=document.getElementById('mWeather'); if(el){

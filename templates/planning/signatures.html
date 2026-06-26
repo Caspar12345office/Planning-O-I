@@ -1,0 +1,44 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Handtekeningen · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Handtekeningen</h1><p>Per dag · zoek op ordernummer · handtekeningen worden na 30 dagen automatisch gewist (privacy)</p>{% endblock %}
+{% block page_css %}
+  .srch{display:flex;gap:8px;margin-bottom:16px;max-width:420px}
+  .srch input{flex:1}
+  details.day{background:var(--panel);border:1px solid var(--line);border-radius:13px;margin-bottom:10px;box-shadow:var(--shadow-sm);overflow:hidden}
+  details.day summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:13px 16px;font-weight:600;color:var(--accent)}
+  details.day summary::-webkit-details-marker{display:none}
+  details.day summary .cnt{background:var(--soft);border-radius:999px;font-size:12px;font-weight:700;padding:2px 9px;color:var(--accent)}
+  details.day summary .car{margin-left:auto;color:var(--muted);transition:transform .15s}
+  details.day[open] summary .car{transform:rotate(180deg)}
+  .drow{display:flex;align-items:center;gap:14px;padding:11px 16px;border-top:1px solid var(--line)}
+  .drow .meta{flex:1;min-width:0}
+  .drow .meta b{font-size:14px}.drow .meta span{display:block;font-size:12.5px;color:var(--muted)}
+  .lbl-s{font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px}
+  .lbl-s.succesvol{background:#e3f3da;color:#3c7a2c}.lbl-s.beschadigd{background:#f7e2dc;color:#a23d2a}.lbl-s.niet_thuis{background:#fbeccd;color:#9a6a17}
+  .sig{width:150px;height:60px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff;flex-shrink:0}
+{% endblock %}
+{% block content %}
+<form class="srch" method="get">
+  <input name="q" value="{{ q }}" placeholder="🔍 Zoek op ordernummer (bv. 36399)">
+  <button class="btn primary sm" type="submit">Zoek</button>
+  {% if q %}<a class="btn ghost sm" href="{{ url_for('planning.signatures') }}">Wis</a>{% endif %}
+</form>
+
+{% for d in days %}
+<details class="day" {{ 'open' if q or loop.first }}>
+  <summary>{{ d }} <span class="cnt">{{ by_date[d]|length }}</span><span class="car">▾</span></summary>
+  {% for r in by_date[d] %}
+  <div class="drow">
+    <div class="meta">
+      <b>#{{ r.order_number }} · {{ r.client or '—' }}</b>
+      <span>{{ r.monteur }} · ontvanger: {{ r.receiver or '—' }} · {{ r.ts.replace('T',' ') }}</span>
+    </div>
+    <span class="lbl-s {{ r.outcome }}">{{ r.outcome }}{% if r.sub_outcome %} · {{ r.sub_outcome }}{% endif %}</span>
+    {% if r.signature %}<img class="sig" src="{{ r.signature }}" alt="handtekening">{% else %}<span class="muted" style="font-size:12px">geen</span>{% endif %}
+  </div>
+  {% endfor %}
+</details>
+{% else %}
+<div class="card"><p class="muted" style="margin:0">{% if q %}Geen handtekeningen gevonden voor "{{ q }}".{% else %}Nog geen handtekeningen geregistreerd.{% endif %}</p></div>
+{% endfor %}
+{% endblock %}
