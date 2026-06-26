@@ -75,7 +75,7 @@
   <!-- KOLOM A: kaart + kantoorbezetting -->
   <div class="col">
     <div class="card mapcard">
-      <div class="sec-h"><h3>Live op de kaart</h3><span class="live"><span class="dot"></span>realtime</span></div>
+      <div class="sec-h"><h3>Live op de kaart</h3><div style="display:flex;gap:8px;align-items:center"><span class="pill gray" id="weather" title="Actueel weer — handig om te weten of monteurs verkoeling nodig hebben">weer…</span><span class="live"><span class="dot"></span>realtime</span></div></div>
       <div id="map" class="leaflet-map"></div>
       <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
       <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
@@ -188,6 +188,17 @@ function saveOffice(el){
     body: JSON.stringify({person:row.getAttribute('data-person'), date:'{{ office_day }}',
       status:row.querySelector('select').value, note:row.querySelector('input.note').value})});
 }
+function wmoIcon(c){ if(c===0)return'☀'; if(c<=3)return'⛅'; if(c<=48)return'🌫'; if(c<=67)return'🌧'; if(c<=77)return'🌨'; if(c<=82)return'🌦'; if(c<=99)return'⛈'; return'☁'; }
+(function(){
+  var el=document.getElementById('weather'); if(!el)return;
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=51.57&longitude=4.77&current=temperature_2m,weather_code')
+    .then(function(r){return r.json();}).then(function(d){
+      var t=Math.round(d.current.temperature_2m), c=d.current.weather_code;
+      el.textContent=wmoIcon(c)+' '+t+'°C';
+      if(t>=25){ el.className='pill amber'; el.textContent+=' · warm, zorg voor verkoeling'; }
+      else if(t<=2){ el.className='pill blue'; el.textContent+=' · koud'; }
+    }).catch(function(){ el.textContent='weer n.v.t.'; });
+})();
 function planOrder(btn, oid){
   var row = btn.closest('.prow');
   var mid = row.querySelector('.pm').value, d = row.querySelector('.pd').value;

@@ -984,9 +984,11 @@ def planning():
 
     prev_day = (d - timedelta(days=1)).isoformat()
     next_day = (d + timedelta(days=1)).isoformat()
+    monday = d - timedelta(days=d.weekday())
+    week_days = [monday + timedelta(days=i) for i in range(5)]   # ma t/m vr
     return render_template("planning/planning.html", monteurs=monteurs, routes=routes_by_m, totals=totals,
                            unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
-                           prev_day=prev_day, next_day=next_day, today=_today_iso(),
+                           prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
                            can_edit=has_perm("edit_planning"))
 
 

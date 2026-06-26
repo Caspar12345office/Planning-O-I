@@ -34,12 +34,22 @@
   .gpsbtn{border:0;border-radius:9px;padding:9px 13px;font:inherit;font-weight:700;font-size:12.5px;cursor:pointer;background:#fff;color:#0f3d3e}
   .gpsbtn.on{background:#4f9d3a;color:#fff}
   .jc .items{font-size:12.5px;color:var(--ink);background:var(--soft);border-radius:8px;padding:7px 9px;margin-bottom:10px}
+  .alert{display:flex;gap:9px;align-items:flex-start;background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:11px;padding:9px 11px;margin-bottom:11px;font-size:12px}
+  .alert b{display:block;font-size:12.5px}.alert .ax{margin-left:auto;cursor:pointer;font-weight:700}
+  .routealerts{background:var(--soft);border-radius:11px;padding:9px 11px;margin-bottom:12px}
+  .ra-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:5px}
+  .ra{font-size:12.5px;display:flex;gap:7px;padding:3px 0;align-items:center}
+  .ra b{font-weight:600}
+  .filepop{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:center;justify-content:center;z-index:90}
+  .filepop .fb{background:#fff;border-radius:18px;padding:22px;width:min(320px,88vw);text-align:center}
+  .filepop .fb .ic{font-size:34px}.filepop .fb h3{color:#a23d2a;margin:8px 0 4px;font-size:18px}
+  .filepop .fb p{font-size:14px;color:var(--ink);margin:0 0 14px}
 {% endblock %}
 {% block content %}
 <div class="phonewrap">
   <div class="phone"><div class="screen">
     <div class="ph-top">
-      <div class="d">{{ HOME_BASE }} · vandaag</div>
+      <div class="d" style="display:flex;justify-content:space-between"><span>{{ HOME_BASE }} · vandaag</span><span id="mWeather">weer…</span></div>
       <h2>{{ monteur.name if monteur else p_user.name }}</h2>
       <div class="sum">
         <div><b>{{ jobs|length }}</b><span>stops</span></div>
@@ -54,6 +64,14 @@
       {% endif %}
     </div>
     <div class="ph-body">
+      {% if monteur and jobs %}
+      <div class="alert" id="fileAlert">⚠ <div><b>File op de A2 richting Den Bosch</b>Verwachte vertraging <b style="display:inline">+20 min</b> — je AT en terugkomst zijn hierop bijgewerkt.</div><span class="ax" onclick="this.closest('.alert').style.display='none'">✕</span></div>
+      <div class="routealerts">
+        <div class="ra-h">Voorspeld op je route vandaag</div>
+        <div class="ra"><span>🚧</span> <b>Wegwerkzaamheden N65</b> (Tilburg) · +10 min</div>
+        <div class="ra"><span>🚗</span> <b>Drukte rond Eindhoven</b> rond 15:00 · +15 min</div>
+      </div>
+      {% endif %}
       {% if not monteur %}
         <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
       {% elif not jobs %}
@@ -90,10 +108,31 @@
     </div>
   </div></div>
 </div>
+
+<div class="filepop" id="filePopup">
+  <div class="fb">
+    <div class="ic">⚠</div>
+    <h3>Grote file op je route</h3>
+    <p>File op de A2 richting Den Bosch — verwachte vertraging <b>+20 min</b>. Je aankomsttijden zijn bijgewerkt.</p>
+    <button class="donebtn" onclick="document.getElementById('filePopup').style.display='none'">Begrepen</button>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+function wmoIcon(c){ if(c===0)return'☀'; if(c<=3)return'⛅'; if(c<=48)return'🌫'; if(c<=67)return'🌧'; if(c<=77)return'🌨'; if(c<=82)return'🌦'; if(c<=99)return'⛈'; return'☁'; }
+(function(){
+  var el=document.getElementById('mWeather'); if(el){
+    fetch('https://api.open-meteo.com/v1/forecast?latitude=51.57&longitude=4.77&current=temperature_2m,weather_code')
+      .then(function(r){return r.json();}).then(function(d){
+        var t=Math.round(d.current.temperature_2m);
+        el.textContent=wmoIcon(d.current.weather_code)+' '+t+'°'+(t>=25?' · warm':'' );
+      }).catch(function(){ el.textContent=''; });
+  }
+  // file-popup tonen als er een grote file op de route is (demo; live via verkeerskoppeling)
+  var fp=document.getElementById('filePopup'); if(fp && document.getElementById('fileAlert')){ setTimeout(function(){fp.style.display='flex';}, 800); }
+})();
 var gpsWatch=null;
 function postLoc(lat,lng,live){
   fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},
