@@ -3,57 +3,57 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Planning O-I{% endblock %}</title>
+<title>{% block title %}OfficeRoute{% endblock %}</title>
 <style>
   @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:swap;src:url("{{ url_for('static', filename='fonts/jost-latin.woff2') }}") format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
   :root{
     --accent:#0f3d3e;--accent2:#15595a;--gold:#b88a44;--gold2:#cda35a;
-    --bg:#f3efe8;--ink:#1c1a16;--muted:#74705f;--soft:#eef3ec;--line:#e7e1d6;--panel:#fff;
-    --rail:#0c3334;--rail2:#0a2829;--railtext:#cfe1da;--railmut:#7fa39b;
-    --green:#4f9d3a;--blue:#2f6df0;--amber:#d9962b;--red:#c0533f;--violet:#6d5bd0;
-    --shadow:0 14px 40px rgba(15,61,62,.10);--shadow-sm:0 6px 18px rgba(15,61,62,.07);
+    --bg:#f5f7f3;--ink:#16302d;--muted:#7c8a85;--soft:#eef3ec;--line:#e6ebe4;--panel:#fff;
+    --rail:#ffffff;--railtext:#516159;--railmut:#9aa8a1;
+    --green:#5aab4e;--green2:#73bf52;--blue:#2f6df0;--amber:#d9962b;--red:#c0533f;--violet:#6d5bd0;
+    --shadow:0 14px 40px rgba(15,61,62,.08);--shadow-sm:0 6px 18px rgba(15,61,62,.05);
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
   body{margin:0;font-family:'Jost',Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.5}
   a{color:inherit;text-decoration:none}
   h1,h2,h3{margin:0;letter-spacing:-.02em;font-weight:700;line-height:1.15}
-  ::selection{background:var(--gold);color:#fff}
+  ::selection{background:var(--green);color:#fff}
 
   .app{display:flex;min-height:100vh}
 
-  /* ---------- sidebar rail ---------- */
-  .rail{width:262px;flex-shrink:0;background:linear-gradient(180deg,var(--rail) 0%,var(--rail2) 100%);color:var(--railtext);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
-  .rail-head{padding:22px 22px 16px}
-  .rail-logo{font-weight:700;letter-spacing:.2em;text-transform:uppercase;font-size:18px;color:#fff;display:flex;align-items:center;gap:9px}
-  .rail-logo .oi{display:inline-flex;width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--gold),var(--gold2));align-items:center;justify-content:center;font-size:13px;color:#1c1a16;letter-spacing:0}
-  .rail-logo small{display:block;font-size:9.5px;letter-spacing:.16em;color:var(--railmut);font-weight:500;text-transform:none;margin-top:1px}
+  /* ---------- sidebar rail (licht) ---------- */
+  .rail{width:256px;flex-shrink:0;background:var(--rail);border-right:1px solid var(--line);color:var(--railtext);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
+  .rail-head{padding:22px 20px 14px}
+  .rail-logo{font-weight:700;font-size:18px;color:var(--accent);display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+  .rail-logo .oi{display:inline-flex;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 35%, #8fd07a, var(--green));box-shadow:0 0 0 4px rgba(90,171,78,.14);flex-shrink:0}
+  .rail-logo small{display:block;font-size:10.5px;letter-spacing:0;color:var(--muted);font-weight:500;text-transform:none;margin-top:1px}
   .rail-nav{flex:1;overflow:auto;padding:6px 12px 12px}
-  .rail-nav::-webkit-scrollbar{width:6px}.rail-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:3px}
+  .rail-nav::-webkit-scrollbar{width:6px}.rail-nav::-webkit-scrollbar-thumb{background:rgba(0,0,0,.10);border-radius:3px}
   .rail-nav a{display:flex;align-items:center;gap:12px;padding:10px 13px;margin:2px 0;border-radius:11px;color:var(--railtext);font-size:14.5px;font-weight:500;transition:background .14s,color .14s}
-  .rail-nav a .i{width:20px;text-align:center;font-size:15px;opacity:.92}
-  .rail-nav a:hover{background:rgba(255,255,255,.07);color:#fff}
-  .rail-nav a.active{background:linear-gradient(135deg,rgba(184,138,68,.95),rgba(205,163,90,.9));color:#1c1a16;font-weight:600;box-shadow:0 8px 18px rgba(184,138,68,.25)}
+  .rail-nav a .i{width:20px;text-align:center;font-size:15px;opacity:.85}
+  .rail-nav a:hover{background:var(--soft);color:var(--accent)}
+  .rail-nav a.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 8px 18px rgba(15,61,62,.18)}
   .rail-nav a.active .i{opacity:1}
   .navgrp{margin:2px 0}
   .navgrp summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:11px;color:var(--railtext);font-size:14.5px;font-weight:500}
   .navgrp summary::-webkit-details-marker{display:none}
-  .navgrp summary:hover{background:rgba(255,255,255,.07);color:#fff}
+  .navgrp summary:hover{background:var(--soft);color:var(--accent)}
   .navgrp summary .caret{margin-left:auto;font-size:11px;opacity:.7;transition:transform .15s}
   .navgrp[open] summary .caret{transform:rotate(180deg)}
   .rail-nav a.sub{padding:9px 13px 9px 45px;font-size:13.8px}
   .rail-nav a.sub.active{padding-left:45px}
-  .rail-foot{padding:14px;border-top:1px solid rgba(255,255,255,.08)}
+  .rail-foot{padding:14px;border-top:1px solid var(--line)}
   .ucard{display:flex;align-items:center;gap:11px;padding:8px;border-radius:12px}
-  .ucard .av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1c1a16;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
-  .ucard .nm{font-size:13.5px;color:#fff;font-weight:600;line-height:1.2}
-  .ucard .rl{font-size:11px;color:var(--railmut)}
-  .rail-foot .logout{display:block;text-align:center;margin-top:10px;font-size:12.5px;color:var(--railmut);padding:8px;border-radius:9px;border:1px solid rgba(255,255,255,.1)}
-  .rail-foot .logout:hover{background:rgba(255,255,255,.06);color:#fff}
+  .ucard .av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
+  .ucard .nm{font-size:13.5px;color:var(--ink);font-weight:600;line-height:1.2}
+  .ucard .rl{font-size:11px;color:var(--muted)}
+  .rail-foot .logout{display:block;text-align:center;margin-top:10px;font-size:12.5px;color:var(--muted);padding:8px;border-radius:9px;border:1px solid var(--line)}
+  .rail-foot .logout:hover{background:var(--soft);color:var(--accent)}
 
   /* ---------- main ---------- */
   .main{flex:1;min-width:0;display:flex;flex-direction:column}
-  .topbar{position:sticky;top:0;z-index:30;background:rgba(243,239,232,.86);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:16px 30px;display:flex;align-items:center;gap:18px}
+  .topbar{position:sticky;top:0;z-index:30;background:rgba(245,247,243,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:14px 30px;display:flex;align-items:center;gap:16px}
   .topbar .ttl h1{font-size:23px;color:var(--accent)}
   .topbar .ttl p{margin:2px 0 0;font-size:13px;color:var(--muted)}
   .topbar .spacer{flex:1}
@@ -61,7 +61,12 @@
   .search input{border:0;outline:0;background:transparent;font:inherit;color:var(--ink);width:100%}
   .live{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--accent);font-weight:600;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 13px}
   .live .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(79,157,58,.5);animation:pulse 2s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(79,157,58,.45)}70%{box-shadow:0 0 0 9px rgba(79,157,58,0)}100%{box-shadow:0 0 0 0 rgba(79,157,58,0)}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(90,171,78,.45)}70%{box-shadow:0 0 0 9px rgba(90,171,78,0)}100%{box-shadow:0 0 0 0 rgba(90,171,78,0)}}
+  .onlinebar{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:5px 12px 5px 11px}
+  .onlinebar .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(90,171,78,.5);animation:pulse 2s infinite}
+  .onlinebar .av{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-left:-7px;border:2px solid var(--panel)}
+  .onlinebar .av:first-child{margin-left:0}
+  .onlinecount{font-size:12.5px;font-weight:600;color:var(--accent);margin-left:3px}
   .content{padding:26px 30px 60px;max-width:1500px;width:100%}
 
   /* ---------- generic ui ---------- */
@@ -109,7 +114,7 @@
 <div class="app">
   <aside class="rail">
     <div class="rail-head">
-      <div class="rail-logo"><span class="oi">O-I</span><div>Planning O-I<small>Real-time planning optimalisatie</small></div></div>
+      <div class="rail-logo"><span class="oi"></span><div>{{ BRAND }}<small>Real-time planning optimalisatie</small></div></div>
     </div>
     <nav class="rail-nav">
       {% for item in p_nav %}
@@ -144,13 +149,14 @@
   <div class="main">
     <header class="topbar">
       <button class="menu-btn" onclick="document.body.classList.toggle('nav-open')">☰</button>
-      <div class="ttl">{% block pagehead %}<h1>Planning O-I</h1>{% endblock %}</div>
+      <div class="ttl">{% block pagehead %}<h1>OfficeRoute</h1>{% endblock %}</div>
       <div class="spacer"></div>
-      <div class="search">🔍<input placeholder="Zoek order, klant of monteur…"></div>
       {% if p_user and p_user.role != 'monteur' %}
+      <a class="onlinebar" href="{{ url_for('planning.chat') }}" title="Live in de tool" id="onlinebar">
+        <span class="dot"></span><span id="onlineAvatars"></span><span class="onlinecount" id="onlineCount">{{ p_online|length }} online</span>
+      </a>
       <a class="live" href="{{ url_for('planning.dashboard') }}#vragen" title="Openstaande vragen aan jou">💬 {{ p_open_questions }}</a>
       {% endif %}
-      <span class="live"><span class="dot"></span>Live</span>
     </header>
     <div class="content">
       {% with msgs = get_flashed_messages() %}{% if msgs %}<div class="flash-wrap">{% for m in msgs %}<div class="flash">{{ m }}</div>{% endfor %}</div>{% endif %}{% endwith %}
@@ -158,6 +164,23 @@
     </div>
   </div>
 </div>
+{% if p_user and p_user.role != 'monteur' %}
+<script>
+(function(){
+  var box=document.getElementById('onlineAvatars'), cnt=document.getElementById('onlineCount');
+  if(!box) return;
+  function refresh(){
+    fetch('{{ url_for("planning.api_online") }}').then(function(r){return r.json();}).then(function(list){
+      box.innerHTML=''; list.slice(0,5).forEach(function(u){
+        var s=document.createElement('span'); s.className='av'; s.textContent=u.initial; s.title=u.name+' · '+u.role; box.appendChild(s);
+      });
+      cnt.textContent=list.length+' online';
+    }).catch(function(){});
+  }
+  refresh(); setInterval(refresh, 20000);
+})();
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

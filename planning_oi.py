@@ -33,21 +33,46 @@ if _dirn:
     except Exception:
         DB_PATH = "planning_oi.db"
 
+# Merknaam van de tool (overal getoond).
+BRAND = "OfficeRoute"
+
 # Vaste laad-/loslocatie: alle routes eindigen hier zodat de bus opnieuw geladen wordt.
 HOME_BASE = "Breda"
 BREDA = (51.5719, 4.7683)
 # Grens waarboven een order als "belangrijke order" geldt (euro).
 IMPORTANT_THRESHOLD = 3000
 
-# Globale coördinaten van veelgebruikte plaatsen (voor kaart + afstand/ETA).
+# Globale coördinaten van veelgebruikte plaatsen (NL + BE) voor kaart + afstand/ETA.
 CITY_COORDS = {
     "Breda": (51.5719, 4.7683), "Tilburg": (51.5606, 5.0919),
     "Eindhoven": (51.4416, 5.4697), "Utrecht": (52.0907, 5.1214),
     "Den Haag": (52.0705, 4.3007), "Rotterdam": (51.9244, 4.4777),
     "Amsterdam": (52.3676, 4.9041), "Den Bosch": (51.6978, 5.3037),
     "Leiden": (52.1601, 4.4970), "Groningen": (53.2194, 6.5665),
-    "Papendrecht": (51.8302, 4.6890),
+    "Papendrecht": (51.8302, 4.6890), "Zwolle": (52.5168, 6.0830),
+    "Antwerpen": (51.2194, 4.4025), "Gent": (51.0543, 3.7174),
+    "Brussel": (50.8503, 4.3517), "Hasselt": (50.9307, 5.3378),
 }
+
+# Plaats -> provincie/regio (voor het planningoverzicht).
+PROVINCE = {
+    "Breda": "Noord-Brabant", "Tilburg": "Noord-Brabant", "Eindhoven": "Noord-Brabant",
+    "Den Bosch": "Noord-Brabant", "Rotterdam": "Zuid-Holland", "Den Haag": "Zuid-Holland",
+    "Leiden": "Zuid-Holland", "Papendrecht": "Zuid-Holland", "Amsterdam": "Noord-Holland",
+    "Utrecht": "Utrecht", "Groningen": "Groningen", "Zwolle": "Overijssel",
+    "Antwerpen": "Antwerpen (BE)", "Gent": "Oost-Vlaanderen (BE)",
+    "Brussel": "Brussel (BE)", "Hasselt": "Limburg (BE)",
+}
+
+
+def region_for(cities):
+    """Geef een leesbare regio-aanduiding voor een set plaatsen."""
+    provs = []
+    for c in cities:
+        p = PROVINCE.get(c)
+        if p and p not in provs:
+            provs.append(p)
+    return " · ".join(provs) if provs else "—"
 
 
 def db():
@@ -158,6 +183,13 @@ INTEGRATIONS = [
         {"key": "api_key", "label": "API-sleutel (optioneel)", "type": "password"},
         {"key": "share_precise", "label": "Exacte locatie delen met klant", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Klant ziet altijd alleen een veilige benadering, nooit exacte GPS."}]},
+    {"key": "velocity", "name": "VeloCity (busregistratie)", "icon": "🚐",
+     "desc": "Koppeling met VeloCity voor voertuig- en kilometerregistratie van de bussen. Kilometers en ritten worden automatisch ingelezen per voertuig.",
+     "fields": [
+        {"key": "account_id", "label": "VeloCity account-ID", "type": "text"},
+        {"key": "api_key", "label": "API-sleutel", "type": "password"},
+        {"key": "fleet_id", "label": "Wagenpark-ID (fleet)", "type": "text", "placeholder": "bv. OI-FLEET-01"},
+        {"key": "auto_import_km", "label": "Kilometers automatisch importeren", "type": "toggle", "default": "1"}]},
     {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐",
      "desc": "Inloggen met Google en verplichte multi-factor authenticatie.",
      "fields": [
@@ -194,7 +226,10 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL,
         role TEXT NOT NULL, permissions TEXT, phone TEXT,
-        monteur_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TEXT);
+        monteur_id INTEGER, active INTEGER NOT NULL DEFAULT 1, created_at TEXT, last_seen TEXT);
+    CREATE TABLE IF NOT EXISTS chat_messages(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, text TEXT, order_number TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS clients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT, phone TEXT,
@@ -249,6 +284,11 @@ def init_db():
         from_user_id INTEGER, to_user_id INTEGER, order_id INTEGER,
         text TEXT, ts TEXT, resolved INTEGER DEFAULT 0);
     """)
+    # Defensieve migratie (bv. bestaande database met disk op Render).
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN last_seen TEXT")
+    except Exception:
+        pass
     conn.commit()
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed(conn)
@@ -300,6 +340,8 @@ def _seed(conn):
         ("Zorggroep West", "inkoop@zorggroepwest.nl", "010-4100000", "Coolsingel 40", "3011 AD", "Rotterdam"),
         ("Studio Noord", "hallo@studionoord.nl", "020-7700000", "Overhoeksplein 1", "1031 KS", "Amsterdam"),
         ("Tech Campus Den Bosch", "fm@techcampus.nl", "073-6100000", "Pettelaarpark 70", "5216 PP", "Den Bosch"),
+        ("OfficeHub Antwerpen", "info@officehub.be", "+32 3 2000000", "Meir 1", "2000", "Antwerpen"),
+        ("Kantoor Gent NV", "aankoop@kantoorgent.be", "+32 9 2100000", "Korenmarkt 5", "9000", "Gent"),
     ]
     for cl in clients:
         c.execute("""INSERT INTO clients(name,email,phone,address,postal,city,invoice_address,created_at)
@@ -317,6 +359,9 @@ def _seed(conn):
         # toekomstige grote (belangrijke) orders
         ("36701", 6, "shopify", 0, "in_te_plannen", "Pettelaarpark 70", "Den Bosch", "5216 PP", "073-6100000", "fm@techcampus.nl", 9, 12500, 8.5, 900, 240, [("Werkplek compleet", 18), ("Akoestische wand", 4)]),
         ("36702", 4, "manual", 0, "in_te_plannen", "Coolsingel 40", "Rotterdam", "3011 AD", "010-4100000", "inkoop@zorggroepwest.nl", 12, 4300, 3.0, 260, 90, [("Directiebureau", 2), ("Kast hoog", 4)]),
+        # België (we zijn ook in BE actief)
+        ("36720", 7, "shopify", 0, "in_te_plannen", "Meir 1", "Antwerpen", "2000", "+32 3 2000000", "info@officehub.be", 3, 2600, 2.2, 200, 60, [("Bureau zwart", 6), ("Bureaustoel", 6)]),
+        ("36721", 8, "manual", 0, "in_te_plannen", "Korenmarkt 5", "Gent", "9000", "+32 9 2100000", "aankoop@kantoorgent.be", 6, 5200, 3.4, 300, 110, [("Vergadertafel", 1), ("Kast laag", 5)]),
         # reeds gepland (vandaag)
         ("36338", 2, "shopify", 0, "gepland", "Claudius Prinsenlaan 12", "Breda", "4811 DJ", "076-5300000", "office@brabantadvocaten.nl", 0, 1850, 1.8, 150, 40, [("Bureau wit", 4)]),
         ("36339", 1, "manual", 0, "gepland", "Stadhuisplein 130", "Tilburg", "5038 TC", "013-5420000", "inkoop@tilburg.nl", 0, 2400, 2.4, 210, 50, [("Kastenwand", 1)]),
@@ -388,6 +433,21 @@ def _seed(conn):
                         'Kan deze grote order van Eindhoven met 2 monteurs? Lijkt me veel montage.',
                         ?, 0)""", (datetime.now().isoformat(timespec="minutes"),))
 
+    # teamchat (voorbeeldgesprek over lopende orders)
+    now_min = datetime.now().isoformat(timespec="minutes")
+    chat = [
+        ("planner@planning-oi.nl", "Order #36403 (Eindhoven) is groot — zal ik er 2 monteurs op zetten?", "36403"),
+        ("beheer@planning-oi.nl", "Ja prima, plan Rick en Sven samen. Ik stem de levertijd af met de klant.", "36403"),
+        ("admin@planning-oi.nl", "Antwerpen #36720 staat klaar, factuuradres klopt.", "36720"),
+    ]
+    for email, text, onum in chat:
+        c.execute("""INSERT INTO chat_messages(user_id,text,order_number,ts)
+                     VALUES((SELECT id FROM users WHERE email=?),?,?,?)""", (email, text, onum, now_min))
+
+    # markeer een paar gebruikers als recent actief (live gebruikers-demo)
+    for email in ("beheer@planning-oi.nl", "planner@planning-oi.nl"):
+        c.execute("UPDATE users SET last_seen=? WHERE email=?", (datetime.now().isoformat(timespec="seconds"), email))
+
     for integ in INTEGRATIONS:
         for f in integ["fields"]:
             if "default" in f:
@@ -457,6 +517,31 @@ def has_perm(perm):
     return perm in user_perms(current_user())
 
 
+def online_users(within_minutes=2):
+    cutoff = (datetime.now() - timedelta(minutes=within_minutes)).isoformat(timespec="seconds")
+    conn = db()
+    rows = conn.execute("""SELECT name, role FROM users WHERE active=1 AND last_seen IS NOT NULL
+                           AND last_seen >= ? ORDER BY name""", (cutoff,)).fetchall()
+    conn.close()
+    return [{"name": r["name"], "role": r["role"], "initial": (r["name"][:1] or "?").upper()} for r in rows]
+
+
+@bp.before_app_request
+def _stamp_last_seen():
+    if request.blueprint != "planning":
+        return
+    uid = session.get("p_user_id")
+    if uid:
+        try:
+            conn = db()
+            conn.execute("UPDATE users SET last_seen=? WHERE id=?",
+                         (datetime.now().isoformat(timespec="seconds"), uid))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+
 def setting(key, default=""):
     conn = db()
     row = conn.execute("SELECT value FROM settings WHERE skey=?", (key,)).fetchone()
@@ -491,9 +576,10 @@ def _inject():
     if request.blueprint != "planning":
         return {}
     u = current_user()
+    online = online_users() if u else []
     return {"p_user": u, "p_perms": user_perms(u), "p_has_perm": has_perm,
-            "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV,
-            "p_open_questions": open_questions_count(u)}
+            "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV, "BRAND": BRAND,
+            "p_open_questions": open_questions_count(u), "p_online": online}
 
 
 def login_required(perm=None):
@@ -514,6 +600,7 @@ NAV = [
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
     {"label": "Routes", "endpoint": "planning.routes", "icon": "🧭", "perm": "edit_routes"},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
+    {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
     {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
     {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "📈", "perm": "view_reports"},
@@ -787,7 +874,8 @@ def planning():
         coords.append(BREDA)
         km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1)) if len(coords) > 1 else 0
         drive = km / 45 * 60
-        totals[m["id"]] = {"stops": len(rj), "km": round(km), "time": fmt_duration(montage + drive)}
+        region = region_for([j["city"] for j in rj])
+        totals[m["id"]] = {"stops": len(rj), "km": round(km), "time": fmt_duration(montage + drive), "region": region}
 
     prev_day = (d - timedelta(days=1)).isoformat()
     next_day = (d + timedelta(days=1)).isoformat()
@@ -932,6 +1020,60 @@ def client_detail(cid):
     conn.close()
     return render_template("planning/client_detail.html", c=cl, orders=orders, emails=emails,
                            gmail_ready=(integ_status("gmail") == "verbonden"))
+
+
+# --------------------------------------------------------------------------- #
+#  Teamchat (onderling chatten over lopende orders)
+# --------------------------------------------------------------------------- #
+@bp.route("/chat")
+def chat():
+    guard = login_required("view_orders")
+    if guard:
+        return guard
+    conn = db()
+    msgs = conn.execute("""SELECT m.id, m.text, m.order_number, m.ts, m.user_id, u.name AS user
+                           FROM chat_messages m LEFT JOIN users u ON u.id=m.user_id
+                           ORDER BY m.id DESC LIMIT 80""").fetchall()
+    conn.close()
+    msgs = list(reversed(msgs))
+    last_id = msgs[-1]["id"] if msgs else 0
+    return render_template("planning/chat.html", messages=msgs, last_id=last_id,
+                           me=current_user()["id"])
+
+
+@bp.route("/api/chat", methods=["GET", "POST"])
+def api_chat():
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        text = (data.get("text") or "").strip()
+        onum = (data.get("order_number") or "").strip().lstrip("#")
+        if text:
+            conn = db()
+            conn.execute("INSERT INTO chat_messages(user_id,text,order_number,ts) VALUES(?,?,?,?)",
+                         (u["id"], text, onum or None, datetime.now().isoformat(timespec="minutes")))
+            conn.commit()
+            conn.close()
+        return jsonify(ok=True)
+    after = int(request.args.get("after", 0))
+    conn = db()
+    rows = conn.execute("""SELECT m.id, m.text, m.order_number, m.ts, m.user_id, u.name AS user
+                           FROM chat_messages m LEFT JOIN users u ON u.id=m.user_id
+                           WHERE m.id>? ORDER BY m.id LIMIT 200""", (after,)).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+# --------------------------------------------------------------------------- #
+#  Live gebruikers
+# --------------------------------------------------------------------------- #
+@bp.route("/api/online")
+def api_online():
+    if not current_user():
+        return jsonify([]), 403
+    return jsonify(online_users())
 
 
 # --------------------------------------------------------------------------- #

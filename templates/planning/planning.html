@@ -1,5 +1,5 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}Planning · Planning O-I{% endblock %}
+{% block title %}Planning · OfficeRoute{% endblock %}
 {% block pagehead %}<h1>Planning</h1><p>Dagplanning per route · sleep orders naar een monteur · start = thuisadres, eind = {{ HOME_BASE }}</p>{% endblock %}
 
 {% block page_css %}
@@ -31,6 +31,7 @@
   .rhead .tot{font-size:12.5px;font-weight:600;background:rgba(255,255,255,.16);border-radius:8px;padding:5px 10px}
   .rhead .maps{font-size:12px;color:#fff;text-decoration:underline}
   .rhead .vrij{background:#fff;color:#9a6a17;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700}
+  .rhead .rgn{font-size:12px;font-weight:700;background:rgba(255,255,255,.18);border-radius:8px;padding:4px 10px}
   .rtbl{width:100%;border-collapse:collapse;font-size:13px}
   .rtbl th{background:#fbfaf7;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 9px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
   .rtbl td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -78,6 +79,7 @@
 <div class="route" data-monteur="{{ m.id }}">
   <div class="rhead" style="background:linear-gradient(135deg,{{ m.color or '#0f3d3e' }},#0f3d3e)">
     <div class="mn"><span class="sw"></span>{{ m.name }}</div>
+    <span class="rgn">📍 {{ t.region or '—' }}</span>
     <span class="meta">start: {{ m.home_address or HOME_BASE }}</span>
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     <div class="spacer"></div>

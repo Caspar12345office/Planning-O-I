@@ -1,5 +1,5 @@
 """
-Planning O-I -- zelfstandige applicatie.
+OfficeRoute -- zelfstandige applicatie.
 
 Planningssysteem voor meubelbezorging & montage. Volledig losgekoppeld van het
 Follow O-I portaal: eigen repository, eigen Render-service, eigen database en eigen

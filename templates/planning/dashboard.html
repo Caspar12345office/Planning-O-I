@@ -1,5 +1,5 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}Dashboard · Planning O-I{% endblock %}
+{% block title %}Dashboard · OfficeRoute{% endblock %}
 {% block pagehead %}<h1>Dashboard</h1><p>Goedemorgen{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht</p>{% endblock %}
 
 {% block page_css %}
@@ -11,7 +11,7 @@
   .kpi .trend{font-size:12px;font-weight:600;margin-top:8px;display:inline-block}
   .kpi.gold{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff}
   .kpi.gold .v,.kpi.gold .l{color:#fff}.kpi.gold .l{color:#cfe1da}
-  .cols{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-bottom:18px}
+  .cols{display:grid;grid-template-columns:1.1fr 1fr;gap:18px;margin-bottom:18px}
   .cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   .sec-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px}
   .sec-h h3{font-size:17px;color:var(--accent)}
@@ -19,12 +19,11 @@
   .draft-banner b{color:#5e430d}
 
   .mapcard{padding:16px}
-  .mapwrap{position:relative;border-radius:14px;overflow:hidden;background:linear-gradient(160deg,#eaf1ec,#e3ece4);border:1px solid var(--line)}
+  .leaflet-map{height:300px;border-radius:12px;overflow:hidden;border:1px solid var(--line);z-index:0}
   .maplegend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}
   .maplegend .lg{display:inline-flex;align-items:center;gap:6px}
   .maplegend .d{width:11px;height:11px;border-radius:50%}
   .gpsnote{font-size:12px;color:var(--muted);margin-top:8px}
-  .mk-label{font-size:10px;font-weight:700;fill:#1c1a16}
 
   .ow{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
   .ow:last-child{border-bottom:0}
@@ -65,9 +64,9 @@
 <div class="cols">
   <div class="card mapcard">
     <div class="sec-h"><h3>Live op de kaart</h3><span class="live"><span class="dot"></span>realtime</span></div>
-    <div class="mapwrap"><svg id="nlmap" viewBox="0 0 300 380" width="100%" style="display:block"></svg></div>
+    <div id="map" class="leaflet-map"></div>
     <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
-    <div class="gpsnote">De monteur deelt zijn live GPS vanuit de app op zijn telefoon. Posities verversen automatisch. Met de Google Maps-koppeling tonen we hier de echte kaart met verkeersinfo.</div>
+    <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
   </div>
 
   <div class="grid" style="align-content:start">
@@ -148,6 +147,8 @@
 {% endblock %}
 
 {% block scripts %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 function saveOffice(el){
   var row = el.closest('.office-row');
@@ -156,30 +157,23 @@ function saveOffice(el){
       status:row.querySelector('select').value, note:row.querySelector('input.note').value})});
 }
 (function(){
-  var W=300,H=380, NS='http://www.w3.org/2000/svg';
-  var OUTLINE=[[53.42,6.85],[53.30,7.18],[52.64,7.06],[52.20,7.03],[51.84,6.12],[51.18,6.17],
-    [50.76,5.95],[51.02,5.84],[51.30,5.50],[51.42,4.55],[51.38,3.56],[51.66,3.42],
-    [52.00,4.12],[52.46,4.56],[52.95,4.71],[52.88,5.05],[53.10,5.42],[53.30,5.95]];
-  function proj(lat,lng){return [(lng-3.2)/(7.4-3.2)*W,(53.7-lat)/(53.7-50.6)*H];}
-  function el(t,a){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);return e;}
-  var svg=document.getElementById('nlmap'); if(!svg) return;
-  var pts=OUTLINE.map(function(p){var xy=proj(p[0],p[1]);return xy[0].toFixed(1)+','+xy[1].toFixed(1);}).join(' ');
-  svg.appendChild(el('polygon',{points:pts,fill:'#dce8de',stroke:'#b9cdbc','stroke-width':'1.5'}));
-  var b=proj(51.5719,4.7683);
-  svg.appendChild(el('circle',{cx:b[0],cy:b[1],r:7,fill:'#b88a44',stroke:'#fff','stroke-width':'2'}));
-  var bl=el('text',{x:b[0],y:b[1]-11,'text-anchor':'middle'}); bl.setAttribute('class','mk-label'); bl.textContent='Breda'; svg.appendChild(bl);
-  var markers=el('g',{}); svg.appendChild(markers);
+  if(typeof L==='undefined'){return;}
+  // gecentreerd tussen NL en BE
+  var map=L.map('map',{zoomControl:true, attributionControl:false}).setView([51.7,4.9],7);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
+    maxZoom:18, subdomains:'abcd'}).addTo(map);
+  // depot Breda
+  L.circleMarker([51.5719,4.7683],{radius:8,color:'#fff',weight:2,fillColor:'#b88a44',fillOpacity:1})
+    .addTo(map).bindTooltip('Depot Breda',{permanent:false});
+  var layer=L.layerGroup().addTo(map);
   var legend=document.getElementById('maplegend');
   function refresh(){
     fetch('{{ url_for("planning.api_locations") }}').then(function(r){return r.json();}).then(function(list){
-      while(markers.firstChild) markers.removeChild(markers.firstChild);
+      layer.clearLayers();
       legend.innerHTML='<span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span>';
       list.forEach(function(m){
-        var xy=proj(m.lat,m.lng), g=el('g',{});
-        g.appendChild(el('circle',{cx:xy[0],cy:xy[1],r:9,fill:m.color,opacity:'0.25'}));
-        g.appendChild(el('circle',{cx:xy[0],cy:xy[1],r:5.5,fill:m.color,stroke:'#fff','stroke-width':'2'}));
-        var t=el('text',{x:xy[0],y:xy[1]-10,'text-anchor':'middle'}); t.setAttribute('class','mk-label'); t.textContent=m.name.split(' ')[0]; g.appendChild(t);
-        markers.appendChild(g);
+        L.circleMarker([m.lat,m.lng],{radius:9,color:'#fff',weight:2,fillColor:m.color,fillOpacity:1})
+          .addTo(layer).bindTooltip(m.name+' · terug ± '+m.eta_base,{permanent:false});
         legend.innerHTML+='<span class="lg"><span class="d" style="background:'+m.color+'"></span>'+m.name.split(' ')[0]+' · terug ± '+m.eta_base+'</span>';
       });
     }).catch(function(){});

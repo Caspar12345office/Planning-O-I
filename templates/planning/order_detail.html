@@ -1,5 +1,5 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}#{{ o.order_number }} · Planning O-I{% endblock %}
+{% block title %}#{{ o.order_number }} · OfficeRoute{% endblock %}
 {% block pagehead %}<h1>#{{ o.order_number }}</h1><p>{{ o.client }} · {{ o.delivery_address }}</p>{% endblock %}
 {% block page_css %}
   .cols{display:grid;grid-template-columns:1.5fr 1fr;gap:18px}
