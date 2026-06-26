@@ -69,6 +69,7 @@
         <div class="gtxt"><b id="gpsState">Live locatie uit</b>Deel je locatie zodat de planning je ziet rijden</div>
         <button class="gpsbtn" id="gpsBtn" onclick="toggleGps()">Aanzetten</button>
       </div>
+      <button onclick="document.getElementById('leaveModal').style.display='flex'" style="width:100%;margin-top:8px;border:0;border-radius:11px;padding:10px;background:rgba(255,255,255,.16);color:#fff;font:inherit;font-weight:600;cursor:pointer">📅 Verlof / afspraak aanvragen</button>
       {% endif %}
     </div>
     <div class="ph-body">
@@ -162,6 +163,29 @@
   </div>
 </div>
 
+<div class="filepop" id="leaveModal">
+  <div class="fb" style="text-align:left;width:min(340px,92vw)">
+    <h3 style="color:var(--accent);margin:0 0 2px">Verlof / afspraak aanvragen</h3>
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Gaat naar: Aleks, Stijn, Jorik en Caspar.</div>
+    <form id="leaveForm">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Soort</div>
+      <select name="category" id="lvCat" onchange="lvToggle()" style="width:100%;margin-bottom:8px"><option value="verlof">Vrije dag / verlof</option><option value="afspraak">Afspraak (tandarts/dokter/later beginnen)</option></select>
+      <div id="lvTypeWrap" style="margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Type</div>
+        <select name="leave_type" style="width:100%"><option value="vrij">Vrije dag</option><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziek</option></select></div>
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Datum (van)</div>
+      <input type="date" name="date_from" required style="width:100%;margin-bottom:8px">
+      <div id="lvToWrap" style="margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Tot en met</div><input type="date" name="date_to" style="width:100%"></div>
+      <div id="lvTimeWrap" style="display:none;margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Tijd</div><div style="display:flex;gap:8px"><input type="time" name="time_from" style="flex:1"><input type="time" name="time_to" style="flex:1"></div></div>
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Toelichting</div>
+      <textarea name="reason" rows="2" placeholder="bv. tandarts om 10:00" style="width:100%"></textarea>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button type="button" class="ghostbtn" onclick="document.getElementById('leaveModal').style.display='none'">Annuleren</button>
+        <button type="button" class="donebtn" onclick="submitLeave(this)">Indienen</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="filepop" id="closeConfirm">
   <div class="fb">
     <div class="ic">🔒</div>
@@ -233,6 +257,18 @@ function submitComplete(){
   var url='{{ url_for("planning.monteur_complete", pid=0) }}'.slice(0,-1)+pid;
   fetch(url, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else { err.textContent=res.error||'Mislukt'; err.style.display='block'; } });
+}
+function lvToggle(){
+  var afs=document.getElementById('lvCat').value==='afspraak';
+  document.getElementById('lvTimeWrap').style.display=afs?'block':'none';
+  document.getElementById('lvTypeWrap').style.display=afs?'none':'block';
+  document.getElementById('lvToWrap').style.display=afs?'none':'block';
+}
+function submitLeave(btn){
+  var fd=new URLSearchParams(new FormData(document.getElementById('leaveForm')));
+  btn.disabled=true;
+  fetch('{{ url_for("planning.api_leave_request") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok){ alert('Aanvraag ingediend. Je krijgt bericht zodra er een beslissing is.'); document.getElementById('leaveModal').style.display='none'; } else { btn.disabled=false; alert(res.error||'Mislukt'); } });
 }
 function confirmCloseRoute(){ document.getElementById('closeConfirm').style.display='flex'; }
 function doCloseRoute(){

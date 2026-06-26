@@ -43,6 +43,12 @@
   .navgrp[open] summary .caret{transform:rotate(180deg)}
   .rail-nav a.sub{padding:9px 13px 9px 45px;font-size:13.8px}
   .rail-nav a.sub.active{padding-left:45px}
+  .nbadge{margin-left:auto;background:var(--red);color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:1px 7px}
+  .leavepop{position:fixed;inset:0;background:rgba(15,30,28,.5);display:flex;align-items:center;justify-content:center;z-index:120}
+  .leavepop .lb{background:#fff;border-radius:18px;padding:24px;width:min(360px,90vw);text-align:center}
+  .leavepop .lb .ic{font-size:36px}
+  .leavepop .lb h3{margin:8px 0 4px;font-size:19px}
+  .leavepop .lb p{font-size:14px;color:var(--ink);margin:0 0 16px}
   .rail-foot{padding:14px;border-top:1px solid var(--line)}
   .ucard{display:flex;align-items:center;gap:11px;padding:8px;border-radius:12px}
   .ucard .av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0}
@@ -138,7 +144,7 @@
           {% endif %}{% endfor %}
           {% endif %}
         {% elif p_has_perm(item.perm) %}
-          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}</a>
+          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}{% if item.endpoint=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>{% endif %}</a>
         {% endif %}
       {% endfor %}
       {% if p_user and p_user.role=='monteur' %}
@@ -187,6 +193,26 @@
   }
   refresh(); setInterval(refresh, 20000);
 })();
+</script>
+{% endif %}
+{% if p_leave_decision %}
+{% set ld = p_leave_decision %}
+<div class="leavepop" id="leavePop">
+  <div class="lb">
+    <div class="ic">{{ '✅' if ld.status=='goedgekeurd' else '⛔' }}</div>
+    <h3 style="color:{{ '#3c7a2c' if ld.status=='goedgekeurd' else '#a23d2a' }}">Je aanvraag is {{ ld.status }}</h3>
+    <p>
+      {% if ld.category=='afspraak' %}Afspraak op {{ ld.date_from }}{% if ld.time_from %} ({{ ld.time_from }}–{{ ld.time_to }}){% endif %}{% else %}{{ ld.leave_type }} · {{ ld.date_from }}{% if ld.date_to and ld.date_to!=ld.date_from %} t/m {{ ld.date_to }}{% endif %}{% endif %}<br>
+      {% if ld.decision_reason %}<span style="color:var(--muted)">“{{ ld.decision_reason }}”</span><br>{% endif %}
+      <span style="color:var(--muted);font-size:12.5px">beslist door {{ ld.decided_by }}</span>
+    </p>
+    <button class="btn primary" onclick="leaveSeen()">Begrepen</button>
+  </div>
+</div>
+<script>
+function leaveSeen(){
+  fetch('{{ url_for("planning.api_leave_seen") }}',{method:'POST'}).then(function(){ document.getElementById('leavePop').style.display='none'; });
+}
 </script>
 {% endif %}
 {% block scripts %}{% endblock %}

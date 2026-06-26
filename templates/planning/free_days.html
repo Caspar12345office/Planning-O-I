@@ -1,36 +1,147 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Vrije dagen · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Vrije dagen</h1><p>Vakantie, ATV, ziekte en feestdagen · wie vrij is, kan niet worden ingepland</p>{% endblock %}
+{% block pagehead %}<h1>Vrije dagen &amp; afspraken</h1><p>Overzicht, aanvragen en goedkeuren</p>{% endblock %}
 {% block page_css %}
-  .cols{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .tabs button{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 15px;font:inherit;font-weight:600;font-size:13.5px;color:var(--muted);cursor:pointer}
+  .tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .tabs .badge{background:var(--red);color:#fff;border-radius:999px;font-size:11px;padding:1px 7px;margin-left:6px}
+  .pane{display:none}.pane.active{display:block}
+  .cols{display:grid;grid-template-columns:330px 1fr;gap:18px;align-items:start}
   .ty{font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px}
   .ty.vakantie{background:#e4edff;color:#2f5fd0}.ty.atv{background:#e3f3da;color:#3c7a2c}
-  .ty.ziekte{background:#f7e2dc;color:#a23d2a}.ty.vrij{background:#ece9e2;color:#74705f}.ty.feestdag{background:#fbeccd;color:#9a6a17}
+  .ty.ziekte{background:#f7e2dc;color:#a23d2a}.ty.vrij{background:#ece9e2;color:#74705f}.ty.feestdag{background:#fbeccd;color:#9a6a17}.ty.afspraak{background:#ece8fb;color:#534ab7}
+  .req{border:1px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:12px;box-shadow:var(--shadow-sm);background:var(--panel)}
+  .req .rh{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .req .rh b{font-size:15px}
+  .req .meta{font-size:13px;color:var(--muted);margin:4px 0}
+  .req .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+  .st{font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px}
+  .st.open{background:#fbeccd;color:#9a6a17}.st.goedgekeurd{background:#e3f3da;color:#3c7a2c}.st.afgewezen{background:#f7e2dc;color:#a23d2a}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
-<div class="cols">
-  <div class="card">
-    <h3 style="color:var(--accent);margin-bottom:14px">Vrije dag registreren</h3>
-    <form method="post">
-      <div class="field"><label>Monteur</label>
-        <select name="monteur_id" required>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></div>
-      <div class="field"><label>Type</label>
-        <select name="type"><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziekte</option><option value="vrij">Vrije dag</option><option value="feestdag">Feestdag</option></select></div>
-      <div class="field"><label>Van</label><input type="date" name="date_from" required></div>
-      <div class="field"><label>Tot en met</label><input type="date" name="date_to"></div>
-      <div class="field"><label>Notitie</label><input name="note" placeholder="optioneel"></div>
-      <button class="btn primary" type="submit">Registreren</button>
-    </form>
-  </div>
-  <div class="card" style="padding:6px">
-    <table>
-      <thead><tr><th>Monteur</th><th>Type</th><th>Van</th><th>Tot</th><th>Notitie</th></tr></thead>
-      <tbody>{% for r in rows %}
-        <tr><td><b>{{ r.monteur }}</b></td><td><span class="ty {{ r.type }}">{{ r.type }}</span></td>
-        <td>{{ r.date_from }}</td><td>{{ r.date_to }}</td><td class="muted">{{ r.note }}</td></tr>
-      {% else %}<tr><td colspan="5" class="muted" style="text-align:center;padding:20px">Nog niets geregistreerd.</td></tr>{% endfor %}</tbody>
-    </table>
+<div class="tabs">
+  <button class="active" onclick="tab(event,'overzicht')">Overzicht</button>
+  {% if is_approver %}<button onclick="tab(event,'aanvragen')">Aanvragen{% if open_reqs %}<span class="badge">{{ open_reqs|length }}</span>{% endif %}</button>{% endif %}
+  <button onclick="tab(event,'mijn')">Mijn aanvragen</button>
+</div>
+
+<!-- OVERZICHT -->
+<div class="pane active" id="overzicht">
+  <div class="cols">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:14px">Vrije dag registreren (monteur)</h3>
+      <form method="post">
+        <div class="field"><label>Monteur</label>
+          <select name="monteur_id" required>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select></div>
+        <div class="field"><label>Type</label>
+          <select name="type"><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziekte</option><option value="vrij">Vrije dag</option><option value="feestdag">Feestdag</option></select></div>
+        <div class="field"><label>Van</label><input type="date" name="date_from" required></div>
+        <div class="field"><label>Tot en met</label><input type="date" name="date_to"></div>
+        <div class="field"><label>Notitie</label><input name="note" placeholder="optioneel"></div>
+        <button class="btn primary" type="submit">Registreren</button>
+      </form>
+    </div>
+    <div class="card" style="padding:6px">
+      <table>
+        <thead><tr><th>Monteur</th><th>Type</th><th>Van</th><th>Tot</th><th>Notitie</th></tr></thead>
+        <tbody>{% for r in rows %}
+          <tr><td><b>{{ r.monteur }}</b></td><td><span class="ty {{ r.type }}">{{ r.type }}</span></td>
+          <td>{{ r.date_from }}</td><td>{{ r.date_to }}</td><td class="muted">{{ r.note }}</td></tr>
+        {% else %}<tr><td colspan="5" class="muted" style="text-align:center;padding:20px">Nog niets geregistreerd.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
   </div>
 </div>
+
+<!-- AANVRAGEN (goedkeuren) -->
+{% if is_approver %}
+<div class="pane" id="aanvragen">
+  <h3 style="color:var(--accent);margin-bottom:12px">Openstaande aanvragen</h3>
+  {% for r in open_reqs %}
+  <div class="req" data-id="{{ r.id }}">
+    <div class="rh"><b>{{ r.user_name }}</b><span class="st open">open</span></div>
+    <div class="meta">
+      {% if r.category=='afspraak' %}Afspraak op {{ r.date_from }} {{ r.time_from }}–{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %}
+      {% if r.reason %}<br>“{{ r.reason }}”{% endif %}
+    </div>
+    <div class="actions">
+      <button class="btn primary sm" onclick="decide({{ r.id }}, true)">✓ Goedkeuren</button>
+      <button class="btn ghost sm" onclick="decide({{ r.id }}, false)">✕ Afwijzen</button>
+    </div>
+  </div>
+  {% else %}<p class="muted">Geen openstaande aanvragen. 🎉</p>{% endfor %}
+
+  <h3 style="color:var(--accent);margin:22px 0 12px">Recent behandeld</h3>
+  {% for r in history %}
+  <div class="req" style="box-shadow:none">
+    <div class="rh"><b>{{ r.user_name }}</b><span class="st {{ r.status }}">{{ r.status }}</span></div>
+    <div class="meta">{% if r.category=='afspraak' %}Afspraak {{ r.date_from }} {{ r.time_from }}–{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %} · door {{ r.decided_by }}{% if r.decision_reason %} · “{{ r.decision_reason }}”{% endif %}</div>
+  </div>
+  {% else %}<p class="muted">Nog niets behandeld.</p>{% endfor %}
+</div>
+{% endif %}
+
+<!-- MIJN AANVRAGEN -->
+<div class="pane" id="mijn">
+  <div class="cols">
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:4px">Nieuwe aanvraag</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 12px">Je aanvraag gaat naar: <b>{{ approvers_label }}</b>.</p>
+      <form id="reqForm">
+        <div class="field"><label>Soort</label>
+          <select name="category" id="rCat" onchange="reqToggle()"><option value="verlof">Vrije dag / verlof</option><option value="afspraak">Afspraak (tandarts/dokter/later beginnen)</option></select></div>
+        <div class="field" id="rTypeWrap"><label>Type verlof</label>
+          <select name="leave_type"><option value="vrij">Vrije dag</option><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziek</option></select></div>
+        <div class="field"><label>Van</label><input type="date" name="date_from" required></div>
+        <div class="field" id="rToWrap"><label>Tot en met</label><input type="date" name="date_to"></div>
+        <div class="field" id="rTimeWrap" style="display:none"><label>Tijd</label>
+          <div style="display:flex;gap:8px"><input type="time" name="time_from"><input type="time" name="time_to"></div></div>
+        <div class="field"><label>Toelichting</label><textarea name="reason" rows="2" placeholder="bv. tandarts om 10:00"></textarea></div>
+        <button class="btn primary" type="button" onclick="submitReq(this)">Aanvraag indienen</button>
+      </form>
+    </div>
+    <div class="card" style="padding:6px">
+      <table>
+        <thead><tr><th>Soort</th><th>Wanneer</th><th>Status</th><th>Reactie</th></tr></thead>
+        <tbody>{% for r in my_reqs %}
+          <tr><td>{% if r.category=='afspraak' %}Afspraak{% else %}{{ r.leave_type }}{% endif %}</td>
+          <td>{{ r.date_from }}{% if r.category=='afspraak' and r.time_from %} {{ r.time_from }}–{{ r.time_to }}{% elif r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}</td>
+          <td><span class="st {{ r.status }}">{{ r.status }}</span></td>
+          <td class="muted">{{ r.decision_reason or '' }}</td></tr>
+        {% else %}<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">Nog geen aanvragen.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function tab(ev, id){
+  document.querySelectorAll('.tabs button').forEach(function(b){b.classList.remove('active');});
+  ev.currentTarget.classList.add('active');
+  document.querySelectorAll('.pane').forEach(function(p){p.classList.toggle('active', p.id===id);});
+}
+function reqToggle(){
+  var afs=document.getElementById('rCat').value==='afspraak';
+  document.getElementById('rTimeWrap').style.display=afs?'block':'none';
+  document.getElementById('rTypeWrap').style.display=afs?'none':'block';
+  document.getElementById('rToWrap').style.display=afs?'none':'block';
+}
+function submitReq(btn){
+  var fd=new URLSearchParams(new FormData(document.getElementById('reqForm')));
+  btn.disabled=true;
+  fetch('{{ url_for("planning.api_leave_request") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok){ alert('Aanvraag ingediend. Je krijgt bericht zodra er een beslissing is.'); location.reload(); } else { btn.disabled=false; alert(res.error||'Mislukt'); } });
+}
+function decide(id, approve){
+  var reason='';
+  if(!approve){ reason=prompt('Reden van afwijzing (wordt naar de aanvrager gestuurd):')||''; }
+  else { reason=prompt('Eventuele opmerking (optioneel):')||''; }
+  fetch('{{ url_for("planning.api_leave_decide", rid=0) }}'.slice(0,-1)+id,
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({approve:approve, reason:reason})})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
+}
+</script>
 {% endblock %}

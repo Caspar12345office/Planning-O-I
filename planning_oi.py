@@ -53,6 +53,11 @@ IMPORTANT_THRESHOLD = 3000
 # File/werkzaamheden pas tonen/notificeren vanaf deze extra vertraging (minuten).
 ALERT_THRESHOLD = 20
 
+# Wie verlof-/afspraakaanvragen goedkeurt (vaste personen, per type aanvrager).
+APPROVERS_MONTEUR = {"caspar@office-interior.nl", "aleks@office-interior.nl",
+                     "stijn@office-interior.nl", "jorik@office-interior.nl"}
+APPROVERS_OFFICE = {"caspar@office-interior.nl", "aleks@office-interior.nl", "jorik@office-interior.nl"}
+
 # Globale coördinaten van veelgebruikte plaatsen (NL + BE) voor kaart + afstand/ETA.
 CITY_COORDS = {
     "Breda": (51.5719, 4.7683), "Tilburg": (51.5606, 5.0919),
@@ -258,6 +263,13 @@ def init_db():
         outcome TEXT, sub_outcome TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS route_closed(
         monteur_id INTEGER, date TEXT, ts TEXT, PRIMARY KEY(monteur_id, date));
+    CREATE TABLE IF NOT EXISTS leave_requests(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER, user_name TEXT, is_monteur INTEGER, monteur_id INTEGER,
+        category TEXT, leave_type TEXT, date_from TEXT, date_to TEXT,
+        time_from TEXT, time_to TEXT, reason TEXT,
+        status TEXT DEFAULT 'open', decided_by TEXT, decision_reason TEXT,
+        decided_at TEXT, decided_seen INTEGER DEFAULT 0, created_at TEXT);
     CREATE TABLE IF NOT EXISTS clients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT, phone TEXT,
@@ -635,6 +647,37 @@ def open_questions_count(u):
     return n
 
 
+def _email(u):
+    return (u["email"] or "").lower() if u else ""
+
+
+def can_approve(u, is_monteur):
+    return bool(u) and _email(u) in (APPROVERS_MONTEUR if is_monteur else APPROVERS_OFFICE)
+
+
+def pending_leave_count(u):
+    if not u:
+        return 0
+    conn = db()
+    n = 0
+    if _email(u) in APPROVERS_MONTEUR:
+        n += conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND is_monteur=1").fetchone()[0]
+    if _email(u) in APPROVERS_OFFICE:
+        n += conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND is_monteur=0").fetchone()[0]
+    conn.close()
+    return n
+
+
+def my_unseen_decision(u):
+    if not u:
+        return None
+    conn = db()
+    r = conn.execute("""SELECT * FROM leave_requests WHERE user_id=? AND status!='open' AND decided_seen=0
+                        ORDER BY decided_at DESC LIMIT 1""", (u["id"],)).fetchone()
+    conn.close()
+    return dict(r) if r else None
+
+
 @bp.app_context_processor
 def _inject():
     if request.blueprint != "planning":
@@ -643,7 +686,9 @@ def _inject():
     online = online_users() if u else []
     return {"p_user": u, "p_perms": user_perms(u), "p_has_perm": has_perm,
             "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV, "BRAND": BRAND,
-            "p_open_questions": open_questions_count(u), "p_online": online}
+            "p_open_questions": open_questions_count(u), "p_online": online,
+            "p_pending_leave": pending_leave_count(u) if u else 0,
+            "p_leave_decision": my_unseen_decision(u) if u else None}
 
 
 def login_required(perm=None):
@@ -1623,6 +1668,7 @@ def free_days():
     guard = login_required("manage_freedays")
     if guard:
         return guard
+    u = current_user()
     conn = db()
     if request.method == "POST":
         conn.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
@@ -1635,8 +1681,100 @@ def free_days():
     rows = conn.execute("""SELECT f.*, m.name AS monteur FROM free_days f
                            LEFT JOIN monteurs m ON m.id=f.monteur_id ORDER BY f.date_from DESC""").fetchall()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY name").fetchall()
+    # aanvragen die ik mag goedkeuren
+    appr = []
+    if _email(u) in APPROVERS_MONTEUR:
+        appr.append("is_monteur=1")
+    if _email(u) in APPROVERS_OFFICE:
+        appr.append("is_monteur=0")
+    open_reqs = []
+    if appr:
+        open_reqs = conn.execute("SELECT * FROM leave_requests WHERE status='open' AND (%s) ORDER BY created_at"
+                                 % " OR ".join(appr)).fetchall()
+    history = conn.execute("SELECT * FROM leave_requests WHERE status!='open' ORDER BY decided_at DESC LIMIT 50").fetchall()
+    my_reqs = conn.execute("SELECT * FROM leave_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 20", (u["id"],)).fetchall()
     conn.close()
-    return render_template("planning/free_days.html", rows=rows, monteurs=monteurs)
+    # tot wie kan deze gebruiker een aanvraag richten?
+    approvers_label = "Aleks, Stijn, Jorik en Caspar" if u["role"] == "monteur" else "Aleks, Caspar en Jorik"
+    return render_template("planning/free_days.html", rows=rows, monteurs=monteurs,
+                           open_reqs=open_reqs, history=history, my_reqs=my_reqs,
+                           is_approver=bool(appr), approvers_label=approvers_label)
+
+
+@bp.route("/api/leave-request", methods=["POST"])
+def api_leave_request():
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    f = request.form
+    cat = f.get("category", "verlof")
+    conn = db()
+    conn.execute("""INSERT INTO leave_requests(user_id,user_name,is_monteur,monteur_id,category,leave_type,
+                    date_from,date_to,time_from,time_to,reason,status,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?, 'open', ?)""",
+                 (u["id"], u["name"], 1 if u["role"] == "monteur" else 0, u["monteur_id"],
+                  cat, (f.get("leave_type") or "afspraak" if cat == "afspraak" else f.get("leave_type", "vrij")),
+                  f.get("date_from"), f.get("date_to") or f.get("date_from"),
+                  f.get("time_from"), f.get("time_to"), f.get("reason", ""),
+                  datetime.now().isoformat(timespec="minutes")))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/leave-decide/<int:rid>", methods=["POST"])
+def api_leave_decide(rid):
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    conn = db()
+    r = conn.execute("SELECT * FROM leave_requests WHERE id=?", (rid,)).fetchone()
+    if not r:
+        conn.close()
+        return jsonify(ok=False, error="Niet gevonden"), 404
+    if not can_approve(u, r["is_monteur"]):
+        conn.close()
+        return jsonify(ok=False, error="Geen rechten om dit goed te keuren"), 403
+    data = request.get_json(force=True)
+    decision = "goedgekeurd" if data.get("approve") else "afgewezen"
+    reason = (data.get("reason") or "").strip()
+    conn.execute("""UPDATE leave_requests SET status=?, decided_by=?, decision_reason=?, decided_at=?, decided_seen=0
+                    WHERE id=?""", (decision, u["name"], reason, datetime.now().isoformat(timespec="minutes"), rid))
+    if decision == "goedgekeurd":
+        if r["category"] == "verlof" and r["is_monteur"] and r["monteur_id"]:
+            conn.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
+                         (r["monteur_id"], r["leave_type"] or "vrij", r["date_from"], r["date_to"],
+                          "Aanvraag goedgekeurd" + ((" · " + r["reason"]) if r["reason"] else "")))
+        elif not r["is_monteur"]:
+            # kantoorgebruiker: in de kantoorbezetting zetten (per dag)
+            try:
+                d0 = datetime.strptime(r["date_from"], "%Y-%m-%d").date()
+                d1 = datetime.strptime(r["date_to"] or r["date_from"], "%Y-%m-%d").date()
+                note = ("Afspraak " + (r["time_from"] or "") + "-" + (r["time_to"] or "")) if r["category"] == "afspraak" else "Verlof (goedgekeurd)"
+                cur = d0
+                while cur <= d1:
+                    conn.execute("""INSERT INTO office_days(person,date,status,note) VALUES(?,?,?,?)
+                                    ON CONFLICT(person,date) DO UPDATE SET status=excluded.status,note=excluded.note""",
+                                 (r["user_name"], cur.isoformat(),
+                                  "afspraak" if r["category"] == "afspraak" else "vrij", note))
+                    cur += timedelta(days=1)
+            except Exception:
+                pass
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/leave-seen", methods=["POST"])
+def api_leave_seen():
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    conn = db()
+    conn.execute("UPDATE leave_requests SET decided_seen=1 WHERE user_id=? AND status!='open'", (u["id"],))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
 
 
 # --------------------------------------------------------------------------- #
