@@ -1,301 +1,193 @@
-{% extends 'planning/plan_base.html' %}
+{% extends 'planning/m_base.html' %}
 {% block title %}Mijn route · OfficeRoute{% endblock %}
-{% block head_extra %}
-<link rel="manifest" href="{{ url_for('planning.manifest') }}">
-<meta name="theme-color" content="#0f3d3e">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="OfficeRoute">
-<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
-{% endblock %}
-{% block pagehead %}<h1>Monteur-app</h1><p>De mobiele weergave voor de monteur · route, navigatie en afronden</p>{% endblock %}
-{% block page_css %}
-  .phonewrap{display:flex;justify-content:center;padding:10px 0 40px}
-  .phone{width:390px;max-width:100%;background:#0c2f30;border-radius:38px;padding:12px;box-shadow:0 30px 70px rgba(15,61,62,.28)}
-  .screen{background:var(--bg);border-radius:28px;overflow:hidden;min-height:720px}
-  .ph-top{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff;padding:20px 18px 18px}
-  .ph-top .d{font-size:12.5px;color:#9fc2b9}
-  .ph-top h2{font-size:20px;margin:3px 0 0}
-  .ph-top .sum{display:flex;gap:8px;margin-top:14px}
-  .ph-top .sum div{flex:1;background:rgba(255,255,255,.1);border-radius:11px;padding:9px;text-align:center}
-  .ph-top .sum b{display:block;font-size:18px}
-  .ph-top .sum span{font-size:10.5px;color:#cfe1da}
-  .ph-body{padding:14px}
-  .jc{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:14px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
-  .jc .r1{display:flex;align-items:center;gap:9px;margin-bottom:7px}
-  .jc .seq{width:24px;height:24px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+{% block m_top %}<span class="brand">OfficeRoute</span>{% endblock %}
+{% block app_css %}
+  .dayhead{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:12px}
+  .dayhead .hi{font-size:13px;color:var(--muted)}
+  .dayhead h2{margin:1px 0 0;font-size:21px;color:var(--accent)}
+  .dayhead .sum{display:flex;gap:8px;margin-top:12px}
+  .dayhead .sum div{flex:1;background:var(--soft);border-radius:11px;padding:9px;text-align:center}
+  .dayhead .sum b{display:block;font-size:18px;color:var(--accent)}.dayhead .sum span{font-size:10.5px;color:var(--muted)}
+  .jc{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 6px 18px rgba(15,61,62,.05)}
+  .jc.done{background:#eaf4e4;border-color:#cfe8c2;opacity:.8}
+  .jc .r1{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+  .jc .seq{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .jc .num{font-weight:700;font-size:13px;color:var(--accent)}
-  .jc.done{opacity:.62}
-  .jc .cl{font-weight:700;font-size:15.5px}
-  .jc .ad{font-size:13px;color:var(--muted);margin:2px 0 10px}
-  .jc .meta{display:flex;gap:6px;margin-bottom:11px}
-  .jc .navbtns{display:flex;gap:7px}
-  .navb{flex:1;text-align:center;font-size:12px;font-weight:600;padding:9px 6px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--accent)}
-  .acts{display:flex;gap:8px;margin-top:9px}
-  .acts form{flex:1}
-  .donebtn{width:100%;border:0;border-radius:10px;padding:11px;background:var(--accent);color:#fff;font:inherit;font-weight:700;cursor:pointer}
-  .ghostbtn{flex:1;border:1px solid var(--line);border-radius:10px;padding:11px;background:var(--panel);color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
-  .donepill{font-size:12px;font-weight:700;color:#3c7a2c}
-  .gpsbar{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.12);border-radius:12px;padding:10px 12px;margin-top:14px}
-  .gpsbar .gtxt{flex:1;font-size:12.5px;color:#eaf3ee}
-  .gpsbar .gtxt b{display:block;font-size:13.5px;color:#fff}
-  .gpsbtn{border:0;border-radius:9px;padding:9px 13px;font:inherit;font-weight:700;font-size:12.5px;cursor:pointer;background:#fff;color:#0f3d3e}
-  .gpsbtn.on{background:#4f9d3a;color:#fff}
-  .jc .items{font-size:12.5px;color:var(--ink);background:var(--soft);border-radius:8px;padding:7px 9px;margin-bottom:10px}
-  .alert{display:flex;gap:9px;align-items:flex-start;background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:11px;padding:9px 11px;margin-bottom:11px;font-size:12px}
-  .alert b{display:block;font-size:12.5px}.alert .ax{margin-left:auto;cursor:pointer;font-weight:700}
-  .routealerts{background:var(--soft);border-radius:11px;padding:9px 11px;margin-bottom:12px}
-  .ra-h{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:5px}
-  .ra{font-size:12.5px;display:flex;gap:7px;padding:3px 0;align-items:center}
-  .ra b{font-weight:600}
-  .filepop{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:center;justify-content:center;z-index:90}
-  .filepop .fb{background:#fff;border-radius:18px;padding:22px;width:min(320px,88vw);text-align:center}
-  .filepop .fb .ic{font-size:34px}.filepop .fb h3{color:#a23d2a;margin:8px 0 4px;font-size:18px}
-  .filepop .fb p{font-size:14px;color:var(--ink);margin:0 0 14px}
+  .jc .cl{font-weight:700;font-size:17px}
+  .jc .ad{font-size:13.5px;color:var(--muted);margin:2px 0 9px}
+  .jc .box{font-size:13px;border-radius:9px;padding:8px 10px;margin-bottom:9px}
+  .jc .box.items{background:var(--soft)}
+  .jc .box.note{background:#fff8ef;border:1px solid #f0d49a;color:#7a5713}
+  .jc .meta{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .pill{background:var(--soft);color:var(--accent);border-radius:999px;padding:6px 11px;font-size:12.5px;font-weight:600}
+  .navrow{display:flex;gap:7px;margin-bottom:9px}
+  .navrow a{flex:1;text-align:center;font-size:13px;font-weight:600;padding:11px 4px;border-radius:11px;border:1.5px solid var(--line);color:var(--accent)}
+  .donepill{font-size:13px;font-weight:700;color:#3c7a2c;margin-left:auto}
+  .alert{display:flex;gap:9px;background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:13px;padding:12px 14px;margin-bottom:12px;font-size:13px}
+  .alert b{display:block}
+  .okbar{background:#eaf4e4;border:1px solid #cfe8c2;color:#3b6d11;border-radius:13px;padding:12px 14px;margin-bottom:12px;font-size:13.5px}
+  .weather-big{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;text-align:center;margin-bottom:12px}
+  .weather-big .t{font-size:40px;font-weight:800;color:var(--accent)}
+  .ikrow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+  .ikrow .av{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px}
+  .ikrow b{font-size:16px}.ikrow span{font-size:12.5px;color:var(--muted)}
+  .ov{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:flex-end;justify-content:center;z-index:90}
+  .ov .sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px;max-height:92vh;overflow:auto}
+  .ov .sheet h3{margin:0 0 4px;color:var(--accent);font-size:18px}
+  .ov label{font-size:13px;font-weight:600;display:block;margin:10px 0 4px}
+  .ov input,.ov select,.ov textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:11px;font:inherit;font-size:15px}
+  #cmSig{width:100%;height:140px;border:1px solid var(--line);border-radius:10px;background:#fff;touch-action:none}
 {% endblock %}
+
 {% block content %}
-<div class="phonewrap">
-  <div class="phone"><div class="screen">
-    <div class="ph-top">
-      <div class="d" style="display:flex;justify-content:space-between"><span>{{ HOME_BASE }} · vandaag</span><span id="mWeather">weer…</span></div>
-      <h2>{{ monteur.name if monteur else p_user.name }}</h2>
+<!-- ROUTE -->
+<div class="m-pane active" id="pane-route">
+  {% if closed %}
+    <div class="jc" style="text-align:center;padding:30px 16px"><div style="font-size:38px">🔒</div><b style="font-size:17px">Route afgesloten</b><div class="ad" style="margin-top:4px">De klantgegevens van vandaag zijn gewist. Fijne dag!</div></div>
+  {% elif not monteur %}
+    <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
+  {% else %}
+    <div class="dayhead">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hi">Vandaag · {{ HOME_BASE }}</span><span class="mWeather" style="font-size:13px;color:var(--muted)">weer…</span></div>
+      <h2>Hoi {{ monteur.name }}</h2>
       <div class="sum">
         <div><b>{{ jobs|length }}</b><span>stops</span></div>
         <div><b>{{ jobs|selectattr('status','equalto','afgerond')|list|length }}</b><span>afgerond</span></div>
         <div><b>{{ jobs|sum(attribute='montage_min') }}</b><span>min montage</span></div>
       </div>
-      {% if monteur %}
-      <div class="gpsbar">
-        <div class="gtxt"><b id="gpsState">Live locatie uit</b>Deel je locatie zodat de planning je ziet rijden</div>
-        <button class="gpsbtn" id="gpsBtn" onclick="toggleGps()">Aanzetten</button>
+    </div>
+    {% if alerts %}<div class="alert">⚠ <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}</div></div>{% endif %}
+    {% if not jobs %}<div class="jc"><b>Geen leveringen vandaag.</b><div class="ad">Je route is leeg. Fijne dag!</div></div>{% endif %}
+    {% for j in jobs %}
+    <div class="jc {{ 'done' if j.status=='afgerond' }}">
+      <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">#{{ j.order_number }}</span>
+        {% if j.status=='afgerond' %}<span class="donepill">✓ Afgerond</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
+      <div class="cl">{{ j.client }}</div>
+      <div class="ad">{{ j.delivery_address }}</div>
+      <div class="box items">📦 {{ j.items or '—' }}</div>
+      {% if j.service_type=='ophalen' %}<div class="box note">📥 Ophalen{% if j.pakbon %} · <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:700">Pakbon openen</a>{% endif %}</div>{% endif %}
+      {% if j.instructions %}<div class="box note">📝 Van de planning: {{ j.instructions }}</div>{% endif %}
+      <div class="meta"><span class="pill">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
+      {% set q = j.delivery_address|urlencode %}
+      <div class="navrow">
+        <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google</a>
+        <a target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple</a>
+        <a target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
       </div>
-      <button onclick="document.getElementById('leaveModal').style.display='flex'" style="width:100%;margin-top:8px;border:0;border-radius:11px;padding:10px;background:rgba(255,255,255,.16);color:#fff;font:inherit;font-weight:600;cursor:pointer">📅 Verlof / afspraak aanvragen</button>
-      {% endif %}
+      {% if j.status=='gepland' %}<button class="btn-lg ghost" style="margin-bottom:8px" onclick="startStop({{ j.id }})">🚗 Onderweg naar deze klant</button>{% endif %}
+      {% if j.status!='afgerond' %}<button class="btn-lg primary" onclick="openComplete({{ j.id }}, '{{ j.client|e }}')">Levering afronden</button>{% endif %}
     </div>
-    <div class="ph-body">
-      {% if closed %}
-        <div class="jc" style="text-align:center;padding:26px 14px"><div style="font-size:34px">🔒</div><b style="font-size:16px">Route afgesloten</b><div class="ad">De klantgegevens van vandaag zijn gewist. Fijne dag verder!</div></div>
-      {% else %}
-      {% if monteur and jobs %}
-        {% if alerts %}
-        <div class="alert" id="fileAlert">⚠ <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · <b style="display:inline">+{{ a.min }} min</b><br>{% endfor %}Je aankomsttijden zijn hierop bijgewerkt.</div><span class="ax" onclick="this.closest('.alert').style.display='none'">✕</span></div>
-        {% else %}
-        <div class="ra" style="background:#eaf4e4;color:#3b6d11;border-radius:11px;padding:10px 12px;margin-bottom:12px;font-size:12.5px"><span>✓</span> Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
-        {% endif %}
-      {% endif %}
-      {% if not monteur %}
-        <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
-      {% elif not jobs %}
-        <div class="jc"><b>Geen leveringen vandaag.</b><div class="ad">Je route is leeg. Fijne dag!</div></div>
-      {% else %}
-        {% for j in jobs %}
-        <div class="jc {{ 'done' if j.status=='afgerond' }}">
-          <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">{{ j.order_number }}</span>
-            {% if j.status=='afgerond' %}<span class="donepill" style="margin-left:auto">✓ Afgerond</span>
-            {% elif j.status=='onderweg' %}<span class="pill blue" style="margin-left:auto">onderweg</span>{% endif %}</div>
-          <div class="cl">{{ j.client }}</div>
-          <div class="ad">{{ j.delivery_address }}</div>
-          <div class="items">📦 {{ j.items or '—' }}</div>
-          {% if j.service_type=='ophalen' %}<div class="ad" style="margin-top:-6px"><span style="background:#fbeccd;color:#9a6a17;border-radius:5px;padding:1px 7px;font-weight:600">Ophalen</span>{% if j.pakbon %} <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:600">📄 Pakbon bekijken</a>{% endif %}</div>{% endif %}
-          {% if j.instructions %}<div style="font-size:12.5px;background:#fff8ef;border:1px solid #f0d49a;color:#7a5713;border-radius:8px;padding:7px 9px;margin-bottom:10px">📝 Van de planning: {{ j.instructions }}</div>{% endif %}
-          <div class="meta"><span class="pill gray">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
-          {% set q = j.delivery_address|urlencode %}
-          <div class="navbtns">
-            <a class="navb" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google Maps</a>
-            <a class="navb" target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple Maps</a>
-            <a class="navb" target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
-          </div>
-          {% if j.status!='afgerond' %}
-          <div class="acts">
-            <button class="donebtn" onclick="openComplete({{ j.id }}, '{{ j.client|e }}')">Levering afronden</button>
-          </div>
-          {% endif %}
-        </div>
-        {% endfor %}
-        {% if all_done %}
-        <button class="donebtn" style="background:#a23d2a;margin-top:4px" onclick="confirmCloseRoute()">🔒 Sluit route voor vandaag</button>
-        {% endif %}
-      {% endif %}
-      <p class="muted" style="font-size:11.5px;text-align:center;margin-top:6px">Navigatie opent in Google Maps, Apple Maps of Waze. Bij het afronden registreer je naam + handtekening van de ontvanger.</p>
-      {% endif %}
-    </div>
-  </div></div>
+    {% endfor %}
+    {% if all_done %}<button class="btn-lg danger" onclick="confirmCloseRoute()">🔒 Sluit route voor vandaag</button>{% endif %}
+  {% endif %}
 </div>
 
-<div class="filepop" id="filePopup">
-  <div class="fb">
-    <div class="ic">⚠</div>
-    <h3>Grote file op je route</h3>
-    <p>File op de A2 richting Den Bosch — verwachte vertraging <b>+20 min</b>. Je aankomsttijden zijn bijgewerkt.</p>
-    <button class="donebtn" onclick="document.getElementById('filePopup').style.display='none'">Begrepen</button>
+<!-- MELDINGEN -->
+<div class="m-pane" id="pane-meldingen">
+  <div class="weather-big"><div class="t mWeather">…</div><div class="muted mWeatherNote" style="font-size:13px;color:var(--muted)">Actueel weer in {{ HOME_BASE }}</div></div>
+  {% if alerts %}
+    <div class="alert">⚠ <div><b>Files / werkzaamheden op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}Je aankomsttijden zijn bijgewerkt.</div></div>
+  {% else %}
+    <div class="okbar">✓ Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
+  {% endif %}
+  <p class="muted" style="font-size:12.5px;text-align:center">Beslissingen op je verlofaanvragen verschijnen automatisch als melding.</p>
+</div>
+
+<!-- IK -->
+<div class="m-pane" id="pane-ik">
+  <div class="ikrow"><div class="av">{{ (monteur.name[:1] if monteur else p_user.name[:1])|upper }}</div><div><b>{{ monteur.name if monteur else p_user.name }}</b><span>Monteur</span></div></div>
+  {% if monteur %}
+  <div class="ikrow" style="justify-content:space-between"><div><b id="gpsState" style="font-size:14px">Live locatie uit</b><span>Deel je locatie zodat de planning je ziet rijden</span></div>
+    <button class="btn-lg primary" style="width:auto;padding:11px 16px;font-size:13.5px" id="gpsBtn" onclick="toggleGps()">Aanzetten</button></div>
+  {% endif %}
+  <button class="btn-lg ghost" style="margin-bottom:10px" onclick="document.getElementById('leaveModal').style.display='flex'">📅 Verlof / afspraak aanvragen</button>
+  <a class="btn-lg ghost" href="{{ url_for('planning.logout') }}">Uitloggen</a>
+  <p class="muted" style="font-size:11.5px;text-align:center;margin-top:14px">Zet de app op je beginscherm: deel-icoon → “Zet op beginscherm”.</p>
+</div>
+
+<!-- modals -->
+<div class="ov" id="completeModal"><div class="sheet">
+  <h3>Levering afronden</h3><div class="muted" id="cmClient" style="font-size:13px;margin-bottom:6px"></div>
+  <input type="hidden" id="cmPid">
+  <label>Resultaat</label>
+  <select id="cmOutcome" onchange="cmToggle()"><option value="succesvol">Levering succesvol</option><option value="beschadigd">Beschadigd / incompleet</option><option value="niet_thuis">Ontvanger niet thuis</option></select>
+  <div id="cmSubWrap"><label>Toelichting adres</label><select id="cmSub"><option value="adres in 1x correct">Adres was in 1x correct</option><option value="adres was niet juist">Adres was niet juist</option></select></div>
+  <div id="cmSignWrap">
+    <label>Naam ontvanger</label><input id="cmReceiver" placeholder="Naam ontvanger">
+    <label>Handtekening ontvanger</label><canvas id="cmSig" width="320" height="140"></canvas>
+    <button type="button" onclick="clearSig()" style="background:none;border:0;color:var(--muted);font-size:12.5px;padding:6px 0">opnieuw tekenen</button>
   </div>
-</div>
+  <div id="cmErr" style="color:#a23d2a;font-size:13px;display:none;margin:6px 0"></div>
+  <div style="display:flex;gap:10px;margin-top:8px"><button class="btn-lg ghost" onclick="document.getElementById('completeModal').style.display='none'">Annuleren</button><button class="btn-lg primary" onclick="submitComplete()">Bevestig &amp; volgende</button></div>
+</div></div>
 
-<div class="filepop" id="completeModal">
-  <div class="fb" style="text-align:left;width:min(340px,92vw)">
-    <h3 style="color:var(--accent);margin:0 0 2px">Levering afronden</h3>
-    <div class="muted" id="cmClient" style="font-size:13px;margin-bottom:10px"></div>
-    <input type="hidden" id="cmPid">
-    <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Resultaat</div>
-    <select id="cmOutcome" onchange="cmToggle()" style="width:100%;margin-bottom:8px">
-      <option value="succesvol">Levering succesvol</option>
-      <option value="beschadigd">Levering beschadigd / incompleet</option>
-      <option value="niet_thuis">Ontvanger niet thuis</option>
-    </select>
-    <div id="cmSubWrap" style="margin-bottom:8px">
-      <select id="cmSub" style="width:100%">
-        <option value="adres in 1x correct">Adres was in 1x correct</option>
-        <option value="adres was niet juist">Adres was niet juist</option>
-      </select>
-    </div>
-    <div id="cmSignWrap">
-      <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Naam ontvanger</div>
-      <input id="cmReceiver" placeholder="Naam ontvanger" style="width:100%;margin-bottom:8px">
-      <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Handtekening ontvanger</div>
-      <canvas id="cmSig" width="300" height="120" style="width:100%;height:120px;border:1px solid var(--line);border-radius:8px;background:#fff;touch-action:none"></canvas>
-      <button type="button" onclick="clearSig()" style="background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 0">opnieuw tekenen</button>
-    </div>
-    <div id="cmErr" style="color:#a23d2a;font-size:12.5px;display:none;margin-bottom:6px"></div>
-    <div style="display:flex;gap:8px;margin-top:6px">
-      <button class="ghostbtn" onclick="document.getElementById('completeModal').style.display='none'">Annuleren</button>
-      <button class="donebtn" onclick="submitComplete()">Bevestig &amp; volgende</button>
-    </div>
-  </div>
-</div>
+<div class="ov" id="leaveModal"><div class="sheet">
+  <h3>Verlof / afspraak aanvragen</h3><div class="muted" style="font-size:12.5px;margin-bottom:4px">Gaat naar: Aleks, Stijn, Jorik en Caspar.</div>
+  <form id="leaveForm">
+    <label>Soort</label><select name="category" id="lvCat" onchange="lvToggle()"><option value="verlof">Vrije dag / verlof</option><option value="afspraak">Afspraak (tandarts/dokter/later beginnen)</option></select>
+    <div id="lvTypeWrap"><label>Type</label><select name="leave_type"><option value="vrij">Vrije dag</option><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziek</option></select></div>
+    <label>Datum (van)</label><input type="date" name="date_from" required>
+    <div id="lvToWrap"><label>Tot en met</label><input type="date" name="date_to"></div>
+    <div id="lvTimeWrap" style="display:none"><label>Tijd</label><div style="display:flex;gap:8px"><input type="time" name="time_from"><input type="time" name="time_to"></div></div>
+    <label>Toelichting</label><textarea name="reason" rows="2" placeholder="bv. tandarts om 10:00"></textarea>
+    <div style="display:flex;gap:10px;margin-top:12px"><button type="button" class="btn-lg ghost" onclick="document.getElementById('leaveModal').style.display='none'">Annuleren</button><button type="button" class="btn-lg primary" onclick="submitLeave(this)">Indienen</button></div>
+  </form>
+</div></div>
 
-<div class="filepop" id="leaveModal">
-  <div class="fb" style="text-align:left;width:min(340px,92vw)">
-    <h3 style="color:var(--accent);margin:0 0 2px">Verlof / afspraak aanvragen</h3>
-    <div class="muted" style="font-size:12.5px;margin-bottom:10px">Gaat naar: Aleks, Stijn, Jorik en Caspar.</div>
-    <form id="leaveForm">
-      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Soort</div>
-      <select name="category" id="lvCat" onchange="lvToggle()" style="width:100%;margin-bottom:8px"><option value="verlof">Vrije dag / verlof</option><option value="afspraak">Afspraak (tandarts/dokter/later beginnen)</option></select>
-      <div id="lvTypeWrap" style="margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Type</div>
-        <select name="leave_type" style="width:100%"><option value="vrij">Vrije dag</option><option value="vakantie">Vakantie</option><option value="atv">ATV</option><option value="ziekte">Ziek</option></select></div>
-      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Datum (van)</div>
-      <input type="date" name="date_from" required style="width:100%;margin-bottom:8px">
-      <div id="lvToWrap" style="margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Tot en met</div><input type="date" name="date_to" style="width:100%"></div>
-      <div id="lvTimeWrap" style="display:none;margin-bottom:8px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Tijd</div><div style="display:flex;gap:8px"><input type="time" name="time_from" style="flex:1"><input type="time" name="time_to" style="flex:1"></div></div>
-      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px">Toelichting</div>
-      <textarea name="reason" rows="2" placeholder="bv. tandarts om 10:00" style="width:100%"></textarea>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <button type="button" class="ghostbtn" onclick="document.getElementById('leaveModal').style.display='none'">Annuleren</button>
-        <button type="button" class="donebtn" onclick="submitLeave(this)">Indienen</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<div class="filepop" id="closeConfirm">
-  <div class="fb">
-    <div class="ic">🔒</div>
-    <h3 style="color:var(--accent)">Route afsluiten?</h3>
-    <p>Weet je het zeker? De klantgegevens van vandaag worden gewist (privacy). Dit kan niet ongedaan worden gemaakt.</p>
-    <div style="display:flex;gap:8px">
-      <button class="ghostbtn" onclick="document.getElementById('closeConfirm').style.display='none'">Nee</button>
-      <button class="donebtn" style="background:#a23d2a" onclick="doCloseRoute()">Ja, sluit route</button>
-    </div>
+<div class="leavepop" id="closeConfirm" style="display:none">
+  <div class="lb"><div class="ic">🔒</div><h3 style="color:var(--accent)">Route afsluiten?</h3>
+    <p>Weet je het zeker? De klantgegevens van vandaag worden gewist (privacy).</p>
+    <div style="display:flex;gap:10px"><button class="btn-lg ghost" onclick="document.getElementById('closeConfirm').style.display='none'">Nee</button><button class="btn-lg danger" onclick="doCloseRoute()">Ja, sluit route</button></div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(function(){}); }
-function wmoIcon(c){ if(c===0)return'☀'; if(c<=3)return'⛅'; if(c<=48)return'🌫'; if(c<=67)return'🌧'; if(c<=77)return'🌨'; if(c<=82)return'🌦'; if(c<=99)return'⛈'; return'☁'; }
+function wmoIcon(c){if(c===0)return'☀';if(c<=3)return'⛅';if(c<=48)return'🌫';if(c<=67)return'🌧';if(c<=77)return'🌨';if(c<=82)return'🌦';if(c<=99)return'⛈';return'☁';}
 (function(){
-  var el=document.getElementById('mWeather'); if(el){
-    fetch('https://api.open-meteo.com/v1/forecast?latitude=51.57&longitude=4.77&current=temperature_2m,weather_code')
-      .then(function(r){return r.json();}).then(function(d){
-        var t=Math.round(d.current.temperature_2m);
-        el.textContent=wmoIcon(d.current.weather_code)+' '+t+'°'+(t>=25?' · warm':'' );
-      }).catch(function(){ el.textContent=''; });
-  }
-  // file-popup tonen als er een grote file op de route is (demo; live via verkeerskoppeling)
-  var fp=document.getElementById('filePopup'); if(fp && document.getElementById('fileAlert')){ setTimeout(function(){fp.style.display='flex';}, 800); }
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=51.57&longitude=4.77&current=temperature_2m,weather_code')
+    .then(function(r){return r.json();}).then(function(d){
+      var t=Math.round(d.current.temperature_2m), ic=wmoIcon(d.current.weather_code);
+      document.querySelectorAll('.mWeather').forEach(function(e){ e.textContent=ic+' '+t+'°'+(t>=25?' · warm':''); });
+      if(t>=25){ document.querySelectorAll('.mWeatherNote').forEach(function(e){e.textContent='Warm — zorg voor verkoeling onderweg.';}); }
+    }).catch(function(){});
 })();
-
-// ---- Levering afronden: ontvanger + handtekening + resultaat ----
+function startStop(pid){
+  fetch('{{ url_for("planning.monteur_start", pid=0) }}'.slice(0,-1)+pid,{method:'POST'}).then(function(){ location.reload(); });
+}
 var sigCtx=null, sigDrawn=false;
 function openComplete(pid, client){
-  document.getElementById('cmPid').value=pid;
-  document.getElementById('cmClient').textContent=client;
-  document.getElementById('cmOutcome').value='succesvol';
-  document.getElementById('cmReceiver').value='';
-  document.getElementById('cmErr').style.display='none';
-  cmToggle();
-  document.getElementById('completeModal').style.display='flex';
-  setTimeout(initSig, 50);
+  document.getElementById('cmPid').value=pid; document.getElementById('cmClient').textContent=client;
+  document.getElementById('cmOutcome').value='succesvol'; document.getElementById('cmReceiver').value='';
+  document.getElementById('cmErr').style.display='none'; cmToggle();
+  document.getElementById('completeModal').style.display='flex'; setTimeout(initSig,60);
 }
-function cmToggle(){
-  var oc=document.getElementById('cmOutcome').value;
-  document.getElementById('cmSubWrap').style.display = (oc==='succesvol')?'block':'none';
-  document.getElementById('cmSignWrap').style.display = (oc==='succesvol')?'block':'none';
-}
-function initSig(){
-  var cv=document.getElementById('cmSig'); if(!cv) return;
-  var r=cv.getBoundingClientRect(); cv.width=r.width; cv.height=r.height;
-  sigCtx=cv.getContext('2d'); sigCtx.strokeStyle='#13322f'; sigCtx.lineWidth=2; sigCtx.lineCap='round'; sigDrawn=false;
-  var drawing=false, last=null;
-  function pos(e){ var t=e.touches?e.touches[0]:e; var b=cv.getBoundingClientRect(); return {x:t.clientX-b.left,y:t.clientY-b.top}; }
-  function start(e){ drawing=true; last=pos(e); e.preventDefault(); }
-  function move(e){ if(!drawing)return; var p=pos(e); sigCtx.beginPath(); sigCtx.moveTo(last.x,last.y); sigCtx.lineTo(p.x,p.y); sigCtx.stroke(); last=p; sigDrawn=true; e.preventDefault(); }
-  function end(){ drawing=false; }
-  cv.onmousedown=start; cv.onmousemove=move; cv.onmouseup=end; cv.onmouseleave=end;
-  cv.ontouchstart=start; cv.ontouchmove=move; cv.ontouchend=end;
-}
-function clearSig(){ var cv=document.getElementById('cmSig'); if(sigCtx) sigCtx.clearRect(0,0,cv.width,cv.height); sigDrawn=false; }
+function cmToggle(){var oc=document.getElementById('cmOutcome').value;document.getElementById('cmSubWrap').style.display=oc==='succesvol'?'block':'none';document.getElementById('cmSignWrap').style.display=oc==='succesvol'?'block':'none';}
+function initSig(){var cv=document.getElementById('cmSig');if(!cv)return;var r=cv.getBoundingClientRect();cv.width=r.width;cv.height=140;sigCtx=cv.getContext('2d');sigCtx.strokeStyle='#13322f';sigCtx.lineWidth=2.5;sigCtx.lineCap='round';sigDrawn=false;var dr=false,last=null;function pos(e){var t=e.touches?e.touches[0]:e,b=cv.getBoundingClientRect();return {x:t.clientX-b.left,y:t.clientY-b.top};}function s(e){dr=true;last=pos(e);e.preventDefault();}function mv(e){if(!dr)return;var p=pos(e);sigCtx.beginPath();sigCtx.moveTo(last.x,last.y);sigCtx.lineTo(p.x,p.y);sigCtx.stroke();last=p;sigDrawn=true;e.preventDefault();}function en(){dr=false;}cv.onmousedown=s;cv.onmousemove=mv;cv.onmouseup=en;cv.onmouseleave=en;cv.ontouchstart=s;cv.ontouchmove=mv;cv.ontouchend=en;}
+function clearSig(){var cv=document.getElementById('cmSig');if(sigCtx)sigCtx.clearRect(0,0,cv.width,cv.height);sigDrawn=false;}
 function submitComplete(){
-  var pid=document.getElementById('cmPid').value;
-  var oc=document.getElementById('cmOutcome').value;
-  var sub=oc==='succesvol'?document.getElementById('cmSub').value:'';
-  var receiver=document.getElementById('cmReceiver').value.trim();
-  var sig=(oc==='succesvol' && sigDrawn)?document.getElementById('cmSig').toDataURL('image/png'):'';
+  var pid=document.getElementById('cmPid').value, oc=document.getElementById('cmOutcome').value;
+  var sub=oc==='succesvol'?document.getElementById('cmSub').value:'', receiver=document.getElementById('cmReceiver').value.trim();
+  var sig=(oc==='succesvol'&&sigDrawn)?document.getElementById('cmSig').toDataURL('image/png'):'';
   var err=document.getElementById('cmErr');
-  if(oc==='succesvol' && (!receiver || !sig)){ err.textContent='Vul de naam in én laat de ontvanger tekenen.'; err.style.display='block'; return; }
-  var fd=new URLSearchParams({receiver:receiver, signature:sig, outcome:oc, sub_outcome:sub});
-  var url='{{ url_for("planning.monteur_complete", pid=0) }}'.slice(0,-1)+pid;
-  fetch(url, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
-    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else { err.textContent=res.error||'Mislukt'; err.style.display='block'; } });
+  if(oc==='succesvol'&&(!receiver||!sig)){err.textContent='Vul de naam in én laat de ontvanger tekenen.';err.style.display='block';return;}
+  var fd=new URLSearchParams({receiver:receiver,signature:sig,outcome:oc,sub_outcome:sub});
+  fetch('{{ url_for("planning.monteur_complete", pid=0) }}'.slice(0,-1)+pid,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
+    .then(function(r){return r.json();}).then(function(res){if(res.ok)location.reload();else{err.textContent=res.error||'Mislukt';err.style.display='block';}});
 }
-function lvToggle(){
-  var afs=document.getElementById('lvCat').value==='afspraak';
-  document.getElementById('lvTimeWrap').style.display=afs?'block':'none';
-  document.getElementById('lvTypeWrap').style.display=afs?'none':'block';
-  document.getElementById('lvToWrap').style.display=afs?'none':'block';
-}
-function submitLeave(btn){
-  var fd=new URLSearchParams(new FormData(document.getElementById('leaveForm')));
-  btn.disabled=true;
+function lvToggle(){var afs=document.getElementById('lvCat').value==='afspraak';document.getElementById('lvTimeWrap').style.display=afs?'block':'none';document.getElementById('lvTypeWrap').style.display=afs?'none':'block';document.getElementById('lvToWrap').style.display=afs?'none':'block';}
+function submitLeave(btn){var fd=new URLSearchParams(new FormData(document.getElementById('leaveForm')));btn.disabled=true;
   fetch('{{ url_for("planning.api_leave_request") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
-    .then(function(r){return r.json();}).then(function(res){ if(res.ok){ alert('Aanvraag ingediend. Je krijgt bericht zodra er een beslissing is.'); document.getElementById('leaveModal').style.display='none'; } else { btn.disabled=false; alert(res.error||'Mislukt'); } });
-}
-function confirmCloseRoute(){ document.getElementById('closeConfirm').style.display='flex'; }
-function doCloseRoute(){
-  fetch('{{ url_for("planning.close_route") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); });
-}
+    .then(function(r){return r.json();}).then(function(res){if(res.ok){alert('Aanvraag ingediend. Je krijgt bericht zodra er een beslissing is.');document.getElementById('leaveModal').style.display='none';}else{btn.disabled=false;alert(res.error||'Mislukt');}});}
+function confirmCloseRoute(){document.getElementById('closeConfirm').style.display='flex';}
+function doCloseRoute(){fetch('{{ url_for("planning.close_route") }}',{method:'POST'}).then(function(){location.reload();});}
 var gpsWatch=null;
-function postLoc(lat,lng,live){
-  fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({lat:lat,lng:lng,live:live})});
-}
-function toggleGps(){
-  var btn=document.getElementById('gpsBtn'), st=document.getElementById('gpsState');
-  if(gpsWatch===null){
-    if(!navigator.geolocation){ alert('Deze telefoon ondersteunt geen GPS.'); return; }
-    gpsWatch=navigator.geolocation.watchPosition(function(p){
-      postLoc(p.coords.latitude, p.coords.longitude, true);
-      st.textContent='Live locatie aan';
-    }, function(err){
-      alert('Locatie niet beschikbaar: '+err.message);
-    }, {enableHighAccuracy:true, maximumAge:10000, timeout:15000});
-    btn.textContent='Uitzetten'; btn.classList.add('on'); st.textContent='Live locatie aan';
-  } else {
-    navigator.geolocation.clearWatch(gpsWatch); gpsWatch=null;
-    btn.textContent='Aanzetten'; btn.classList.remove('on'); st.textContent='Live locatie uit';
-    // laatste bekende positie als 'niet live' markeren
-    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ postLoc(p.coords.latitude,p.coords.longitude,false); });
-  }
-}
+function toggleGps(){var btn=document.getElementById('gpsBtn'),st=document.getElementById('gpsState');
+  if(gpsWatch===null){if(!navigator.geolocation){alert('Geen GPS beschikbaar.');return;}
+    gpsWatch=navigator.geolocation.watchPosition(function(p){fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lng:p.coords.longitude,live:true})});st.textContent='Live locatie aan';},function(e){alert('Locatie niet beschikbaar: '+e.message);},{enableHighAccuracy:true,maximumAge:10000,timeout:15000});
+    btn.textContent='Uitzetten';st.textContent='Live locatie aan';}
+  else{navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;btn.textContent='Aanzetten';st.textContent='Live locatie uit';
+    if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lng:p.coords.longitude,live:false})});});}}
 </script>
 {% endblock %}

@@ -2032,6 +2032,32 @@ def monteur_complete(pid):
     return jsonify(ok=True)
 
 
+@bp.route("/app")
+def app_home():
+    """Deelbare mobiele link voor monteurs."""
+    u = current_user()
+    if not u:
+        return redirect(url_for("planning.login", next=url_for("planning.monteur_app")))
+    if u["role"] == "monteur" or u["monteur_id"]:
+        return redirect(url_for("planning.monteur_app"))
+    return redirect(url_for("planning.dashboard"))
+
+
+@bp.route("/monteur/start/<int:pid>", methods=["POST"])
+def monteur_start(pid):
+    if not has_perm("monteur_app"):
+        return jsonify(ok=False), 403
+    u = current_user()
+    conn = db()
+    p = conn.execute("SELECT * FROM planning WHERE id=? AND monteur_id=?", (pid, u["monteur_id"])).fetchone()
+    if p:
+        conn.execute("UPDATE planning SET status='onderweg' WHERE id=?", (pid,))
+        conn.execute("UPDATE orders SET status='onderweg' WHERE id=?", (p["order_id"],))
+        conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
 @bp.route("/monteur/close-route", methods=["POST"])
 def close_route():
     """Monteur sluit zijn route voor vandaag; klantgegevens verdwijnen uit zijn app (privacy)."""
