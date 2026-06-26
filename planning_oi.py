@@ -248,6 +248,12 @@ def init_db():
     CREATE TABLE IF NOT EXISTS chat_messages(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER, text TEXT, order_number TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS deliveries(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_id INTEGER, monteur_id INTEGER, receiver TEXT, signature TEXT,
+        outcome TEXT, sub_outcome TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS route_closed(
+        monteur_id INTEGER, date TEXT, ts TEXT, PRIMARY KEY(monteur_id, date));
     CREATE TABLE IF NOT EXISTS clients(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL, email TEXT, phone TEXT,
@@ -308,6 +314,8 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN mailed INTEGER DEFAULT 0",
                  "ALTER TABLE orders ADD COLUMN service_type TEXT DEFAULT 'montage'",
                  "ALTER TABLE orders ADD COLUMN pakbon TEXT",
+                 "ALTER TABLE orders ADD COLUMN fulfilled INTEGER DEFAULT 0",
+                 "ALTER TABLE orders ADD COLUMN fulfilled_at TEXT",
                  "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1"):
         try:
             conn.execute(stmt)
@@ -643,12 +651,11 @@ def login_required(perm=None):
 # Navigatie: items met 'endpoint' (link) of 'children' (uitklapbare groep onder Instellingen/Orders).
 NAV = [
     {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "▦", "perm": "view_planning"},
-    {"label": "Planning", "icon": "🗓", "perm": "view_planning", "children": [
-        {"label": "Dagplanning", "endpoint": "planning.planning", "perm": "view_planning"},
-        {"label": "Routes", "endpoint": "planning.routes", "perm": "edit_routes"}]},
+    {"label": "Planning & routes", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning"},
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
+    {"label": "Leveringen", "endpoint": "planning.deliveries", "icon": "✍", "perm": "view_reports"},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
@@ -1771,25 +1778,125 @@ def monteur_app():
                                FROM planning p JOIN orders o ON o.id=p.order_id
                                LEFT JOIN clients c ON c.id=o.client_id
                                WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, today)).fetchall()
+    closed = False
+    if mid:
+        closed = conn.execute("SELECT 1 FROM route_closed WHERE monteur_id=? AND date=?",
+                              (mid, today)).fetchone() is not None
     conn.close()
     alerts = route_alerts(mid, bool(jobs)) if mid else []
+    all_done = bool(jobs) and all(j["status"] == "afgerond" for j in jobs)
     return render_template("planning/monteur_app.html", monteur=monteur, jobs=jobs, alerts=alerts,
+                           closed=closed, all_done=all_done,
                            maps_ready=(integ_status("google_maps") == "verbonden"))
+
+
+def cleanup_old_signatures():
+    """Handtekeningen ouder dan 30 dagen automatisch verwijderen (privacy)."""
+    cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+    try:
+        conn = db()
+        conn.execute("DELETE FROM deliveries WHERE ts < ?", (cutoff,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 @bp.route("/monteur/complete/<int:pid>", methods=["POST"])
 def monteur_complete(pid):
     if not has_perm("monteur_app") and not has_perm("complete_deliveries"):
         abort(403)
+    receiver = (request.form.get("receiver") or "").strip()
+    signature = request.form.get("signature") or ""
+    outcome = request.form.get("outcome") or "succesvol"
+    sub = request.form.get("sub_outcome") or ""
+    # Handtekening + ontvanger verplicht bij een succesvolle levering.
+    if outcome == "succesvol" and (not receiver or not signature):
+        return jsonify(ok=False, error="Ontvanger en handtekening zijn verplicht."), 400
     conn = db()
     p = conn.execute("SELECT * FROM planning WHERE id=?", (pid,)).fetchone()
     if p:
         conn.execute("UPDATE planning SET status='afgerond' WHERE id=?", (pid,))
-        conn.execute("UPDATE orders SET status='afgerond' WHERE id=?", (p["order_id"],))
+        # Order afronden én automatisch afhandelen naar Shopify (klaar voor facturatie/betaling).
+        conn.execute("UPDATE orders SET status='afgerond', fulfilled=1, fulfilled_at=? WHERE id=?",
+                     (datetime.now().isoformat(timespec="minutes"), p["order_id"]))
+        conn.execute("""INSERT INTO deliveries(order_id,monteur_id,receiver,signature,outcome,sub_outcome,ts)
+                        VALUES(?,?,?,?,?,?,?)""",
+                     (p["order_id"], p["monteur_id"], receiver, signature, outcome, sub,
+                      datetime.now().isoformat(timespec="seconds")))
         conn.commit()
-        flash("Levering afgerond.")
     conn.close()
-    return redirect(url_for("planning.monteur_app"))
+    cleanup_old_signatures()
+    return jsonify(ok=True)
+
+
+@bp.route("/monteur/close-route", methods=["POST"])
+def close_route():
+    """Monteur sluit zijn route voor vandaag; klantgegevens verdwijnen uit zijn app (privacy)."""
+    u = current_user()
+    if not u or not u["monteur_id"]:
+        return jsonify(ok=False), 403
+    conn = db()
+    conn.execute("""INSERT INTO route_closed(monteur_id,date,ts) VALUES(?,?,?)
+                    ON CONFLICT(monteur_id,date) DO UPDATE SET ts=excluded.ts""",
+                 (u["monteur_id"], _today_iso(), datetime.now().isoformat(timespec="minutes")))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/api/route-geo/<int:mid>")
+def api_route_geo(mid):
+    """Coördinaten voor 'Bekijk route' op de kaart (home -> stops -> Breda)."""
+    if not current_user():
+        return jsonify(ok=False), 403
+    day = request.args.get("day", _today_iso())
+    conn = db()
+    m = conn.execute("SELECT name,home_lat,home_lng,home_address FROM monteurs WHERE id=?", (mid,)).fetchone()
+    rows = conn.execute("""SELECT o.city, o.delivery_address, c.name AS client FROM planning p
+                           JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
+    conn.close()
+    pts = []
+    if m and m["home_lat"]:
+        pts.append({"lat": m["home_lat"], "lng": m["home_lng"], "label": "Start: " + (m["home_address"] or "thuis")})
+    for r in rows:
+        c = CITY_COORDS.get(r["city"])
+        if c:
+            pts.append({"lat": c[0], "lng": c[1], "label": (r["client"] or "") + " · " + (r["city"] or ""),
+                        "address": r["delivery_address"]})
+    pts.append({"lat": BREDA[0], "lng": BREDA[1], "label": "Terug: " + HOME_BASE})
+    return jsonify(ok=True, name=(m["name"] if m else ""), points=pts)
+
+
+@bp.route("/deliveries")
+def deliveries():
+    """Office: leverrapport per monteur (week/maand) + handtekeningenlog (30 dagen)."""
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    cleanup_old_signatures()
+    today = datetime.now().date()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    month_start = today.replace(day=1).isoformat()
+    conn = db()
+    monteurs = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
+    OUTCOMES = ["succesvol", "beschadigd", "niet_thuis"]
+    report = []
+    for m in monteurs:
+        def cnt(since, oc):
+            return conn.execute("SELECT COUNT(*) FROM deliveries WHERE monteur_id=? AND ts>=? AND outcome=?",
+                                (m["id"], since, oc)).fetchone()[0]
+        wk = {oc: cnt(week_start, oc) for oc in OUTCOMES}
+        mo = {oc: cnt(month_start, oc) for oc in OUTCOMES}
+        if sum(wk.values()) + sum(mo.values()) > 0:
+            report.append({"name": m["name"], "week": wk, "month": mo})
+    log = conn.execute("""SELECT d.*, o.order_number, c.name AS client, m.name AS monteur
+                          FROM deliveries d LEFT JOIN orders o ON o.id=d.order_id
+                          LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id
+                          ORDER BY d.ts DESC LIMIT 200""").fetchall()
+    conn.close()
+    return render_template("planning/deliveries.html", report=report, log=log)
 
 
 # Idempotent initialiseren bij import (ook onder gunicorn).

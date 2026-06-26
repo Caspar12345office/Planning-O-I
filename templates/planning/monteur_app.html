@@ -64,6 +64,9 @@
       {% endif %}
     </div>
     <div class="ph-body">
+      {% if closed %}
+        <div class="jc" style="text-align:center;padding:26px 14px"><div style="font-size:34px">🔒</div><b style="font-size:16px">Route afgesloten</b><div class="ad">De klantgegevens van vandaag zijn gewist. Fijne dag verder!</div></div>
+      {% else %}
       {% if monteur and jobs %}
         {% if alerts %}
         <div class="alert" id="fileAlert">⚠ <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · <b style="display:inline">+{{ a.min }} min</b><br>{% endfor %}Je aankomsttijden zijn hierop bijgewerkt.</div><span class="ax" onclick="this.closest('.alert').style.display='none'">✕</span></div>
@@ -95,16 +98,17 @@
           </div>
           {% if j.status!='afgerond' %}
           <div class="acts">
-            <button class="ghostbtn" onclick="alert('Hier opent de afleverbon: foto’s toevoegen en handtekening van de klant.')">📷 Bon &amp; handtekening</button>
-            <form method="post" action="{{ url_for('planning.monteur_complete', pid=j.id) }}">
-              <button class="donebtn" type="submit">Levering afronden</button>
-            </form>
+            <button class="donebtn" onclick="openComplete({{ j.id }}, '{{ j.client|e }}')">Levering afronden</button>
           </div>
           {% endif %}
         </div>
         {% endfor %}
+        {% if all_done %}
+        <button class="donebtn" style="background:#a23d2a;margin-top:4px" onclick="confirmCloseRoute()">🔒 Sluit route voor vandaag</button>
+        {% endif %}
       {% endif %}
-      <p class="muted" style="font-size:11.5px;text-align:center;margin-top:6px">Navigatie opent in Google Maps, Apple Maps of Waze. Bij actieve GPS-koppeling deelt de app automatisch de live locatie en ETA met de planner en klant.</p>
+      <p class="muted" style="font-size:11.5px;text-align:center;margin-top:6px">Navigatie opent in Google Maps, Apple Maps of Waze. Bij het afronden registreer je naam + handtekening van de ontvanger.</p>
+      {% endif %}
     </div>
   </div></div>
 </div>
@@ -115,6 +119,50 @@
     <h3>Grote file op je route</h3>
     <p>File op de A2 richting Den Bosch — verwachte vertraging <b>+20 min</b>. Je aankomsttijden zijn bijgewerkt.</p>
     <button class="donebtn" onclick="document.getElementById('filePopup').style.display='none'">Begrepen</button>
+  </div>
+</div>
+
+<div class="filepop" id="completeModal">
+  <div class="fb" style="text-align:left;width:min(340px,92vw)">
+    <h3 style="color:var(--accent);margin:0 0 2px">Levering afronden</h3>
+    <div class="muted" id="cmClient" style="font-size:13px;margin-bottom:10px"></div>
+    <input type="hidden" id="cmPid">
+    <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Resultaat</div>
+    <select id="cmOutcome" onchange="cmToggle()" style="width:100%;margin-bottom:8px">
+      <option value="succesvol">Levering succesvol</option>
+      <option value="beschadigd">Levering beschadigd / incompleet</option>
+      <option value="niet_thuis">Ontvanger niet thuis</option>
+    </select>
+    <div id="cmSubWrap" style="margin-bottom:8px">
+      <select id="cmSub" style="width:100%">
+        <option value="adres in 1x correct">Adres was in 1x correct</option>
+        <option value="adres was niet juist">Adres was niet juist</option>
+      </select>
+    </div>
+    <div id="cmSignWrap">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Naam ontvanger</div>
+      <input id="cmReceiver" placeholder="Naam ontvanger" style="width:100%;margin-bottom:8px">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:5px">Handtekening ontvanger</div>
+      <canvas id="cmSig" width="300" height="120" style="width:100%;height:120px;border:1px solid var(--line);border-radius:8px;background:#fff;touch-action:none"></canvas>
+      <button type="button" onclick="clearSig()" style="background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 0">opnieuw tekenen</button>
+    </div>
+    <div id="cmErr" style="color:#a23d2a;font-size:12.5px;display:none;margin-bottom:6px"></div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <button class="ghostbtn" onclick="document.getElementById('completeModal').style.display='none'">Annuleren</button>
+      <button class="donebtn" onclick="submitComplete()">Bevestig &amp; volgende</button>
+    </div>
+  </div>
+</div>
+
+<div class="filepop" id="closeConfirm">
+  <div class="fb">
+    <div class="ic">🔒</div>
+    <h3 style="color:var(--accent)">Route afsluiten?</h3>
+    <p>Weet je het zeker? De klantgegevens van vandaag worden gewist (privacy). Dit kan niet ongedaan worden gemaakt.</p>
+    <div style="display:flex;gap:8px">
+      <button class="ghostbtn" onclick="document.getElementById('closeConfirm').style.display='none'">Nee</button>
+      <button class="donebtn" style="background:#a23d2a" onclick="doCloseRoute()">Ja, sluit route</button>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -133,6 +181,54 @@ function wmoIcon(c){ if(c===0)return'☀'; if(c<=3)return'⛅'; if(c<=48)return'
   // file-popup tonen als er een grote file op de route is (demo; live via verkeerskoppeling)
   var fp=document.getElementById('filePopup'); if(fp && document.getElementById('fileAlert')){ setTimeout(function(){fp.style.display='flex';}, 800); }
 })();
+
+// ---- Levering afronden: ontvanger + handtekening + resultaat ----
+var sigCtx=null, sigDrawn=false;
+function openComplete(pid, client){
+  document.getElementById('cmPid').value=pid;
+  document.getElementById('cmClient').textContent=client;
+  document.getElementById('cmOutcome').value='succesvol';
+  document.getElementById('cmReceiver').value='';
+  document.getElementById('cmErr').style.display='none';
+  cmToggle();
+  document.getElementById('completeModal').style.display='flex';
+  setTimeout(initSig, 50);
+}
+function cmToggle(){
+  var oc=document.getElementById('cmOutcome').value;
+  document.getElementById('cmSubWrap').style.display = (oc==='succesvol')?'block':'none';
+  document.getElementById('cmSignWrap').style.display = (oc==='succesvol')?'block':'none';
+}
+function initSig(){
+  var cv=document.getElementById('cmSig'); if(!cv) return;
+  var r=cv.getBoundingClientRect(); cv.width=r.width; cv.height=r.height;
+  sigCtx=cv.getContext('2d'); sigCtx.strokeStyle='#13322f'; sigCtx.lineWidth=2; sigCtx.lineCap='round'; sigDrawn=false;
+  var drawing=false, last=null;
+  function pos(e){ var t=e.touches?e.touches[0]:e; var b=cv.getBoundingClientRect(); return {x:t.clientX-b.left,y:t.clientY-b.top}; }
+  function start(e){ drawing=true; last=pos(e); e.preventDefault(); }
+  function move(e){ if(!drawing)return; var p=pos(e); sigCtx.beginPath(); sigCtx.moveTo(last.x,last.y); sigCtx.lineTo(p.x,p.y); sigCtx.stroke(); last=p; sigDrawn=true; e.preventDefault(); }
+  function end(){ drawing=false; }
+  cv.onmousedown=start; cv.onmousemove=move; cv.onmouseup=end; cv.onmouseleave=end;
+  cv.ontouchstart=start; cv.ontouchmove=move; cv.ontouchend=end;
+}
+function clearSig(){ var cv=document.getElementById('cmSig'); if(sigCtx) sigCtx.clearRect(0,0,cv.width,cv.height); sigDrawn=false; }
+function submitComplete(){
+  var pid=document.getElementById('cmPid').value;
+  var oc=document.getElementById('cmOutcome').value;
+  var sub=oc==='succesvol'?document.getElementById('cmSub').value:'';
+  var receiver=document.getElementById('cmReceiver').value.trim();
+  var sig=(oc==='succesvol' && sigDrawn)?document.getElementById('cmSig').toDataURL('image/png'):'';
+  var err=document.getElementById('cmErr');
+  if(oc==='succesvol' && (!receiver || !sig)){ err.textContent='Vul de naam in én laat de ontvanger tekenen.'; err.style.display='block'; return; }
+  var fd=new URLSearchParams({receiver:receiver, signature:sig, outcome:oc, sub_outcome:sub});
+  var url='{{ url_for("planning.monteur_complete", pid=0) }}'.slice(0,-1)+pid;
+  fetch(url, {method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else { err.textContent=res.error||'Mislukt'; err.style.display='block'; } });
+}
+function confirmCloseRoute(){ document.getElementById('closeConfirm').style.display='flex'; }
+function doCloseRoute(){
+  fetch('{{ url_for("planning.close_route") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); });
+}
 var gpsWatch=null;
 function postLoc(lat,lng,live){
   fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},

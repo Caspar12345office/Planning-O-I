@@ -1,0 +1,57 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Leveringen · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Leveringen</h1><p>Leverrapport per monteur (week &amp; maand) en handtekeningenlog · handtekeningen worden na 30 dagen automatisch gewist</p>{% endblock %}
+{% block page_css %}
+  .lbl-s{font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px}
+  .lbl-s.succesvol{background:#e3f3da;color:#3c7a2c}
+  .lbl-s.beschadigd{background:#f7e2dc;color:#a23d2a}
+  .lbl-s.niet_thuis{background:#fbeccd;color:#9a6a17}
+  .rep{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+  .rep .b{background:var(--soft);border-radius:9px;padding:9px 11px;font-size:12.5px}
+  .rep .b b{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+  .sig{max-width:150px;max-height:60px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  .mcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow-sm);margin-bottom:14px}
+{% endblock %}
+{% block content %}
+<h2 style="font-size:18px;color:var(--accent);margin-bottom:12px">Rapport per monteur</h2>
+{% for r in report %}
+<div class="mcard">
+  <b style="font-size:15px">{{ r.name }}</b>
+  <div class="rep">
+    <div class="b"><b>Deze week</b>
+      <span class="lbl-s succesvol">{{ r.week.succesvol }} succesvol</span>
+      <span class="lbl-s beschadigd">{{ r.week.beschadigd }} beschadigd</span>
+      <span class="lbl-s niet_thuis">{{ r.week.niet_thuis }} niet thuis</span></div>
+    <div class="b"><b>Deze maand</b>
+      <span class="lbl-s succesvol">{{ r.month.succesvol }} succesvol</span>
+      <span class="lbl-s beschadigd">{{ r.month.beschadigd }} beschadigd</span>
+      <span class="lbl-s niet_thuis">{{ r.month.niet_thuis }} niet thuis</span></div>
+  </div>
+</div>
+{% else %}
+<p class="muted">Nog geen afgeronde leveringen geregistreerd.</p>
+{% endfor %}
+
+<h2 style="font-size:18px;color:var(--accent);margin:22px 0 12px">Handtekeningenlog <span class="muted" style="font-size:13px;font-weight:400">· laatste 30 dagen</span></h2>
+<div class="card" style="padding:6px">
+<table>
+  <thead><tr><th>Datum</th><th>Order</th><th>Klant</th><th>Monteur</th><th>Ontvanger</th><th>Resultaat</th><th>Handtekening</th></tr></thead>
+  <tbody>
+  {% for d in log %}
+    <tr>
+      <td>{{ d.ts.replace('T',' ') }}</td>
+      <td>#{{ d.order_number }}</td>
+      <td>{{ d.client }}</td>
+      <td>{{ d.monteur }}</td>
+      <td>{{ d.receiver or '—' }}</td>
+      <td><span class="lbl-s {{ d.outcome }}">{{ d.outcome }}{% if d.sub_outcome %} · {{ d.sub_outcome }}{% endif %}</span></td>
+      <td>{% if d.signature %}<img class="sig" src="{{ d.signature }}" alt="handtekening">{% else %}—{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted" style="text-align:center;padding:20px">Nog geen handtekeningen geregistreerd.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="muted" style="font-size:12px;margin-top:10px">🔒 Handtekeningen en ontvangernamen worden automatisch verwijderd zodra ze 30 dagen oud zijn (privacy).</p>
+{% endblock %}
