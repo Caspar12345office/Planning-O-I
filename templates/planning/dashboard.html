@@ -111,7 +111,7 @@
         {% for m in underway %}
         <div class="ow">
           <span class="dot" style="background:{{ m.color }}"></span>
-          <div class="who"><b>{{ m.name }}</b><span>{% if m.client %}nu bij {{ m.client }}{% else %}onderweg{% endif %} · nog {{ m.remaining }} stop(s)</span></div>
+          <div class="who"><b>{{ m.name }}</b><span>{% if m.next_client %}onderweg naar {{ m.next_client }}{% else %}onderweg{% endif %} · hierna nog {{ m.stops_after }} stop(s)</span></div>
           <div class="eta"><b>{{ m.eta_base }}</b><span>± {{ m.km_base }} km</span></div>
         </div>
         {% endfor %}

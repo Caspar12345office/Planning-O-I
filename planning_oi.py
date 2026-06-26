@@ -263,7 +263,7 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER UNIQUE, monteur_id INTEGER, bus_id INTEGER,
         date TEXT, slot_start TEXT, slot_end TEXT, sequence INTEGER DEFAULT 0,
-        confirmed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
+        confirmed INTEGER DEFAULT 0, mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
     CREATE TABLE IF NOT EXISTS free_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT);
@@ -286,10 +286,13 @@ def init_db():
         text TEXT, ts TEXT, resolved INTEGER DEFAULT 0);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
-    try:
-        conn.execute("ALTER TABLE users ADD COLUMN last_seen TEXT")
-    except Exception:
-        pass
+    for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
+                 "ALTER TABLE planning ADD COLUMN mailed INTEGER DEFAULT 0",
+                 "ALTER TABLE orders ADD COLUMN service_type TEXT DEFAULT 'montage'"):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
     conn.commit()
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed(conn)
@@ -599,16 +602,18 @@ def login_required(perm=None):
 # Navigatie: items met 'endpoint' (link) of 'children' (uitklapbare groep onder Instellingen/Orders).
 NAV = [
     {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "▦", "perm": "view_planning"},
-    {"label": "Planning", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning",
-     "subs": [{"label": "Routes", "endpoint": "planning.routes", "perm": "edit_routes"}]},
+    {"label": "Planning", "icon": "🗓", "perm": "view_planning", "children": [
+        {"label": "Dagplanning", "endpoint": "planning.planning", "perm": "view_planning"},
+        {"label": "Routes", "endpoint": "planning.routes", "perm": "edit_routes"}]},
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
-    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel",
-     "subs": [{"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"}]},
+    {"label": "Bussen", "icon": "🚐", "perm": "view_personnel", "children": [
+        {"label": "Bussenoverzicht", "endpoint": "planning.busses", "perm": "view_personnel"},
+        {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
@@ -774,14 +779,14 @@ def dashboard():
         remaining = conn.execute("""SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'""",
                                  (r["id"], today)).fetchone()[0]
         eta, km = eta_back_to_base(r["lat"], r["lng"], remaining, r["speed"])
-        cur = conn.execute("""SELECT c.name AS client, o.delivery_address FROM planning p
+        # eerstvolgende stop = waar hij nu naartoe onderweg is
+        nxt = conn.execute("""SELECT c.name AS client FROM planning p
                               JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-                              WHERE p.monteur_id=? AND p.date=? AND p.status='onderweg' LIMIT 1""",
-                           (r["id"], today)).fetchone()
+                              WHERE p.monteur_id=? AND p.date=? AND p.status!='afgerond'
+                              ORDER BY p.sequence LIMIT 1""", (r["id"], today)).fetchone()
         underway.append({"name": r["name"], "color": r["color"], "eta_base": eta, "km_base": km,
-                         "remaining": remaining, "client": (cur["client"] if cur else None),
-                         "address": (cur["delivery_address"] if cur else None),
-                         "updated": r["updated_at"]})
+                         "next_client": (nxt["client"] if nxt else None),
+                         "stops_after": max(0, remaining - 1), "updated": r["updated_at"]})
 
     unplanned_all = conn.execute("""SELECT o.*, c.name AS client,
                                      (SELECT GROUP_CONCAT(qty || 'x ' || name, ', ') FROM order_items WHERE order_id=o.id) AS items
@@ -1015,6 +1020,100 @@ def api_confirm():
     conn.commit()
     conn.close()
     return jsonify(ok=True)
+
+
+def _home_city(monteur):
+    addr = monteur["home_address"] or ""
+    return addr.split(",")[-1].strip() if addr else ""
+
+
+@bp.route("/api/autoplan", methods=["POST"])
+def api_autoplan():
+    """Plan openstaande (Shopify-)orders automatisch op de best passende dag/monteur
+    qua regio-route: orders in dezelfde provincie komen bij dezelfde monteur op dezelfde dag."""
+    if not has_perm("plan_orders"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    today = datetime.now().date()
+    days = []
+    d = today
+    while len(days) < 6:
+        if d.weekday() < 5:
+            days.append(d.isoformat())
+        d += timedelta(days=1)
+    monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1").fetchall()
+    frees = conn.execute("SELECT monteur_id,date_from,date_to FROM free_days").fetchall()
+
+    def is_free(mid, diso):
+        return any(f["monteur_id"] == mid and f["date_from"] <= diso <= f["date_to"] for f in frees)
+
+    orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
+    planned = 0
+    for o in orders:
+        oprov = PROVINCE.get(o["city"])
+        best, best_score = None, -1e9
+        for di, diso in enumerate(days):
+            for m in monteurs:
+                if is_free(m["id"], diso):
+                    continue
+                stops = conn.execute("""SELECT o2.city FROM planning p JOIN orders o2 ON o2.id=p.order_id
+                                        WHERE p.monteur_id=? AND p.date=?""", (m["id"], diso)).fetchall()
+                cnt = len(stops)
+                cap = 8
+                if cnt >= cap:
+                    continue
+                provs = [PROVINCE.get(s["city"]) for s in stops]
+                score = 0.0
+                if oprov and oprov in provs:
+                    score += 120          # zelfde regio als bestaande route die dag
+                if oprov and PROVINCE.get(_home_city(m)) == oprov:
+                    score += 30           # monteur woont in die regio
+                score -= cnt * 7          # spreid de belasting
+                score -= di * 3           # liever eerder
+                if score > best_score:
+                    best_score, best = score, (m["id"], diso, cnt)
+        if best:
+            mid, diso, seq = best
+            mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
+            conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
+                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
+            conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
+            planned += 1
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, planned=planned)
+
+
+@bp.route("/api/send-confirmations", methods=["POST"])
+def api_send_confirmations():
+    """Verstuur in één klik de bevestigingsmails voor nieuw geplande orders."""
+    if not has_perm("inform_clients"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    tpl_row = conn.execute("SELECT value FROM settings WHERE skey='tpl_confirm'").fetchone()
+    body_tpl = tpl_row["value"] if tpl_row else "Beste {klant}, uw levering is gepland op {datum} ({tijdvak})."
+    rows = conn.execute("""SELECT p.id AS pid, p.date, p.slot_start, p.slot_end,
+                           o.order_number, o.client_id, c.name AS client
+                           FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE p.mailed=0 AND p.status!='afgerond'""").fetchall()
+    sent = 0
+    for r in rows:
+        tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
+        try:
+            body = body_tpl.format(klant=(r["client"] or "klant"), datum=r["date"], tijdvak=tijdvak,
+                                   telefoon="085-0481444", email="info@office-interior.com")
+        except Exception:
+            body = body_tpl
+        conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
+                        VALUES(?,?,?,?,?,0)""",
+                     (r["client_id"], "out", "Bevestiging van uw levering #" + r["order_number"],
+                      body, datetime.now().isoformat(timespec="minutes")))
+        conn.execute("UPDATE planning SET mailed=1 WHERE id=?", (r["pid"],))
+        sent += 1
+    conn.commit()
+    conn.close()
+    gmail_live = (integ_status("gmail") == "verbonden")
+    return jsonify(ok=True, sent=sent, gmail_live=gmail_live)
 
 
 @bp.route("/api/order-contact/<int:oid>")
