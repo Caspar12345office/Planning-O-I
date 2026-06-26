@@ -939,7 +939,7 @@ def planning():
             d2["at"] = a["at"]
             d2["at_status"] = a["status"]
             d2["at_delta"] = a["delta"]
-            d2["important"] = (s["amount"] or 0) >= 200
+            d2["important"] = (s["amount"] or 0) >= 2000
             d2["ml"] = "L" if (s["service_type"] == "levering") else "M"
             d2["items"] = items_map.get(s["order_id"], "")
             enriched.append(d2)

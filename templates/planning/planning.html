@@ -74,11 +74,11 @@
 
 <div class="tray" id="tray">
   <div class="hd"><h3>Nog in te plannen</h3><span class="count">{{ unplanned|length }}</span>
-    {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route. Sleep een rij hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€200+)</b></span>{% endif %}</div>
+    {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route. Sleep een rij hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€2000+)</b></span>{% endif %}</div>
   <div class="traycards">
     {% for o in unplanned %}
-    <div class="ocard {{ 'imp' if (o.amount or 0) >= 200 }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ o.id }}">
-      <div style="display:flex;justify-content:space-between;align-items:center"><span class="num">#{{ o.order_number }}</span>{% if (o.amount or 0)>=200 %}<span class="ml" style="background:#fbeccd;color:#9a6a17">€{{ o.amount|int }}</span>{% endif %}</div>
+    <div class="ocard {{ 'imp' if (o.amount or 0) >= 2000 }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ o.id }}">
+      <div style="display:flex;justify-content:space-between;align-items:center"><span class="num">#{{ o.order_number }}</span>{% if (o.amount or 0)>=2000 %}<span class="ml" style="background:#fbeccd;color:#9a6a17">€{{ o.amount|int }}</span>{% endif %}</div>
       <div class="cl">{{ o.client }}</div>
       <div class="it">{{ items.get(o.id, '—') }}</div>
     </div>
