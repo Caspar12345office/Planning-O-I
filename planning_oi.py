@@ -1843,6 +1843,41 @@ def bus_issue_resolve(iid):
     return redirect(url_for("planning.bus_issues"))
 
 
+# Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).
+# Leegt de demo-inhoud (NIET de koppelingen/instellingen) en draait _seed opnieuw.
+_RESEED_TABLES = ["bus_issues", "bus_choices", "deliveries", "planning", "order_items", "orders",
+                  "clients", "route_closed", "free_days", "email_log", "monteur_location",
+                  "office_days", "vehicle_km", "team_questions", "chat_messages", "leave_requests",
+                  "busses", "monteurs", "users"]
+
+
+@bp.route("/admin/reseed-demo", methods=["POST"])
+def admin_reseed_demo():
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    if (request.form.get("confirm") or "") != "WIS-EN-VUL":
+        abort(400)
+    conn = db()
+    for t in _RESEED_TABLES:
+        try:
+            conn.execute(("TRUNCATE %s RESTART IDENTITY" if IS_PG else "DELETE FROM %s") % t)
+        except Exception:
+            pass
+    if not IS_PG:
+        try:
+            conn.execute("DELETE FROM sqlite_sequence")
+        except Exception:
+            pass
+    conn.commit()
+    _seed(conn)
+    conn.commit()
+    conn.close()
+    session.clear()
+    flash("Demodata opnieuw gevuld met de datum van vandaag. Log opnieuw in.")
+    return redirect(url_for("planning.login"))
+
+
 @bp.route("/free-days", methods=["GET", "POST"])
 def free_days():
     guard = login_required("manage_freedays")
