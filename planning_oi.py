@@ -1087,6 +1087,48 @@ def _send_mail(to_email, subject, body, html_body=None):
         return False
 
 
+def _brand_email(heading, paragraphs, info=None, button=None):
+    """Nette HTML-klantmail in de Office-Interior-huisstijl (teal/goud).
+    paragraphs: lijst tekstalinea's; info: lijst (label, waarde); button: (tekst, url)."""
+    paras = ""
+    for p in (paragraphs or []):
+        if p:
+            paras += ('<p style="margin:0 0 14px;font-size:15px;color:#3a4a45;line-height:1.65;">'
+                      + _esc(p).replace("\n", "<br>") + '</p>')
+    info_html = ""
+    if info:
+        rows = ""
+        for label, value in info:
+            rows += ('<tr><td style="padding:7px 2px;font-size:13px;color:#6b7a74;">' + _esc(label) + '</td>'
+                     '<td style="padding:7px 2px;font-size:14px;color:#16302d;font-weight:bold;text-align:right;">'
+                     + _esc(value) + '</td></tr>')
+        info_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                     'style="background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;margin:4px 0 18px;">'
+                     '<tr><td style="padding:8px 16px;"><table role="presentation" width="100%" cellpadding="0" '
+                     'cellspacing="0">' + rows + '</table></td></tr></table>')
+    btn_html = ""
+    if button:
+        btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:2px 0 18px;">'
+                    '<tr><td style="background:#0f3d3e;border-radius:10px;">'
+                    '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:12px 22px;color:#ffffff;'
+                    'font-size:14px;font-weight:bold;text-decoration:none;">' + _esc(button[0]) + '</a></td></tr></table>')
+    return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:#f1ede5;padding:24px 0;margin:0;"><tr><td align="center">'
+            '<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;'
+            'background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6ebe4;font-family:Arial,Helvetica,sans-serif;">'
+            '<tr><td style="background:#0f3d3e;padding:20px 28px;">'
+            '<span style="color:#ffffff;font-size:19px;font-weight:bold;letter-spacing:1px;">Office-Interior</span>'
+            '<div style="color:#cda35a;font-size:11px;letter-spacing:.08em;margin-top:3px;">BEZORGING &amp; MONTAGE</div></td></tr>'
+            '<tr><td style="padding:28px 28px 4px;">'
+            '<h1 style="margin:0 0 14px;font-size:20px;color:#0f3d3e;font-weight:bold;">' + _esc(heading) + '</h1>'
+            + paras + info_html + btn_html +
+            '</td></tr><tr><td style="padding:6px 28px 24px;">'
+            '<p style="margin:10px 0 0;padding-top:14px;border-top:1px solid #eef0ec;font-size:12px;color:#8a948f;'
+            'line-height:1.6;">Vragen? Bel 085-0481444 of mail info@office-interior.com.<br>'
+            'Office-Interior &middot; Kantoorinrichting, bezorging &amp; montage</p></td></tr>'
+            '</table></td></tr></table>')
+
+
 def _finish_login(u, nxt):
     session["p_user_id"] = u["id"]
     session.pop("twofa", None)
@@ -1638,7 +1680,10 @@ def api_send_confirmations():
         except Exception:
             body = body_tpl
         subject = "Bevestiging van uw levering #" + r["order_number"]
-        _send_mail((r["oemail"] or r["cemail"]), subject, body)
+        html = _brand_email("Uw levering is ingepland", [body],
+                            info=[("Bezorgmoment", "%s · %s" % (r["date"], tijdvak)),
+                                  ("Ordernummer", "#" + r["order_number"])])
+        _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
                         VALUES(?,?,?,?,?,0)""",
                      (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
@@ -1719,7 +1764,8 @@ def api_mail():
                         FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
     sent_ok = False
     if o:
-        sent_ok = _send_mail((o["oemail"] or o["cemail"]), subject, body)
+        html = _brand_email(subject or "Bericht van Office-Interior", [body])
+        sent_ok = _send_mail((o["oemail"] or o["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
                         VALUES(?,?,?,?,?,0)""",
                      (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
@@ -2737,7 +2783,10 @@ def auto_send_daily_mails():
         except Exception:
             body = tpl_a
         subject = "Uw levering vandaag #" + r["order_number"]
-        _send_mail((r["oemail"] or r["cemail"]), subject, body)
+        html = _brand_email("Wij komen vandaag langs", [body],
+                            info=[("Tijdvak vandaag", tijdvak), ("Ordernummer", "#" + r["order_number"])],
+                            button=("Volg uw levering", link))
+        _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                      (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.execute("UPDATE planning SET arrival_mailed=1 WHERE id=?", (r["pid"],))
@@ -2763,7 +2812,11 @@ def auto_send_daily_mails():
                 except Exception:
                     body = tpl_d
                 subject = "Update levertijd #" + st["order_number"]
-                _send_mail((st["oemail"] or st["cemail"]), subject, body)
+                html = _brand_email("Update over uw levertijd", [body],
+                                    info=[("Nieuwe verwachte tijd", a["at"]), ("Ordernummer", "#" + st["order_number"])],
+                                    button=("Volg uw levering",
+                                            "https://planning-o-i.onrender.com/track/%s" % st["order_number"]))
+                _send_mail((st["oemail"] or st["cemail"]), subject, body, html)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                              (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
                 conn.execute("UPDATE planning SET delay_mailed=1 WHERE id=?", (st["pid"],))
