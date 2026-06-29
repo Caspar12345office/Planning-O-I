@@ -16,7 +16,8 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64
+import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta, date
 
 bp = Blueprint(
@@ -984,6 +985,47 @@ def _office_demo_accounts():
     return [{"name": r["name"], "email": r["email"], "role": ROLE_LABELS.get(r["role"], r["role"])} for r in rows]
 
 
+def _email_cfg():
+    conn = db()
+    cfg = {r["field"]: r["value"] for r in
+           conn.execute("SELECT field,value FROM integrations WHERE ikey=?", ("email",)).fetchall()}
+    conn.close()
+    return cfg
+
+
+def _email_configured():
+    c = _email_cfg()
+    return bool((c.get("smtp_host") or "").strip() and (c.get("smtp_user") or "").strip()
+                and (c.get("smtp_pass") or "").strip())
+
+
+def _send_2fa_email(to_email, code, name=""):
+    """Mail de 6-cijferige inlogcode. True bij succes, anders False (val terug op scherm)."""
+    if not to_email:
+        return False
+    c = _email_cfg()
+    host = (c.get("smtp_host") or "").strip()
+    user = (c.get("smtp_user") or "").strip()
+    pwd = (c.get("smtp_pass") or "").strip()
+    if not (host and user and pwd):
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = "Je OfficeRoute-inlogcode: %s" % code
+    msg["From"] = "%s <%s>" % ((c.get("from_name") or "OfficeRoute").strip(), user)
+    msg["To"] = to_email
+    msg.set_content("Hoi %s,\n\nJe verificatiecode voor OfficeRoute is: %s\n\n"
+                    "De code is 5 minuten geldig. Heb je niet geprobeerd in te loggen? "
+                    "Negeer dit bericht.\n" % (name or "", code))
+    try:
+        with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=10) as s:
+            s.starttls()
+            s.login(user, pwd)
+            s.send_message(msg)
+        return True
+    except Exception:
+        return False
+
+
 def _finish_login(u, nxt):
     session["p_user_id"] = u["id"]
     session.pop("twofa", None)
@@ -998,6 +1040,7 @@ def login():
     show_2fa = False
     demo_code = None
     twofa_email = None
+    code_sent = False
     if request.method == "POST":
         if request.form.get("twofa_code") is not None:
             # Stap 2: 2FA-code verifiëren
@@ -1018,8 +1061,11 @@ def login():
             else:
                 error = "Onjuiste 2FA-code."
                 show_2fa = True
-                demo_code = tf.get("code")
                 twofa_email = tf.get("email")
+                if tf.get("sent"):
+                    code_sent = True
+                else:
+                    demo_code = tf.get("code")
         else:
             # Stap 1: e-mail + wachtwoord
             email = (request.form.get("email") or "").strip().lower()
@@ -1029,15 +1075,17 @@ def login():
             conn.close()
             if u and check_password_hash(u["password"], pw):
                 code = "%06d" % secrets.randbelow(1000000)
-                session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
-                                    "next": request.args.get("next"), "email": u["email"]}
                 show_2fa = True
-                demo_code = code
                 twofa_email = u["email"]
+                code_sent = _send_2fa_email(u["email"], code, u["name"])
+                session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
+                                    "next": request.args.get("next"), "email": u["email"], "sent": code_sent}
+                if not code_sent:
+                    demo_code = code   # terugval: toon op scherm als e-mail (nog) niet werkt
             else:
                 error = "Onjuiste inloggegevens."
     return render_template("planning/login.html", error=error, show_2fa=show_2fa,
-                           demo_code=demo_code, twofa_email=twofa_email,
+                           demo_code=demo_code, twofa_email=twofa_email, code_sent=code_sent,
                            office_accounts=_office_demo_accounts())
 
 
