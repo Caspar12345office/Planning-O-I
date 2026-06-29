@@ -4,22 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f3d3e">
-<title>Uw levering volgen · Office-Interior</title>
+<title>Uw levering volgen · OFFICE-INTERIOR</title>
+{% if found and m_lat %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endif %}
 <style>
   *{box-sizing:border-box}
   body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f1ede5;color:#16302d;min-height:100vh;
        display:flex;align-items:flex-start;justify-content:center;padding:24px 14px}
   .card{width:100%;max-width:520px;background:#fff;border:1px solid #e6ebe4;border-radius:16px;overflow:hidden;box-shadow:0 16px 44px rgba(15,61,62,.12)}
-  .hd{background:#0f3d3e;padding:20px 26px}
-  .hd .nm{color:#fff;font-size:19px;font-weight:bold;letter-spacing:1px}
-  .hd .sub{color:#cda35a;font-size:11px;letter-spacing:.08em;margin-top:3px}
-  .body{padding:26px}
-  .hero{text-align:center;margin-bottom:8px}
-  .hero .ic{font-size:40px;line-height:1}
+  .hd{background:#0f3d3e;padding:18px 26px}
+  .hd .nm{color:#fff;font-size:18px;font-weight:bold;letter-spacing:2px}
+  .gold{height:3px;background:#cda35a}
+  .body{padding:24px}
+  .hero{text-align:center;margin-bottom:14px}
+  .hero .ic{font-size:38px;line-height:1}
   .hero h1{font-size:21px;color:#0f3d3e;margin:10px 0 2px}
   .hero .eta{font-size:15px;color:#3a4a45;margin:0}
   .hero .eta b{color:#0f3d3e}
-  .steps{display:flex;align-items:flex-start;margin:24px 4px 22px}
+  #map{height:230px;border-radius:13px;border:1px solid #cfe0d7;margin-bottom:16px;z-index:0}
+  .steps{display:flex;align-items:flex-start;margin:22px 4px 20px}
   .step{flex:1;text-align:center;position:relative;font-size:12px;color:#9aa8a1}
   .step .dot{width:16px;height:16px;border-radius:50%;background:#d7e0da;margin:0 auto 7px;border:3px solid #fff;box-shadow:0 0 0 1px #d7e0da;position:relative;z-index:2}
   .step.done .dot{background:#0f6e56;box-shadow:0 0 0 1px #0f6e56}
@@ -27,22 +32,23 @@
   .step .bar{position:absolute;top:7px;left:-50%;width:100%;height:3px;background:#d7e0da;z-index:1}
   .step.done .bar{background:#0f6e56}
   .step:first-child .bar{display:none}
-  .info{background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;padding:6px 16px;margin-bottom:6px}
+  .info{background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;padding:4px 16px}
   .info .row{display:flex;justify-content:space-between;padding:9px 0;font-size:14px;border-top:1px solid #dce8e0}
   .info .row:first-child{border-top:0}
   .info .row .l{color:#6b7a74;font-size:13px}
   .info .row .v{color:#16302d;font-weight:bold}
-  .foot{padding:16px 26px 22px;border-top:1px solid #eef0ec;color:#8a948f;font-size:12px;line-height:1.6}
+  .foot{padding:15px 26px 20px;border-top:1px solid #eef0ec;color:#8a948f;font-size:12px;line-height:1.6}
   .nf{text-align:center;padding:30px 10px;color:#6b7a74}
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="hd"><div class="nm">Office-Interior</div><div class="sub">BEZORGING &amp; MONTAGE</div></div>
+  <div class="hd"><span class="nm">OFFICE-INTERIOR</span></div>
+  <div class="gold"></div>
   {% if not found %}
   <div class="body"><div class="nf"><div style="font-size:38px">🔍</div>
     <h1 style="color:#0f3d3e;font-size:19px">Niet gevonden</h1>
-    <p>We konden order <b>#{{ onum }}</b> niet vinden. Controleer de link uit uw e-mail of neem contact met ons op.</p></div></div>
+    <p>We konden order <b>#{{ onum }}</b> niet vinden. Controleer de link uit uw e-mail.</p></div></div>
   {% else %}
   {% set step = {'gepland':1,'onderweg':2,'afgerond':3}.get(status, 0) %}
   <div class="body">
@@ -54,6 +60,8 @@
       {% else %}<div class="ic">🗓</div><h1>Wordt ingepland</h1><p class="eta">Zodra uw levering gepland is, ziet u hier de datum en het tijdvak.</p>{% endif %}
     </div>
 
+    {% if m_lat %}<div id="map"></div>{% endif %}
+
     <div class="steps">
       <div class="step {{ 'done' if step>=1 }}"><div class="bar"></div><div class="dot"></div>Ingepland</div>
       <div class="step {{ 'done' if step>=2 }}"><div class="bar"></div><div class="dot"></div>Onderweg</div>
@@ -63,12 +71,28 @@
     <div class="info">
       {% if the_date %}<div class="row"><span class="l">Datum</span><span class="v">{{ the_date }}</span></div>{% endif %}
       {% if tijdvak %}<div class="row"><span class="l">Tijdvak</span><span class="v">{{ tijdvak }}</span></div>{% endif %}
+      {% if monteur %}<div class="row"><span class="l">Monteur</span><span class="v">{{ monteur }}</span></div>{% endif %}
       <div class="row"><span class="l">Ordernummer</span><span class="v">#{{ onum }}</span></div>
-      {% if city %}<div class="row"><span class="l">Plaats</span><span class="v">{{ city }}</span></div>{% endif %}
     </div>
   </div>
   {% endif %}
-  <div class="foot">Vragen over uw levering? Bel 085-0481444 of mail info@office-interior.com.<br>Office-Interior · Kantoorinrichting, bezorging &amp; montage</div>
+  <div class="foot">Vragen over uw levering? Mail planning@office-interior.com of bel 085-0481444.</div>
 </div>
+
+{% if found and m_lat %}
+<script>
+(function(){
+  if(typeof L==='undefined'){return;}
+  var d=[{{ d_lat }},{{ d_lng }}], m=[{{ m_lat }},{{ m_lng }}];
+  var map=L.map('map',{zoomControl:true,attributionControl:true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  function di(html){return L.divIcon({html:html,className:'',iconSize:[34,34],iconAnchor:[17,17]});}
+  L.marker(d,{icon:di('<div style="font-size:28px;line-height:1">📍</div>')}).addTo(map).bindPopup('Uw adres');
+  L.marker(m,{icon:di('<div style="background:#0f3d3e;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)">🚐</div>')}).addTo(map).bindPopup('Monteur {{ monteur }}');
+  L.polyline([m,d],{color:'#0f6e56',weight:5,opacity:.85}).addTo(map);
+  map.fitBounds([m,d],{padding:[45,45]});
+})();
+</script>
+{% endif %}
 </body>
 </html>

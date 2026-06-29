@@ -1087,9 +1087,37 @@ def _send_mail(to_email, subject, body, html_body=None):
         return False
 
 
-def _brand_email(heading, paragraphs, info=None, button=None):
-    """Nette HTML-klantmail in de Office-Interior-huisstijl (teal/goud).
-    paragraphs: lijst tekstalinea's; info: lijst (label, waarde); button: (tekst, url)."""
+_NL_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+_NL_MONTHS = ["", "januari", "februari", "maart", "april", "mei", "juni", "juli",
+              "augustus", "september", "oktober", "november", "december"]
+
+
+def _nl_date(iso):
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d")
+        return "%s %d %s" % (_NL_DAYS[d.weekday()], d.day, _NL_MONTHS[d.month])
+    except Exception:
+        return iso or ""
+
+
+def _wide_window(slot_start, slot_end):
+    """Ruim tijdvak voor de klant (zodat we niet teleurstellen als we later zijn)."""
+    def hh(s):
+        try:
+            return int((s or "").split(":")[0])
+        except Exception:
+            return None
+    a, b = hh(slot_start), hh(slot_end)
+    if a is None or b is None:
+        return "08:00 – 17:00"
+    sh = max(7, a)
+    eh = min(18, max(b + 2, sh + 3))
+    return "%02d:00 – %02d:00" % (sh, eh)
+
+
+def _brand_email(heading, paragraphs, info=None, button=None, note=None):
+    """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
+    paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
     paras = ""
     for p in (paragraphs or []):
         if p:
@@ -1103,12 +1131,18 @@ def _brand_email(heading, paragraphs, info=None, button=None):
                      '<td style="padding:7px 2px;font-size:14px;color:#16302d;font-weight:bold;text-align:right;">'
                      + _esc(value) + '</td></tr>')
         info_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-                     'style="background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;margin:4px 0 18px;">'
+                     'style="background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;margin:4px 0 16px;">'
                      '<tr><td style="padding:8px 16px;"><table role="presentation" width="100%" cellpadding="0" '
                      'cellspacing="0">' + rows + '</table></td></tr></table>')
+    note_html = ""
+    if note:
+        note_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                     'style="background:#f7efe0;border:1px solid #e3c98f;border-radius:12px;margin:0 0 16px;">'
+                     '<tr><td style="padding:12px 14px;font-size:13px;color:#6b4e15;line-height:1.55;">'
+                     + _esc(note) + '</td></tr></table>')
     btn_html = ""
     if button:
-        btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:2px 0 18px;">'
+        btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:2px 0 16px;">'
                     '<tr><td style="background:#0f3d3e;border-radius:10px;">'
                     '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:12px 22px;color:#ffffff;'
                     'font-size:14px;font-weight:bold;text-decoration:none;">' + _esc(button[0]) + '</a></td></tr></table>')
@@ -1116,17 +1150,31 @@ def _brand_email(heading, paragraphs, info=None, button=None):
             'style="background:#f1ede5;padding:24px 0;margin:0;"><tr><td align="center">'
             '<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;'
             'background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6ebe4;font-family:Arial,Helvetica,sans-serif;">'
-            '<tr><td style="background:#0f3d3e;padding:20px 28px;">'
-            '<span style="color:#ffffff;font-size:19px;font-weight:bold;letter-spacing:1px;">Office-Interior</span>'
-            '<div style="color:#cda35a;font-size:11px;letter-spacing:.08em;margin-top:3px;">BEZORGING &amp; MONTAGE</div></td></tr>'
-            '<tr><td style="padding:28px 28px 4px;">'
+            '<tr><td style="background:#0f3d3e;padding:18px 28px;">'
+            '<span style="color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">OFFICE-INTERIOR</span></td></tr>'
+            '<tr><td style="height:3px;background:#cda35a;"></td></tr>'
+            '<tr><td style="padding:26px 28px 4px;">'
             '<h1 style="margin:0 0 14px;font-size:20px;color:#0f3d3e;font-weight:bold;">' + _esc(heading) + '</h1>'
-            + paras + info_html + btn_html +
-            '</td></tr><tr><td style="padding:6px 28px 24px;">'
+            + paras + info_html + note_html + btn_html +
+            '</td></tr><tr><td style="padding:6px 28px 22px;">'
             '<p style="margin:10px 0 0;padding-top:14px;border-top:1px solid #eef0ec;font-size:12px;color:#8a948f;'
-            'line-height:1.6;">Vragen? Bel 085-0481444 of mail info@office-interior.com.<br>'
-            'Office-Interior &middot; Kantoorinrichting, bezorging &amp; montage</p></td></tr>'
+            'line-height:1.6;">Vragen? Mail planning@office-interior.com of bel 085-0481444.</p></td></tr>'
             '</table></td></tr></table>')
+
+
+def _planning_confirmation_mail(client, date_iso, slot_start, slot_end, order_number):
+    """Bevestiging die automatisch ná het inplannen gaat (ruim tijdvak, geen live ETA)."""
+    greet = "Beste %s," % (client or "klant")
+    intro = "Goed nieuws, uw bestelling is ingepland. Hieronder vindt u het geplande bezorgmoment."
+    subject = "Uw bestelling is ingepland #%s" % order_number
+    tijd = _wide_window(slot_start, slot_end)
+    body = "%s\n\n%s\n\nBezorgdatum: %s\nVerwachte tijd: %s\nOrdernummer: #%s" % (
+        greet, intro, _nl_date(date_iso), tijd, order_number)
+    html = _brand_email("Uw bestelling is ingepland", [greet, intro],
+                        info=[("Bezorgdatum", _nl_date(date_iso)), ("Verwachte tijd", tijd),
+                              ("Ordernummer", "#" + str(order_number))],
+                        note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur.")
+    return subject, body, html
 
 
 def _finish_login(u, nxt):
@@ -1595,8 +1643,15 @@ def api_autoplan():
             mid, diso, seq = best
             mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
             conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
-                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
+                            VALUES(?,?,?,?,?,'gepland',1)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
             conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
+            # automatische bevestigingsmail ná het inplannen (regio/tijd/inhoud/monteur/busruimte)
+            cl = conn.execute("SELECT name,email FROM clients WHERE id=?", (o["client_id"],)).fetchone()
+            subject, body, html = _planning_confirmation_mail((cl["name"] if cl else None), diso, None, None, o["order_number"])
+            _send_mail((o["email"] or (cl["email"] if cl else None)), subject, body, html)
+            conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
+                            VALUES(?,?,?,?,?,0)""",
+                         (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
             planned += 1
     conn.commit()
     conn.close()
@@ -1665,24 +1720,14 @@ def api_send_confirmations():
     if not has_perm("inform_clients"):
         return jsonify(ok=False, error="Geen rechten"), 403
     conn = db()
-    tpl_row = conn.execute("SELECT value FROM settings WHERE skey='tpl_confirm'").fetchone()
-    body_tpl = tpl_row["value"] if tpl_row else "Beste {klant}, uw levering is gepland op {datum} ({tijdvak})."
     rows = conn.execute("""SELECT p.id AS pid, p.date, p.slot_start, p.slot_end,
                            o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.mailed=0 AND p.status!='afgerond'""").fetchall()
     sent = 0
     for r in rows:
-        tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
-        try:
-            body = body_tpl.format(klant=(r["client"] or "klant"), datum=r["date"], tijdvak=tijdvak,
-                                   telefoon="085-0481444", email="info@office-interior.com")
-        except Exception:
-            body = body_tpl
-        subject = "Bevestiging van uw levering #" + r["order_number"]
-        html = _brand_email("Uw levering is ingepland", [body],
-                            info=[("Bezorgmoment", "%s · %s" % (r["date"], tijdvak)),
-                                  ("Ordernummer", "#" + r["order_number"])])
+        subject, body, html = _planning_confirmation_mail(r["client"], r["date"], r["slot_start"],
+                                                          r["slot_end"], r["order_number"])
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
                         VALUES(?,?,?,?,?,0)""",
@@ -1748,6 +1793,8 @@ def track(order_number):
                         LEFT JOIN monteurs m ON m.id=p.monteur_id WHERE p.order_id=?""", (o["id"],)).fetchone()
     status = (p["status"] if p else None) or o["ostatus"] or "in_te_plannen"
     tijdvak = the_date = eta = monteur = None
+    m_lat = m_lng = None
+    dcoord = CITY_COORDS.get(o["city"]) or BREDA
     if p:
         the_date = p["date"]
         monteur = p["monteur"]
@@ -1757,6 +1804,7 @@ def track(order_number):
             try:
                 live = _live_loc(conn, p["mid"])
                 if live:
+                    m_lat, m_lng = live[0], live[1]
                     stops = conn.execute("""SELECT p.order_id, p.slot_start, p.status, o.city, o.montage_min
                                             FROM planning p JOIN orders o ON o.id=p.order_id
                                             WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""",
@@ -1771,8 +1819,10 @@ def track(order_number):
                 eta = None
     conn.close()
     return render_template("planning/track.html", found=True, onum=o["order_number"],
-                           client=o["client"], city=o["city"], status=status,
-                           tijdvak=tijdvak, the_date=the_date, eta=eta, monteur=monteur)
+                           client=o["client"], status=status,
+                           tijdvak=tijdvak, the_date=_nl_date(the_date) if the_date else None,
+                           eta=eta, monteur=monteur,
+                           m_lat=m_lat, m_lng=m_lng, d_lat=dcoord[0], d_lng=dcoord[1])
 
 
 @bp.route("/api/correspondence/<int:oid>")
@@ -2824,7 +2874,8 @@ def auto_send_daily_mails():
         body = greet + "\n\n" + intro
         subject = "Uw levering vandaag #" + r["order_number"]
         html = _brand_email("Wij komen vandaag langs", [greet, intro],
-                            info=[("Tijdvak vandaag", tijdvak), ("Ordernummer", "#" + r["order_number"])],
+                            info=[("Bezorgdatum", _nl_date(today)), ("Tijdvak", tijdvak),
+                                  ("Ordernummer", "#" + r["order_number"])],
                             button=("Volg uw levering", link))
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
