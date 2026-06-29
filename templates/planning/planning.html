@@ -477,7 +477,7 @@ function autoPlan(btn){
 function sendConfirmations(btn){
   btn.disabled=true; var t=btn.textContent; btn.textContent='Versturen…';
   fetch('{{ url_for("planning.api_send_confirmations") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){
-    if(res.ok){ alert(res.sent+' leveringsmail(s) verstuurd'+(res.mail_live?' vanuit planning@office-interior.com.':' (opgeslagen in klantdossier; gaat live zodra de mailbox gekoppeld is).')); btn.disabled=false; btn.textContent=t; }
+    if(res.ok){ if(res.mail_live){ alert(res.sent+' leveringsmail(s) verstuurd vanuit planning@office-interior.com.'); } else { alert('Testmodus — er is NIETS verstuurd. '+(res.would||0)+' order(s) staan klaar. Zet "E-mails écht versturen" aan onder Koppelingen → Klantmail om live te gaan.'); } btn.disabled=false; btn.textContent=t; }
     else { alert(res.error||'Mislukt'); btn.disabled=false; btn.textContent=t; }
   });
 }

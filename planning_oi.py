@@ -368,6 +368,8 @@ INTEGRATIONS = [
         {"key": "smtp_user", "label": "SMTP-gebruiker", "type": "text"},
         {"key": "smtp_pass", "label": "SMTP-wachtwoord", "type": "password"},
         {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior Bezorging"},
+        {"key": "send_live", "label": "E-mails écht versturen", "type": "toggle", "default": "0",
+         "help": "UIT = testmodus: er wordt NIETS echt verstuurd (alleen opgeslagen/gelogd; 2FA-code op het scherm). Zet pas AAN als je live wilt."},
         {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"}]},
     {"key": "backup", "name": "Back-ups", "icon": "💾",
      "desc": "Automatische dagelijkse back-up van de volledige database.",
@@ -1001,6 +1003,15 @@ def _email_configured():
                 and (c.get("smtp_pass") or "").strip())
 
 
+def _mail_live():
+    """Echt versturen alleen als de mailbox is ingesteld ÉN 'E-mails écht versturen' aanstaat."""
+    return _email_configured() and (_mailcfg_send_live())
+
+
+def _mailcfg_send_live():
+    return (_email_cfg().get("send_live") or "0") == "1"
+
+
 def _esc(s):
     return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -1041,6 +1052,8 @@ def _send_2fa_email(to_email, code, name=""):
     pwd = (c.get("smtp_pass") or "").strip()
     if not (host and user and pwd):
         return False
+    if (c.get("send_live") or "0") != "1":
+        return False   # testmodus: niets echt versturen
     msg = EmailMessage()
     msg["Subject"] = "Je OfficeRoute-inlogcode: %s" % code
     msg["From"] = "%s <%s>" % ((c.get("from_name") or "OfficeRoute").strip(), user)
@@ -1072,6 +1085,8 @@ def _send_mail(to_email, subject, body, html_body=None):
     pwd = (c.get("smtp_pass") or "").strip()
     if not (host and user and pwd):
         return False
+    if (c.get("send_live") or "0") != "1":
+        return False   # testmodus: niets echt versturen
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), user)
@@ -1755,6 +1770,12 @@ def api_send_confirmations():
     """Verstuur in één klik de bevestigingsmails voor nieuw geplande orders."""
     if not has_perm("inform_clients"):
         return jsonify(ok=False, error="Geen rechten"), 403
+    if not _mail_live():
+        # Testmodus: niets versturen, niets markeren — alleen melden hoeveel het zouden zijn.
+        conn = db()
+        n = conn.execute("SELECT COUNT(*) FROM planning WHERE mailed=0 AND confirmed=0 AND status!='afgerond'").fetchone()[0]
+        conn.close()
+        return jsonify(ok=True, sent=0, would=n, mail_live=False)
     conn = db()
     rows = conn.execute("""SELECT p.id AS pid, p.date, p.slot_start, p.slot_end,
                            o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail
@@ -1772,7 +1793,7 @@ def api_send_confirmations():
         sent += 1
     conn.commit()
     conn.close()
-    return jsonify(ok=True, sent=sent, mail_live=_email_configured())
+    return jsonify(ok=True, sent=sent, mail_live=True)
 
 
 @bp.route("/pakbon/<int:oid>")
@@ -1956,10 +1977,10 @@ def api_mail():
                      (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.commit()
     conn.close()
-    return jsonify(ok=True, mail_live=_email_configured(),
+    return jsonify(ok=True, mail_live=_mail_live(),
                    message=("Verzonden vanuit planning@office-interior.com en bewaard in het klantdossier."
                             if sent_ok else
-                            "Opgeslagen in het klantdossier. Stel de mailkoppeling in (Koppelingen) om ook echt te versturen."))
+                            "Opgeslagen in het klantdossier. Er is nog NIETS verstuurd — zet 'E-mails écht versturen' aan onder Koppelingen → Klantmail om live te gaan."))
 
 
 # --------------------------------------------------------------------------- #
@@ -2948,6 +2969,8 @@ def api_optimize_route(mid):
 def auto_send_daily_mails():
     """Automatisch: 's ochtends het tijdvak en bij vertraging (>=20 min) een update.
     Draait wanneer de planner het dashboard opent (geen externe cron op gratis plan)."""
+    if not _mail_live():
+        return 0   # testmodus: geen automatische mails
     today = _today_iso()
     conn = db()
     s = {r["skey"]: r["value"] for r in conn.execute("SELECT skey,value FROM settings").fetchall()}
