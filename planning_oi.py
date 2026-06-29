@@ -16,7 +16,7 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import sqlite3, os, json, secrets, csv, io, math, time
+import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64
 from datetime import datetime, timedelta, date
 
 bp = Blueprint(
@@ -1876,6 +1876,89 @@ def admin_reseed_demo():
     session.clear()
     flash("Demodata opnieuw gevuld met de datum van vandaag. Log opnieuw in.")
     return redirect(url_for("planning.login"))
+
+
+# --------------------------------------------------------------------------- #
+#  Shopify — realtime orderimport via webhook (orders/create)
+# --------------------------------------------------------------------------- #
+def _shopify_cfg():
+    conn = db()
+    cfg = {r["field"]: r["value"] for r in
+           conn.execute("SELECT field,value FROM integrations WHERE ikey=?", ("shopify",)).fetchall()}
+    conn.close()
+    return cfg
+
+
+def _shopify_import_order(o):
+    """Maak van een Shopify-orderpayload een 'in te plannen' order met alle regels
+    (ook handmatig toegevoegde/custom producten). Idempotent op shopify_id."""
+    sid = str(o.get("id") or "")
+    gid = ("gid://shopify/Order/%s" % sid) if sid else None
+    conn = db()
+    if gid and conn.execute("SELECT id FROM orders WHERE shopify_id=?", (gid,)).fetchone():
+        conn.close()
+        return "dup"
+    name = o.get("name") or ("#" + str(o.get("order_number") or ""))
+    onum = str(o.get("order_number") or name.lstrip("#") or sid)
+    cust = o.get("customer") or {}
+    ship = o.get("shipping_address") or o.get("billing_address") or {}
+    client_name = (ship.get("company")
+                   or ("%s %s" % (cust.get("first_name", ""), cust.get("last_name", ""))).strip()
+                   or ship.get("name") or "Shopify-klant")
+    email = (o.get("email") or cust.get("email") or "").strip()
+    phone = (ship.get("phone") or o.get("phone") or "").strip()
+    address1 = (ship.get("address1") or "").strip()
+    city = (ship.get("city") or "").strip()
+    postal = (ship.get("zip") or "").strip()
+    full = ", ".join([p for p in [address1, (postal + " " + city).strip()] if p])
+    amount = float(o.get("total_price") or 0)
+    note = (o.get("note") or "").strip()
+    cl = None
+    if email:
+        cl = conn.execute("SELECT id FROM clients WHERE lower(email)=?", (email.lower(),)).fetchone()
+    if not cl:
+        cl = conn.execute("SELECT id FROM clients WHERE name=?", (client_name,)).fetchone()
+    if cl:
+        cid = cl["id"]
+    else:
+        conn.execute("INSERT INTO clients(name,email,phone,address,postal,city,created_at) VALUES(?,?,?,?,?,?,?)",
+                     (client_name, email, phone, address1, postal, city, _today_iso()))
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
+                    invoice_address,phone,email,amount,notes,shopify_id,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (onum, cid, "shopify", 0, "in_te_plannen", full, city, postal, full, phone, email,
+                  amount, note, gid, _today_iso()))
+    oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    for li in (o.get("line_items") or []):
+        title = (li.get("title") or li.get("name") or "Artikel").strip()
+        qty = int(li.get("quantity") or 1)
+        conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, title, qty))
+    conn.commit()
+    conn.close()
+    return "ok"
+
+
+@bp.route("/api/shopify/webhook", methods=["POST"])
+def shopify_webhook():
+    raw = request.get_data()
+    secret = (_shopify_cfg().get("webhook_secret") or "").strip()
+    if not secret:
+        return ("Shopify-koppeling niet ingesteld (webhook-secret ontbreekt).", 503)
+    sent = request.headers.get("X-Shopify-Hmac-Sha256", "")
+    digest = base64.b64encode(hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).digest()).decode()
+    if not (sent and hmac.compare_digest(digest, sent)):
+        return ("Ongeldige handtekening.", 401)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return ("Ongeldige payload.", 400)
+    try:
+        _shopify_import_order(payload)
+    except Exception as e:
+        # 500 → Shopify probeert het later opnieuw (geen orders kwijt)
+        return ("Importfout: %s" % e, 500)
+    return ("ok", 200)
 
 
 @bp.route("/free-days", methods=["GET", "POST"])
