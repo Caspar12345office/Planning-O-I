@@ -144,7 +144,7 @@
           {% endif %}{% endfor %}
           {% endif %}
         {% elif p_has_perm(item.perm) %}
-          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}{% if item.endpoint=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>{% endif %}</a>
+          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}{% if item.endpoint=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>{% endif %}{% if item.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
         {% endif %}
       {% endfor %}
       {% if p_user and p_user.role=='monteur' %}

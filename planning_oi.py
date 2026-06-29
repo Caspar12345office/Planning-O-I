@@ -450,6 +450,9 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id INTEGER, direction TEXT, subject TEXT, body TEXT, ts TEXT, has_attachment INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS settings(skey TEXT PRIMARY KEY, value TEXT);
+    CREATE TABLE IF NOT EXISTS bus_issues(id INTEGER PRIMARY KEY AUTOINCREMENT, monteur_id INTEGER, monteur_name TEXT,
+        reporter_email TEXT, bus_label TEXT, plate TEXT, message TEXT, status TEXT DEFAULT 'open',
+        created_at TEXT, resolved_by TEXT, resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS monteur_location(
         monteur_id INTEGER PRIMARY KEY, lat REAL, lng REAL, updated_at TEXT, live INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS office_days(
@@ -814,6 +817,15 @@ def my_unseen_decision(u):
     return dict(r) if r else None
 
 
+def open_bus_issues_count(u):
+    if not u:
+        return 0
+    conn = db()
+    n = conn.execute("SELECT COUNT(*) FROM bus_issues WHERE status='open'").fetchone()[0]
+    conn.close()
+    return n
+
+
 @bp.app_context_processor
 def _inject():
     if request.blueprint != "planning":
@@ -824,6 +836,7 @@ def _inject():
             "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV, "BRAND": BRAND,
             "p_open_questions": open_questions_count(u), "p_online": online,
             "p_pending_leave": pending_leave_count(u) if u else 0,
+            "p_open_bus_issues": open_bus_issues_count(u) if u else 0,
             "p_leave_decision": my_unseen_decision(u) if u else None}
 
 
@@ -847,6 +860,7 @@ NAV = [
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
     {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
+    {"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "🔧", "perm": "view_personnel"},
     {"label": "Rapportages", "icon": "📊", "perm": None, "children": [
         {"label": "Monteursprestaties", "endpoint": "planning.performance", "perm": "view_performance"},
         {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"},
@@ -1797,6 +1811,36 @@ def bus_edit(bid):
     conn.close()
     flash("Bus bijgewerkt.")
     return redirect(url_for("planning.busses"))
+
+
+# --------------------------------------------------------------------------- #
+#  Bus-issues (door monteurs gemeld vanuit de app)
+# --------------------------------------------------------------------------- #
+@bp.route("/bus-issues")
+def bus_issues():
+    guard = login_required("view_personnel")
+    if guard:
+        return guard
+    conn = db()
+    rows = conn.execute("""SELECT * FROM bus_issues
+                           ORDER BY CASE WHEN status='open' THEN 0 ELSE 1 END, created_at DESC, id DESC""").fetchall()
+    conn.close()
+    return render_template("planning/bus_issues.html", issues=rows)
+
+
+@bp.route("/bus-issues/resolve/<int:iid>", methods=["POST"])
+def bus_issue_resolve(iid):
+    guard = login_required("view_personnel")
+    if guard:
+        return guard
+    u = current_user()
+    conn = db()
+    conn.execute("UPDATE bus_issues SET status='opgelost', resolved_by=?, resolved_at=? WHERE id=?",
+                 (u["name"], datetime.now().isoformat(timespec="minutes"), iid))
+    conn.commit()
+    conn.close()
+    flash("Bus-issue gemarkeerd als opgelost.")
+    return redirect(url_for("planning.bus_issues"))
 
 
 @bp.route("/free-days", methods=["GET", "POST"])

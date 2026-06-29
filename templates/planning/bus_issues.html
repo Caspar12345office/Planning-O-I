@@ -1,0 +1,45 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Bus-issues · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Bus-issues</h1><p>Problemen met voertuigen, gemeld door monteurs vanuit de app</p>{% endblock %}
+{% block page_css %}
+  .issue{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
+  .issue.open{border-left:5px solid var(--gold)}
+  .issue.done{opacity:.7}
+  .issue .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .issue .who{font-weight:700;font-size:16px;color:var(--accent)}
+  .issue .plate{display:inline-flex;align-items:center;background:#f6c50b;color:#13130a;border:1.5px solid #d8ad06;border-radius:5px;font-weight:800;letter-spacing:.05em;font-size:13px;padding:3px 8px}
+  .issue .when{margin-left:auto;font-size:12.5px;color:var(--muted)}
+  .issue .msg{font-size:14.5px;background:var(--soft);border-radius:10px;padding:11px 13px;color:var(--ink)}
+  .issue .st{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .issue .st.open{background:#fbeccd;color:#7a5713}
+  .issue .st.done{background:#e3f3da;color:#3c7a2c}
+  .issue .actions{margin-top:12px;display:flex;align-items:center;gap:12px}
+  .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:40px;text-align:center;color:var(--muted)}
+{% endblock %}
+{% block content %}
+{% if not issues %}
+  <div class="empty">🔧 Nog geen bus-issues gemeld. Meldingen vanuit de monteur-app verschijnen hier.</div>
+{% endif %}
+{% for it in issues %}
+<div class="issue {{ 'open' if it.status=='open' else 'done' }}">
+  <div class="top">
+    <span class="who">{{ it.monteur_name or 'Monteur' }}</span>
+    {% if it.bus_label %}<span class="muted" style="font-size:13.5px">{{ it.bus_label }}</span>{% endif %}
+    {% if it.plate %}<span class="plate">{{ it.plate }}</span>{% endif %}
+    <span class="st {{ 'open' if it.status=='open' else 'done' }}">{{ 'Open' if it.status=='open' else 'Opgelost' }}</span>
+    <span class="when">{{ it.created_at }}</span>
+  </div>
+  <div class="msg">{{ it.message }}</div>
+  <div class="actions">
+    {% if it.status=='open' %}
+      <form method="post" action="{{ url_for('planning.bus_issue_resolve', iid=it.id) }}">
+        <button class="btn ghost sm" type="submit">✓ Markeer opgelost</button>
+      </form>
+      {% if it.reporter_email %}<a class="muted" style="font-size:12.5px" href="mailto:{{ it.reporter_email }}">↩ Reageer naar monteur</a>{% endif %}
+    {% else %}
+      <span class="muted" style="font-size:12.5px">Opgelost door {{ it.resolved_by }} · {{ it.resolved_at }}</span>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+{% endblock %}
