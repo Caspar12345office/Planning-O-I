@@ -17,6 +17,7 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib
+import urllib.request, urllib.error
 from email.message import EmailMessage
 from datetime import datetime, timedelta, date
 
@@ -362,12 +363,16 @@ INTEGRATIONS = [
         {"key": "require_mfa", "label": "MFA verplicht", "type": "toggle", "default": "1"},
         {"key": "allowed_domain", "label": "Toegestaan domein", "type": "text", "placeholder": "office-interior.nl"}]},
     {"key": "email", "name": "Klantmail & tracking", "icon": "📨",
-     "desc": "Automatische bevestiging, aankomst-tijdvak en trackinglink naar de klant.",
+     "desc": "Klantmails via de Resend-API (werkt op Render; SMTP wordt door Render geblokkeerd).",
      "fields": [
-        {"key": "smtp_host", "label": "SMTP-host", "type": "text", "placeholder": "smtp.office-interior.nl"},
-        {"key": "smtp_user", "label": "SMTP-gebruiker", "type": "text"},
-        {"key": "smtp_pass", "label": "SMTP-wachtwoord", "type": "password"},
-        {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior Bezorging"},
+        {"key": "resend_api_key", "label": "Resend API-sleutel", "type": "password",
+         "help": "Maak gratis een account op resend.com → API Keys → maak een sleutel (begint met re_)."},
+        {"key": "from_email", "label": "Afzender-e-mail", "type": "text", "placeholder": "planning@office-interior.com",
+         "help": "Voor je eigen domein: verifieer office-interior.com in Resend. Testen kan met onboarding@resend.dev."},
+        {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior"},
+        {"key": "smtp_host", "label": "SMTP-host (optioneel, alleen lokaal)", "type": "text", "placeholder": "leeg laten bij Resend"},
+        {"key": "smtp_user", "label": "SMTP-gebruiker (optioneel)", "type": "text"},
+        {"key": "smtp_pass", "label": "SMTP-wachtwoord (optioneel)", "type": "password"},
         {"key": "send_live", "label": "E-mails écht versturen", "type": "toggle", "default": "0",
          "help": "UIT = testmodus: er wordt NIETS echt verstuurd (alleen opgeslagen/gelogd; 2FA-code op het scherm). Zet pas AAN als je live wilt."},
         {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"}]},
@@ -999,8 +1004,11 @@ def _email_cfg():
 
 def _email_configured():
     c = _email_cfg()
-    return bool((c.get("smtp_host") or "").strip() and (c.get("smtp_user") or "").strip()
-                and (c.get("smtp_pass") or "").strip())
+    from_email = (c.get("from_email") or c.get("smtp_user") or "").strip()
+    has_resend = bool((c.get("resend_api_key") or "").strip() and from_email)
+    has_smtp = bool((c.get("smtp_host") or "").strip() and (c.get("smtp_user") or "").strip()
+                    and (c.get("smtp_pass") or "").strip())
+    return has_resend or has_smtp
 
 
 def _mail_live():
@@ -1041,28 +1049,42 @@ def _twofa_email_html(name, code, subtitle="Planning"):
     return html.replace("__SUB__", _esc(subtitle)).replace("__NAME__", _esc(name) or "collega").replace("__CODE__", _esc(code))
 
 
-def _send_2fa_email(to_email, code, name=""):
-    """Mail de 6-cijferige inlogcode (nette HTML + platte-tekst-terugval).
-    True bij succes, anders False (val terug op scherm)."""
-    if not to_email:
+def _api_send(to, subject, text, html=None):
+    """Verstuur via Resend HTTPS-API (werkt op Render); anders SMTP (lokaal). Respecteert testmodus."""
+    recips = [r for r in (to if isinstance(to, list) else [to]) if r]
+    if not recips:
         return False
     c = _email_cfg()
+    if (c.get("send_live") or "0") != "1":
+        return False   # testmodus: niets echt versturen
+    from_email = (c.get("from_email") or c.get("smtp_user") or "").strip()
+    if not from_email:
+        return False
+    frm = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), from_email)
+    key = (c.get("resend_api_key") or "").strip()
+    if key:
+        try:
+            payload = json.dumps({"from": frm, "to": recips, "subject": subject,
+                                  "text": text, "html": html or text}).encode("utf-8")
+            req = urllib.request.Request("https://api.resend.com/emails", data=payload,
+                                         headers={"Authorization": "Bearer " + key,
+                                                  "Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=15).read()
+            return True
+        except Exception:
+            return False
     host = (c.get("smtp_host") or "").strip()
     user = (c.get("smtp_user") or "").strip()
     pwd = (c.get("smtp_pass") or "").strip()
     if not (host and user and pwd):
         return False
-    if (c.get("send_live") or "0") != "1":
-        return False   # testmodus: niets echt versturen
     msg = EmailMessage()
-    msg["Subject"] = "Je OfficeRoute-inlogcode: %s" % code
-    msg["From"] = "%s <%s>" % ((c.get("from_name") or "OfficeRoute").strip(), user)
-    msg["To"] = to_email
-    msg.set_content("Hoi %s,\n\nJe verificatiecode voor OfficeRoute is: %s\n\n"
-                    "De code is 5 minuten geldig.\n\n"
-                    "Niet zelf ingelogd? Neem dan direct contact op met de beheerder en deel "
-                    "deze code met niemand.\n" % (name or "collega", code))
-    msg.add_alternative(_twofa_email_html(name, code), subtype="html")
+    msg["Subject"] = subject
+    msg["From"] = frm
+    msg["To"] = ", ".join(recips)
+    msg.set_content(text)
+    if html:
+        msg.add_alternative(html, subtype="html")
     try:
         with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=10) as s:
             s.starttls()
@@ -1071,37 +1093,20 @@ def _send_2fa_email(to_email, code, name=""):
         return True
     except Exception:
         return False
+
+
+def _send_2fa_email(to_email, code, name=""):
+    """Mail de 6-cijferige inlogcode (HTML + tekst). True bij succes, anders False (val terug op scherm)."""
+    text = ("Hoi %s,\n\nJe verificatiecode voor OfficeRoute is: %s\n\n"
+            "De code is 5 minuten geldig.\n\n"
+            "Niet zelf ingelogd? Neem dan direct contact op met de beheerder en deel "
+            "deze code met niemand.\n" % (name or "collega", code))
+    return _api_send(to_email, "Je OfficeRoute-inlogcode: %s" % code, text, _twofa_email_html(name, code))
 
 
 def _send_mail(to_email, subject, body, html_body=None):
-    """Centrale verzendlaag: alle uitgaande mail (klantcommunicatie + notificaties)
-    gaat via de mailbox uit integrations 'email' (smtp_user = planning@office-interior.com).
-    Geeft True bij succes, False als (nog) niet ingesteld of bij een fout."""
-    if not to_email:
-        return False
-    c = _email_cfg()
-    host = (c.get("smtp_host") or "").strip()
-    user = (c.get("smtp_user") or "").strip()
-    pwd = (c.get("smtp_pass") or "").strip()
-    if not (host and user and pwd):
-        return False
-    if (c.get("send_live") or "0") != "1":
-        return False   # testmodus: niets echt versturen
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), user)
-    msg["To"] = to_email
-    msg.set_content(body)
-    if html_body:
-        msg.add_alternative(html_body, subtype="html")
-    try:
-        with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=10) as s:
-            s.starttls()
-            s.login(user, pwd)
-            s.send_message(msg)
-        return True
-    except Exception:
-        return False
+    """Centrale verzendlaag voor alle uitgaande klantmail (Resend/HTTPS, SMTP-fallback, testmodus-gate)."""
+    return _api_send(to_email, subject, body, html_body)
 
 
 _NL_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
@@ -2559,26 +2564,48 @@ def integration_test(ikey):
         return jsonify(ok=False, error="Onbekende koppeling"), 404
     if ikey == "email":
         c = _email_cfg()
+        from_email = (c.get("from_email") or c.get("smtp_user") or "").strip()
+        if not from_email:
+            return jsonify(ok=False, message="Vul eerst de afzender-e-mail in.")
+        frm = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), from_email)
+        text = "Dit is een testmail van OfficeRoute. De mailkoppeling werkt."
+        html = _brand_email("Testmail geslaagd",
+                            ["Dit is een testbericht van OfficeRoute.",
+                             "De koppeling werkt — klantmails worden verstuurd zodra 'E-mails écht versturen' aanstaat."])
+        key = (c.get("resend_api_key") or "").strip()
+        if key:
+            try:
+                payload = json.dumps({"from": frm, "to": [from_email], "subject": "OfficeRoute — testmail",
+                                      "text": text, "html": html}).encode("utf-8")
+                req = urllib.request.Request("https://api.resend.com/emails", data=payload,
+                                             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=15).read()
+                return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend — controleer de inbox." % from_email)
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = e.read().decode()[:300]
+                except Exception:
+                    detail = e.reason
+                return jsonify(ok=False, message="Resend weigerde (code %s): %s" % (e.code, detail))
+            except Exception as e:
+                return jsonify(ok=False, message="Versturen via Resend mislukt: %s" % e)
         host = (c.get("smtp_host") or "").strip()
         user = (c.get("smtp_user") or "").strip()
         pwd = (c.get("smtp_pass") or "").strip()
         if not (host and user and pwd):
-            return jsonify(ok=False, message="Vul eerst SMTP-host, -gebruiker en -wachtwoord in.")
-        msg = EmailMessage()
-        msg["Subject"] = "OfficeRoute — testmail"
-        msg["From"] = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), user)
-        msg["To"] = user
-        msg.set_content("Dit is een testmail van OfficeRoute. De mailkoppeling werkt.")
-        msg.add_alternative(_brand_email("Testmail geslaagd",
-                            ["Dit is een testbericht van OfficeRoute.",
-                             "De koppeling met %s werkt — je kunt klantmails versturen zodra 'E-mails écht versturen' aanstaat." % user]),
-                            subtype="html")
+            return jsonify(ok=False, message="Vul een Resend API-sleutel in (SMTP wordt door Render geblokkeerd).")
         try:
+            msg = EmailMessage()
+            msg["Subject"] = "OfficeRoute — testmail"
+            msg["From"] = frm
+            msg["To"] = from_email
+            msg.set_content(text)
+            msg.add_alternative(html, subtype="html")
             with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=15) as s:
                 s.starttls()
                 s.login(user, pwd)
                 s.send_message(msg)
-            return jsonify(ok=True, message="Testmail verstuurd naar %s — controleer de inbox." % user)
+            return jsonify(ok=True, message="Testmail verstuurd via SMTP naar %s." % from_email)
         except Exception as e:
             return jsonify(ok=False, message="Versturen mislukt: %s" % e)
     if integ_status(ikey) == "verbonden":
