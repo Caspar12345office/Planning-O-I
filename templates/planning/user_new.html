@@ -1,0 +1,34 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Nieuwe gebruiker · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Nieuwe gebruiker</h1><p>Maak een account aan voor kantoor of een monteur</p>{% endblock %}
+{% block page_css %}
+  .acctgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .acctgrid label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
+  .acctgrid input,.acctgrid select{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff}
+  @media(max-width:640px){.acctgrid{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px">← Alle gebruikers</a>
+<form method="post">
+  <div class="card">
+    <div class="acctgrid">
+      <div><label>Naam</label><input name="name" required></div>
+      <div><label>E-mailadres (inloggen + 2FA-code)</label><input type="email" name="email" placeholder="naam@office-interior.nl of privé-adres" required></div>
+      <div><label>Wachtwoord</label><input type="text" name="new_password" placeholder="kies een sterk wachtwoord" required></div>
+      <div><label>Rol</label>
+        <select name="role">
+          {% for key,label in roles.items() %}<option value="{{ key }}" {{ 'selected' if key=='monteur' }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div><label>Gekoppelde monteur <span class="muted" style="font-weight:400">(alleen voor rol monteur)</span></label>
+        <select name="monteur_id"><option value="">— geen —</option>
+        {% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;align-items:end"><label style="display:flex;align-items:center;gap:8px;font-weight:500"><input type="checkbox" name="active" checked style="width:auto"> Account actief</label></div>
+    </div>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs: gebruik hun <b>privé-e-mailadres</b> als login — daar ontvangen ze de 2FA-code. De rol bepaalt automatisch de standaardrechten (achteraf bij te stellen via Bewerken).</p>
+    <div style="margin-top:16px"><button class="btn primary" type="submit">Gebruiker aanmaken</button></div>
+  </div>
+</form>
+{% endblock %}

@@ -7,6 +7,9 @@
   .rl.planner{background:#e3f3da;color:#3c7a2c}.rl.administratie{background:#fbeccd;color:#9a6a17}.rl.monteur{background:#ece9e2;color:#74705f}
 {% endblock %}
 {% block content %}
+{% if p_has_perm('manage_users') %}
+<div style="margin-bottom:14px"><a class="btn primary sm" href="{{ url_for('planning.user_new') }}">+ Nieuwe gebruiker</a></div>
+{% endif %}
 <div class="card" style="padding:6px">
 <table>
   <thead><tr><th>Naam</th><th>E-mail</th><th>Rol</th><th>Rechten</th><th>Status</th><th></th></tr></thead>
@@ -18,7 +21,7 @@
       <td><span class="rl {{ u.role }}">{{ ROLE_LABELS.get(u.role, u.role) }}</span></td>
       <td><span class="pill">{{ u.perm_count if u.role!='beheerder' else 'alle' }}</span></td>
       <td>{% if u.active %}<span class="pill green">actief</span>{% else %}<span class="pill gray">inactief</span>{% endif %}</td>
-      <td>{% if p_has_perm('manage_roles') %}<a class="btn ghost sm" href="{{ url_for('planning.user_edit', uid=u.id) }}">Rechten</a>{% endif %}</td>
+      <td>{% if p_has_perm('manage_roles') %}<a class="btn ghost sm" href="{{ url_for('planning.user_edit', uid=u.id) }}">Bewerken</a>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

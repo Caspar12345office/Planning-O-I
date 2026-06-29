@@ -9,10 +9,26 @@
   .perm input{width:auto}
   .rolerow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
   .rolerow select{width:auto;min-width:180px}
+  .acctgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .acctgrid label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
+  .acctgrid input,.acctgrid select{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff}
+  @media(max-width:640px){.acctgrid{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px">← Alle gebruikers</a>
 <form method="post">
+  <div class="card" style="margin-bottom:18px">
+    <div class="acctgrid">
+      <div><label>Naam</label><input name="name" value="{{ u.name }}" required></div>
+      <div><label>E-mailadres (inloggen + 2FA-code)</label><input type="email" name="email" value="{{ u.email }}" required></div>
+      <div><label>Nieuw wachtwoord <span class="muted" style="font-weight:400">(leeg laten = ongewijzigd)</span></label><input type="text" name="new_password" placeholder="alleen invullen om te wijzigen" autocomplete="new-password"></div>
+      <div><label>Gekoppelde monteur <span class="muted" style="font-weight:400">(voor de route in de app)</span></label>
+        <select name="monteur_id"><option value="">— geen —</option>
+        {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if u.monteur_id==m.id }}>{{ m.name }}</option>{% endfor %}
+        </select></div>
+    </div>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs loggen in met hun <b>privé-e-mailadres</b> — daar komt ook de 2FA-code binnen.</p>
+  </div>
   <div class="card" style="margin-bottom:18px">
     <div class="rolerow">
       <div><label>Rol</label>

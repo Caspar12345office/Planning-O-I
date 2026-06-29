@@ -2253,6 +2253,39 @@ def users():
     return render_template("planning/users.html", users=parsed)
 
 
+@bp.route("/users/new", methods=["GET", "POST"])
+def user_new():
+    guard = login_required("manage_users")
+    if guard:
+        return guard
+    conn = db()
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        email = (request.form.get("email") or "").strip().lower()
+        role = request.form.get("role") or "monteur"
+        pw = (request.form.get("new_password") or "").strip()
+        mid = request.form.get("monteur_id") or None
+        if mid in ("", "0", None):
+            mid = None
+        active = 1 if request.form.get("active") else 0
+        if not (name and email and pw):
+            conn.close(); flash("Naam, e-mail en wachtwoord zijn verplicht.")
+            return redirect(url_for("planning.user_new"))
+        if conn.execute("SELECT id FROM users WHERE lower(email)=?", (email,)).fetchone():
+            conn.close(); flash("Dat e-mailadres bestaat al.")
+            return redirect(url_for("planning.user_new"))
+        perms = list(ROLE_DEFAULTS.get(role, []))
+        conn.execute("""INSERT INTO users(name,email,password,role,permissions,monteur_id,active,created_at)
+                        VALUES(?,?,?,?,?,?,?,?)""",
+                     (name, email, generate_password_hash(pw), role, json.dumps(perms), mid, active, _today_iso()))
+        conn.commit(); conn.close()
+        flash("Gebruiker aangemaakt.")
+        return redirect(url_for("planning.users"))
+    monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
+    conn.close()
+    return render_template("planning/user_new.html", roles=ROLE_LABELS, monteurs=monteurs)
+
+
 @bp.route("/users/<int:uid>", methods=["GET", "POST"])
 def user_edit(uid):
     guard = login_required("manage_roles")
@@ -2263,25 +2296,36 @@ def user_edit(uid):
     if not u:
         conn.close(); abort(404)
     if request.method == "POST":
+        name = (request.form.get("name") or u["name"]).strip()
+        email = (request.form.get("email") or u["email"]).strip().lower()
         role = request.form.get("role", u["role"])
         perms = [k for k in PERMISSION_KEYS if request.form.get("perm_" + k)]
         active = 1 if request.form.get("active") else 0
-        conn.execute("UPDATE users SET role=?, permissions=?, active=? WHERE id=?",
-                     (role, json.dumps(perms), active, uid))
-        conn.commit()
-        conn.close()
+        mid = request.form.get("monteur_id") or None
+        if mid in ("", "0", None):
+            mid = None
+        if conn.execute("SELECT id FROM users WHERE lower(email)=? AND id!=?", (email, uid)).fetchone():
+            conn.close(); flash("Dat e-mailadres is al bij een andere gebruiker in gebruik.")
+            return redirect(url_for("planning.user_edit", uid=uid))
+        conn.execute("UPDATE users SET name=?, email=?, role=?, permissions=?, active=?, monteur_id=? WHERE id=?",
+                     (name, email, role, json.dumps(perms), active, mid, uid))
+        newpw = (request.form.get("new_password") or "").strip()
+        if newpw:
+            conn.execute("UPDATE users SET password=? WHERE id=?", (generate_password_hash(newpw), uid))
+        conn.commit(); conn.close()
         flash("Gebruiker bijgewerkt.")
         return redirect(url_for("planning.users"))
     try:
         current = set(json.loads(u["permissions"] or "[]"))
     except Exception:
         current = set()
+    monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
     conn.close()
     groups = {}
     for k, label, grp in PERMISSIONS:
         groups.setdefault(grp, []).append((k, label))
     return render_template("planning/user_edit.html", u=u, groups=groups, current=current,
-                           roles=ROLE_LABELS, role_defaults=ROLE_DEFAULTS)
+                           roles=ROLE_LABELS, role_defaults=ROLE_DEFAULTS, monteurs=monteurs)
 
 
 # --------------------------------------------------------------------------- #
