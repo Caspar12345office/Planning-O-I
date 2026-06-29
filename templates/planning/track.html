@@ -74,6 +74,22 @@
       {% if monteur %}<div class="row"><span class="l">Monteur</span><span class="v">{{ monteur }}</span></div>{% endif %}
       <div class="row"><span class="l">Ordernummer</span><span class="v">#{{ onum }}</span></div>
     </div>
+
+    {% if can_note %}
+    <div style="margin-top:16px;background:#fff;border:1px solid #cfe0d7;border-radius:12px;padding:14px 16px">
+      <div style="font-size:13px;font-weight:bold;color:#0f3d3e;margin-bottom:6px">Iets doorgeven aan de chauffeur?</div>
+      {% if saved %}<div style="background:#e3f3da;color:#3c7a2c;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:8px">Bedankt! Uw bericht is doorgegeven aan de monteur.</div>{% endif %}
+      {% if note and not saved %}<div style="font-size:13px;color:#3a4a45;margin-bottom:8px">Eerder doorgegeven: <b>“{{ note }}”</b></div>{% endif %}
+      <form method="post" action="{{ url_for('planning.track_note', order_number=onum) }}">
+        <input name="note" maxlength="100" value="{{ note or '' }}" placeholder="bijv. bel doet het niet, graag aanbellen bij de buren"
+               style="width:100%;padding:11px;border:1px solid #cfe0d7;border-radius:9px;font:inherit;font-size:14px;box-sizing:border-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+          <span style="font-size:11px;color:#8a948f">Max. 100 tekens</span>
+          <button type="submit" style="background:#0f3d3e;color:#fff;border:0;border-radius:9px;padding:9px 16px;font:inherit;font-size:13px;font-weight:bold;cursor:pointer">Doorgeven aan chauffeur</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
   </div>
   {% endif %}
   <div class="foot">Vragen over uw levering? Mail planning@office-interior.com of bel 085-0481444.</div>

@@ -90,7 +90,7 @@
   <button class="btn ghost sm" id="incBtn" onclick="toggleInc(this)">+ Incidentele monteurs</button>
   <button class="btn ghost sm" id="workBtn" onclick="toggleWork(this)">Verberg niet-werkenden</button>
   <button class="btn gold sm" onclick="autoPlan(this)" title="Plant openstaande Shopify-orders automatisch op de best passende dag/route">⚡ Automatisch inplannen</button>
-  <button class="btn primary sm" onclick="sendConfirmations(this)" title="Stuur in één klik de bevestigingsmails naar de klanten">✉ Bevestigingen versturen</button>
+  <button class="btn primary sm" onclick="sendConfirmations(this)" title="Stuurt de leveringsmail naar iedereen die nog niet bevestigd is én nog geen mail kreeg (geen dubbele mails)">📧 Mail iedereen</button>
   {% endif %}
 </div>
 <div class="weekstrip">
@@ -477,7 +477,7 @@ function autoPlan(btn){
 function sendConfirmations(btn){
   btn.disabled=true; var t=btn.textContent; btn.textContent='Versturen…';
   fetch('{{ url_for("planning.api_send_confirmations") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){
-    if(res.ok){ alert(res.sent+' bevestigingsmail(s) verstuurd'+(res.gmail_live?' via de centrale mailbox.':' (opgeslagen in klantdossier; gaat live zodra Gmail gekoppeld is).')); btn.disabled=false; btn.textContent=t; }
+    if(res.ok){ alert(res.sent+' leveringsmail(s) verstuurd'+(res.mail_live?' vanuit planning@office-interior.com.':' (opgeslagen in klantdossier; gaat live zodra de mailbox gekoppeld is).')); btn.disabled=false; btn.textContent=t; }
     else { alert(res.error||'Mislukt'); btn.disabled=false; btn.textContent=t; }
   });
 }

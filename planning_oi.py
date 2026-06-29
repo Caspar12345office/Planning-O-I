@@ -418,7 +418,7 @@ def init_db():
         is_draft INTEGER DEFAULT 0, status TEXT DEFAULT 'in_te_plannen',
         delivery_address TEXT, city TEXT, postal TEXT,
         invoice_address TEXT, phone TEXT, email TEXT,
-        desired_date TEXT, notes TEXT, instructions TEXT,
+        desired_date TEXT, notes TEXT, instructions TEXT, customer_note TEXT,
         amount REAL DEFAULT 0, volume REAL DEFAULT 0, weight REAL DEFAULT 0,
         montage_min INTEGER DEFAULT 30, service_type TEXT DEFAULT 'montage',
         pakbon TEXT, shopify_id TEXT, created_at TEXT);
@@ -475,7 +475,8 @@ def init_db():
                  "ALTER TABLE orders ADD COLUMN fulfilled_at TEXT",
                  "ALTER TABLE planning ADD COLUMN arrival_mailed INTEGER DEFAULT 0",
                  "ALTER TABLE planning ADD COLUMN delay_mailed INTEGER DEFAULT 0",
-                 "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1"):
+                 "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1",
+                 "ALTER TABLE orders ADD COLUMN customer_note TEXT"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -1643,15 +1644,9 @@ def api_autoplan():
             mid, diso, seq = best
             mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
             conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
-                            VALUES(?,?,?,?,?,'gepland',1)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
+                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
             conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
-            # automatische bevestigingsmail ná het inplannen (regio/tijd/inhoud/monteur/busruimte)
-            cl = conn.execute("SELECT name,email FROM clients WHERE id=?", (o["client_id"],)).fetchone()
-            subject, body, html = _planning_confirmation_mail((cl["name"] if cl else None), diso, None, None, o["order_number"])
-            _send_mail((o["email"] or (cl["email"] if cl else None)), subject, body, html)
-            conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
-                            VALUES(?,?,?,?,?,0)""",
-                         (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
+            # GEEN automatische mail: de planner verstuurt de leveringsmail later met "Mail iedereen".
             planned += 1
     conn.commit()
     conn.close()
@@ -1723,7 +1718,7 @@ def api_send_confirmations():
     rows = conn.execute("""SELECT p.id AS pid, p.date, p.slot_start, p.slot_end,
                            o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
-                           WHERE p.mailed=0 AND p.status!='afgerond'""").fetchall()
+                           WHERE p.mailed=0 AND p.confirmed=0 AND p.status!='afgerond'""").fetchall()
     sent = 0
     for r in rows:
         subject, body, html = _planning_confirmation_mail(r["client"], r["date"], r["slot_start"],
@@ -1783,7 +1778,7 @@ def api_order_contact(oid):
 def track(order_number):
     """Publieke volgpagina voor de klant (geen login). Toont status + tijdvak + live ETA."""
     conn = db()
-    o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, c.name AS client
+    o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, o.customer_note, c.name AS client
                         FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.order_number=?""",
                      (order_number,)).fetchone()
     if not o:
@@ -1821,8 +1816,20 @@ def track(order_number):
     return render_template("planning/track.html", found=True, onum=o["order_number"],
                            client=o["client"], status=status,
                            tijdvak=tijdvak, the_date=_nl_date(the_date) if the_date else None,
-                           eta=eta, monteur=monteur,
+                           eta=eta, monteur=monteur, note=o["customer_note"],
+                           can_note=(status in ("gepland", "onderweg")), saved=request.args.get("saved"),
                            m_lat=m_lat, m_lng=m_lng, d_lat=dcoord[0], d_lng=dcoord[1])
+
+
+@bp.route("/track/<order_number>/note", methods=["POST"])
+def track_note(order_number):
+    """Klant geeft (max 100 tekens) iets door aan de chauffeur — publiek."""
+    note = (request.form.get("note") or "").strip()[:100]
+    conn = db()
+    conn.execute("UPDATE orders SET customer_note=? WHERE order_number=?", (note, order_number))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("planning.track", order_number=order_number, saved=1))
 
 
 @bp.route("/api/correspondence/<int:oid>")
@@ -2871,12 +2878,14 @@ def auto_send_daily_mails():
         greet = "Beste %s," % (r["client"] or "klant")
         intro = ("Vandaag bezorgen wij uw bestelling. Gekozen voor montage? Dan doen we dat natuurlijk ook! "
                  "Hieronder vindt u de details. Onze monteur stuurt onderweg nog een bericht zodra hij naar u toe komt.")
-        body = greet + "\n\n" + intro
+        note_line = ("Wilt u iets aan de chauffeur doorgeven (bijv. \"bel doet het niet\")? "
+                     "Dat kan via de knop hieronder — kort en duidelijk.")
+        body = greet + "\n\n" + intro + "\n\n" + note_line
         subject = "Uw levering vandaag #" + r["order_number"]
-        html = _brand_email("Wij komen vandaag langs", [greet, intro],
+        html = _brand_email("Wij komen vandaag langs", [greet, intro, note_line],
                             info=[("Bezorgdatum", _nl_date(today)), ("Tijdvak", tijdvak),
                                   ("Ordernummer", "#" + r["order_number"])],
-                            button=("Volg uw levering", link))
+                            button=("Volg uw levering &amp; bericht doorgeven", link))
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                      (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
