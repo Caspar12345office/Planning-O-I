@@ -204,6 +204,8 @@
     <h3>Mail naar klant</h3>
     <div class="to" id="mailTo"></div>
     <input type="hidden" id="mailOid">
+    <div style="font-size:12px;font-weight:700;color:var(--accent);margin:10px 0 4px">Correspondentie</div>
+    <div id="mailHistory" style="max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:6px 8px;background:var(--soft);margin-bottom:14px;font-size:13px">…</div>
     <label>Onderwerp</label>
     <input id="mailSubject">
     <label>Bericht</label>
@@ -394,6 +396,20 @@ function saveManual(btn){
   }
   check(); setInterval(check, 15000);
 })();
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function loadCorrespondence(oid){
+  var box=document.getElementById('mailHistory');
+  box.innerHTML='<span class="muted">Laden…</span>';
+  fetch('{{ url_for("planning.api_correspondence", oid=0) }}'.slice(0,-1)+oid).then(function(r){return r.json();})
+    .then(function(res){
+      if(!res.ok||!res.items.length){ box.innerHTML='<span class="muted">Nog geen correspondentie met deze klant.</span>'; return; }
+      box.innerHTML=res.items.map(function(m){
+        var uit=(m.direction==='out');
+        var tag='<span style="font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 6px;'+(uit?'background:#e3f3da;color:#3c7a2c':'background:#e4edff;color:#2f5fd0')+'">'+(uit?'UIT':'IN')+'</span>';
+        return '<div style="padding:7px 4px;border-bottom:1px solid var(--line)"><div style="display:flex;gap:8px;align-items:center">'+tag+'<b style="font-size:12.5px">'+esc(m.subject||'(geen onderwerp)')+'</b><span class="muted" style="margin-left:auto;font-size:11px">'+esc(m.ts||'')+'</span></div><div class="muted" style="font-size:12px;margin-top:3px;white-space:pre-wrap">'+esc((m.body||'').slice(0,200))+((m.body||'').length>200?'…':'')+'</div></div>';
+      }).join('');
+    }).catch(function(){ box.innerHTML='<span class="muted">Kon correspondentie niet laden.</span>'; });
+}
 function openMail(oid, client, email, onum){
   document.getElementById('mailOid').value=oid;
   document.getElementById('mailTo').textContent='Aan: '+client+(email?' <'+email+'>':'');
@@ -401,13 +417,14 @@ function openMail(oid, client, email, onum){
   document.getElementById('mailBody').value='Beste '+client+',\n\n';
   document.getElementById('mailNote').textContent='';
   document.getElementById('mailModal').style.display='flex';
+  loadCorrespondence(oid);
 }
 function sendMail(){
   var oid=document.getElementById('mailOid').value;
   fetch('{{ url_for("planning.api_mail") }}',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({order_id:oid, subject:document.getElementById('mailSubject').value, body:document.getElementById('mailBody').value})})
     .then(function(r){return r.json();}).then(function(res){
-      if(res.ok){ document.getElementById('mailNote').textContent=res.message; setTimeout(function(){document.getElementById('mailModal').style.display='none';},1200); }
+      if(res.ok){ document.getElementById('mailNote').textContent=res.message; document.getElementById('mailBody').value=''; loadCorrespondence(oid); }
       else alert(res.error||'Mislukt');
     });
 }

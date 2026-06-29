@@ -1058,6 +1058,35 @@ def _send_2fa_email(to_email, code, name=""):
         return False
 
 
+def _send_mail(to_email, subject, body, html_body=None):
+    """Centrale verzendlaag: alle uitgaande mail (klantcommunicatie + notificaties)
+    gaat via de mailbox uit integrations 'email' (smtp_user = planning@office-interior.com).
+    Geeft True bij succes, False als (nog) niet ingesteld of bij een fout."""
+    if not to_email:
+        return False
+    c = _email_cfg()
+    host = (c.get("smtp_host") or "").strip()
+    user = (c.get("smtp_user") or "").strip()
+    pwd = (c.get("smtp_pass") or "").strip()
+    if not (host and user and pwd):
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), user)
+    msg["To"] = to_email
+    msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+    try:
+        with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=10) as s:
+            s.starttls()
+            s.login(user, pwd)
+            s.send_message(msg)
+        return True
+    except Exception:
+        return False
+
+
 def _finish_login(u, nxt):
     session["p_user_id"] = u["id"]
     session.pop("twofa", None)
@@ -1597,7 +1626,7 @@ def api_send_confirmations():
     tpl_row = conn.execute("SELECT value FROM settings WHERE skey='tpl_confirm'").fetchone()
     body_tpl = tpl_row["value"] if tpl_row else "Beste {klant}, uw levering is gepland op {datum} ({tijdvak})."
     rows = conn.execute("""SELECT p.id AS pid, p.date, p.slot_start, p.slot_end,
-                           o.order_number, o.client_id, c.name AS client
+                           o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.mailed=0 AND p.status!='afgerond'""").fetchall()
     sent = 0
@@ -1608,16 +1637,16 @@ def api_send_confirmations():
                                    telefoon="085-0481444", email="info@office-interior.com")
         except Exception:
             body = body_tpl
+        subject = "Bevestiging van uw levering #" + r["order_number"]
+        _send_mail((r["oemail"] or r["cemail"]), subject, body)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
                         VALUES(?,?,?,?,?,0)""",
-                     (r["client_id"], "out", "Bevestiging van uw levering #" + r["order_number"],
-                      body, datetime.now().isoformat(timespec="minutes")))
+                     (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.execute("UPDATE planning SET mailed=1 WHERE id=?", (r["pid"],))
         sent += 1
     conn.commit()
     conn.close()
-    gmail_live = (integ_status("gmail") == "verbonden")
-    return jsonify(ok=True, sent=sent, gmail_live=gmail_live)
+    return jsonify(ok=True, sent=sent, mail_live=_email_configured())
 
 
 @bp.route("/pakbon/<int:oid>")
@@ -1660,6 +1689,22 @@ def api_order_contact(oid):
     return jsonify(ok=True, **dict(o))
 
 
+@bp.route("/api/correspondence/<int:oid>")
+def api_correspondence(oid):
+    """Alle e-mailcorrespondentie van de klant achter deze order (voor de snelweergave)."""
+    if not current_user():
+        return jsonify(ok=False), 403
+    conn = db()
+    o = conn.execute("SELECT client_id FROM orders WHERE id=?", (oid,)).fetchone()
+    items = []
+    if o:
+        items = [dict(r) for r in conn.execute(
+            """SELECT direction, subject, body, ts FROM email_log
+               WHERE client_id=? ORDER BY ts DESC, id DESC LIMIT 50""", (o["client_id"],)).fetchall()]
+    conn.close()
+    return jsonify(ok=True, items=items)
+
+
 @bp.route("/api/mail", methods=["POST"])
 def api_mail():
     """Verstuur (via de centrale Gmail-mailbox) en bewaar in het klantdossier."""
@@ -1670,18 +1715,20 @@ def api_mail():
     subject = (data.get("subject") or "").strip()
     body = (data.get("body") or "").strip()
     conn = db()
-    o = conn.execute("SELECT client_id, email FROM orders WHERE id=?", (oid,)).fetchone()
+    o = conn.execute("""SELECT o.client_id, o.email AS oemail, c.email AS cemail
+                        FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
+    sent_ok = False
     if o:
+        sent_ok = _send_mail((o["oemail"] or o["cemail"]), subject, body)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment)
                         VALUES(?,?,?,?,?,0)""",
                      (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.commit()
     conn.close()
-    gmail_live = (integ_status("gmail") == "verbonden")
-    return jsonify(ok=True, gmail_live=gmail_live,
-                   message=("Verzonden via centrale mailbox en bewaard in het klantdossier."
-                            if gmail_live else
-                            "Opgeslagen in het klantdossier. Zodra de Gmail-koppeling live staat, wordt de mail ook echt verstuurd."))
+    return jsonify(ok=True, mail_live=_email_configured(),
+                   message=("Verzonden vanuit planning@office-interior.com en bewaard in het klantdossier."
+                            if sent_ok else
+                            "Opgeslagen in het klantdossier. Stel de mailkoppeling in (Koppelingen) om ook echt te versturen."))
 
 
 # --------------------------------------------------------------------------- #
@@ -2677,7 +2724,8 @@ def auto_send_daily_mails():
     tpl_d = s.get("tpl_delay", "Beste {klant}, door vertraging is de nieuwe verwachte tijd {eta}.")
     sent = 0
     # 1) aankomst-/tijdvakmails
-    rows = conn.execute("""SELECT p.id pid, p.slot_start, p.slot_end, o.order_number, o.client_id, c.name AS client
+    rows = conn.execute("""SELECT p.id pid, p.slot_start, p.slot_end, o.order_number, o.client_id,
+                           o.email AS oemail, c.name AS client, c.email AS cemail
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.date=? AND p.arrival_mailed=0 AND p.status!='afgerond'""", (today,)).fetchall()
     for r in rows:
@@ -2688,9 +2736,10 @@ def auto_send_daily_mails():
                                 eta=tijdvak, trackinglink=link, telefoon="085-0481444", email="info@office-interior.com")
         except Exception:
             body = tpl_a
+        subject = "Uw levering vandaag #" + r["order_number"]
+        _send_mail((r["oemail"] or r["cemail"]), subject, body)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
-                     (r["client_id"], "out", "Uw levering vandaag #" + r["order_number"], body,
-                      datetime.now().isoformat(timespec="minutes")))
+                     (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.execute("UPDATE planning SET arrival_mailed=1 WHERE id=?", (r["pid"],))
         sent += 1
     # 2) vertraging-updates (>= ALERT_THRESHOLD) op basis van live AT
@@ -2700,7 +2749,7 @@ def auto_send_daily_mails():
         if not live:
             continue
         stops = conn.execute("""SELECT p.id pid, p.slot_start, p.delay_mailed, o.city, o.montage_min, o.status AS ostatus,
-                                o.order_number, o.client_id, c.name AS client, p.status
+                                o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail, p.status
                                 FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                                 WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (m["id"], today)).fetchall()
         arrivals, _ = compute_arrivals(stops, m, live, True)
@@ -2713,9 +2762,10 @@ def auto_send_daily_mails():
                                         telefoon="085-0481444", email="info@office-interior.com")
                 except Exception:
                     body = tpl_d
+                subject = "Update levertijd #" + st["order_number"]
+                _send_mail((st["oemail"] or st["cemail"]), subject, body)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
-                             (st["client_id"], "out", "Update levertijd #" + st["order_number"], body,
-                              datetime.now().isoformat(timespec="minutes")))
+                             (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
                 conn.execute("UPDATE planning SET delay_mailed=1 WHERE id=?", (st["pid"],))
                 sent += 1
     conn.commit()
