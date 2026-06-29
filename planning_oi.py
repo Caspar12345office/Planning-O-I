@@ -2557,6 +2557,30 @@ def integration_test(ikey):
         return jsonify(ok=False, error="Geen rechten"), 403
     if ikey not in INTEGRATION_BY_KEY:
         return jsonify(ok=False, error="Onbekende koppeling"), 404
+    if ikey == "email":
+        c = _email_cfg()
+        host = (c.get("smtp_host") or "").strip()
+        user = (c.get("smtp_user") or "").strip()
+        pwd = (c.get("smtp_pass") or "").strip()
+        if not (host and user and pwd):
+            return jsonify(ok=False, message="Vul eerst SMTP-host, -gebruiker en -wachtwoord in.")
+        msg = EmailMessage()
+        msg["Subject"] = "OfficeRoute — testmail"
+        msg["From"] = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), user)
+        msg["To"] = user
+        msg.set_content("Dit is een testmail van OfficeRoute. De mailkoppeling werkt.")
+        msg.add_alternative(_brand_email("Testmail geslaagd",
+                            ["Dit is een testbericht van OfficeRoute.",
+                             "De koppeling met %s werkt — je kunt klantmails versturen zodra 'E-mails écht versturen' aanstaat." % user]),
+                            subtype="html")
+        try:
+            with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=15) as s:
+                s.starttls()
+                s.login(user, pwd)
+                s.send_message(msg)
+            return jsonify(ok=True, message="Testmail verstuurd naar %s — controleer de inbox." % user)
+        except Exception as e:
+            return jsonify(ok=False, message="Versturen mislukt: %s" % e)
     if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")
