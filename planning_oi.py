@@ -2567,6 +2567,8 @@ def integration_test(ikey):
         from_email = (c.get("from_email") or c.get("smtp_user") or "").strip()
         if not from_email:
             return jsonify(ok=False, message="Vul eerst de afzender-e-mail in.")
+        u = current_user()
+        test_to = (u["email"] if u and u["email"] else from_email)
         frm = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), from_email)
         text = "Dit is een testmail van OfficeRoute. De mailkoppeling werkt."
         html = _brand_email("Testmail geslaagd",
@@ -2575,12 +2577,12 @@ def integration_test(ikey):
         key = (c.get("resend_api_key") or "").strip()
         if key:
             try:
-                payload = json.dumps({"from": frm, "to": [from_email], "subject": "OfficeRoute — testmail",
+                payload = json.dumps({"from": frm, "to": [test_to], "subject": "OfficeRoute — testmail",
                                       "text": text, "html": html}).encode("utf-8")
                 req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                              headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
                 urllib.request.urlopen(req, timeout=15).read()
-                return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend — controleer de inbox." % from_email)
+                return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend — controleer de inbox." % test_to)
             except urllib.error.HTTPError as e:
                 try:
                     detail = e.read().decode()[:300]
@@ -2598,14 +2600,14 @@ def integration_test(ikey):
             msg = EmailMessage()
             msg["Subject"] = "OfficeRoute — testmail"
             msg["From"] = frm
-            msg["To"] = from_email
+            msg["To"] = test_to
             msg.set_content(text)
             msg.add_alternative(html, subtype="html")
             with smtplib.SMTP(host, int(c.get("smtp_port") or 587), timeout=15) as s:
                 s.starttls()
                 s.login(user, pwd)
                 s.send_message(msg)
-            return jsonify(ok=True, message="Testmail verstuurd via SMTP naar %s." % from_email)
+            return jsonify(ok=True, message="Testmail verstuurd via SMTP naar %s." % test_to)
         except Exception as e:
             return jsonify(ok=False, message="Versturen mislukt: %s" % e)
     if integ_status(ikey) == "verbonden":
