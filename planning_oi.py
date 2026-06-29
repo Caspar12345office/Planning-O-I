@@ -1144,6 +1144,17 @@ def _paras(greet, bodytext):
     return [greet] + [p for p in (bodytext or "").split("\n\n") if p.strip()]
 
 
+def _purge_old_customer_notes(conn):
+    """Privacy: klantopmerkingen wissen 12 uur na de levering (fulfilled_at)."""
+    try:
+        cutoff = (datetime.now() - timedelta(hours=12)).isoformat(timespec="minutes")
+        conn.execute("UPDATE orders SET customer_note=NULL WHERE customer_note IS NOT NULL "
+                     "AND fulfilled=1 AND fulfilled_at IS NOT NULL AND fulfilled_at < ?", (cutoff,))
+        conn.commit()
+    except Exception:
+        pass
+
+
 def _brand_email(heading, paragraphs, info=None, button=None, note=None):
     """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
     paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
@@ -1327,6 +1338,7 @@ def dashboard():
         except Exception:
             auto_mails = 0
     conn = db()
+    _purge_old_customer_notes(conn)
     today = _today_iso()
     tomorrow = (datetime.now().date() + timedelta(days=1)).isoformat()
     week_end = (datetime.now().date() + timedelta(days=7)).isoformat()
@@ -1807,6 +1819,7 @@ def api_order_contact(oid):
 def track(order_number):
     """Publieke volgpagina voor de klant (geen login). Toont status + tijdvak + live ETA."""
     conn = db()
+    _purge_old_customer_notes(conn)
     o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, o.customer_note, c.name AS client
                         FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.order_number=?""",
                      (order_number,)).fetchone()
