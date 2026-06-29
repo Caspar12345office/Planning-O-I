@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f3d3e">
+<title>Uw levering volgen · Office-Interior</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f1ede5;color:#16302d;min-height:100vh;
+       display:flex;align-items:flex-start;justify-content:center;padding:24px 14px}
+  .card{width:100%;max-width:520px;background:#fff;border:1px solid #e6ebe4;border-radius:16px;overflow:hidden;box-shadow:0 16px 44px rgba(15,61,62,.12)}
+  .hd{background:#0f3d3e;padding:20px 26px}
+  .hd .nm{color:#fff;font-size:19px;font-weight:bold;letter-spacing:1px}
+  .hd .sub{color:#cda35a;font-size:11px;letter-spacing:.08em;margin-top:3px}
+  .body{padding:26px}
+  .hero{text-align:center;margin-bottom:8px}
+  .hero .ic{font-size:40px;line-height:1}
+  .hero h1{font-size:21px;color:#0f3d3e;margin:10px 0 2px}
+  .hero .eta{font-size:15px;color:#3a4a45;margin:0}
+  .hero .eta b{color:#0f3d3e}
+  .steps{display:flex;align-items:flex-start;margin:24px 4px 22px}
+  .step{flex:1;text-align:center;position:relative;font-size:12px;color:#9aa8a1}
+  .step .dot{width:16px;height:16px;border-radius:50%;background:#d7e0da;margin:0 auto 7px;border:3px solid #fff;box-shadow:0 0 0 1px #d7e0da;position:relative;z-index:2}
+  .step.done .dot{background:#0f6e56;box-shadow:0 0 0 1px #0f6e56}
+  .step.done{color:#0f6e56;font-weight:bold}
+  .step .bar{position:absolute;top:7px;left:-50%;width:100%;height:3px;background:#d7e0da;z-index:1}
+  .step.done .bar{background:#0f6e56}
+  .step:first-child .bar{display:none}
+  .info{background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;padding:6px 16px;margin-bottom:6px}
+  .info .row{display:flex;justify-content:space-between;padding:9px 0;font-size:14px;border-top:1px solid #dce8e0}
+  .info .row:first-child{border-top:0}
+  .info .row .l{color:#6b7a74;font-size:13px}
+  .info .row .v{color:#16302d;font-weight:bold}
+  .foot{padding:16px 26px 22px;border-top:1px solid #eef0ec;color:#8a948f;font-size:12px;line-height:1.6}
+  .nf{text-align:center;padding:30px 10px;color:#6b7a74}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="hd"><div class="nm">Office-Interior</div><div class="sub">BEZORGING &amp; MONTAGE</div></div>
+  {% if not found %}
+  <div class="body"><div class="nf"><div style="font-size:38px">🔍</div>
+    <h1 style="color:#0f3d3e;font-size:19px">Niet gevonden</h1>
+    <p>We konden order <b>#{{ onum }}</b> niet vinden. Controleer de link uit uw e-mail of neem contact met ons op.</p></div></div>
+  {% else %}
+  {% set step = {'gepland':1,'onderweg':2,'afgerond':3}.get(status, 0) %}
+  <div class="body">
+    <div class="hero">
+      {% if status=='afgerond' %}<div class="ic">✅</div><h1>Geleverd</h1><p class="eta">Bedankt — uw bestelling is afgerond.</p>
+      {% elif status=='onderweg' %}<div class="ic">🚚</div><h1>Onze monteur is onderweg</h1>
+        {% if eta %}<p class="eta">Verwachte aankomst rond <b>{{ eta }}</b></p>{% else %}<p class="eta">U krijgt zo bericht zodra de monteur er bijna is.</p>{% endif %}
+      {% elif status=='gepland' %}<div class="ic">📦</div><h1>Uw levering is ingepland</h1><p class="eta">We zien u {% if the_date %}op <b>{{ the_date }}</b>{% endif %}{% if tijdvak %} tussen <b>{{ tijdvak }}</b>{% endif %}.</p>
+      {% else %}<div class="ic">🗓</div><h1>Wordt ingepland</h1><p class="eta">Zodra uw levering gepland is, ziet u hier de datum en het tijdvak.</p>{% endif %}
+    </div>
+
+    <div class="steps">
+      <div class="step {{ 'done' if step>=1 }}"><div class="bar"></div><div class="dot"></div>Ingepland</div>
+      <div class="step {{ 'done' if step>=2 }}"><div class="bar"></div><div class="dot"></div>Onderweg</div>
+      <div class="step {{ 'done' if step>=3 }}"><div class="bar"></div><div class="dot"></div>Geleverd</div>
+    </div>
+
+    <div class="info">
+      {% if the_date %}<div class="row"><span class="l">Datum</span><span class="v">{{ the_date }}</span></div>{% endif %}
+      {% if tijdvak %}<div class="row"><span class="l">Tijdvak</span><span class="v">{{ tijdvak }}</span></div>{% endif %}
+      <div class="row"><span class="l">Ordernummer</span><span class="v">#{{ onum }}</span></div>
+      {% if city %}<div class="row"><span class="l">Plaats</span><span class="v">{{ city }}</span></div>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="foot">Vragen over uw levering? Bel 085-0481444 of mail info@office-interior.com.<br>Office-Interior · Kantoorinrichting, bezorging &amp; montage</div>
+</div>
+</body>
+</html>

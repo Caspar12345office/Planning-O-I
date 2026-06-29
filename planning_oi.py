@@ -1734,6 +1734,47 @@ def api_order_contact(oid):
     return jsonify(ok=True, **dict(o))
 
 
+@bp.route("/track/<order_number>")
+def track(order_number):
+    """Publieke volgpagina voor de klant (geen login). Toont status + tijdvak + live ETA."""
+    conn = db()
+    o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, c.name AS client
+                        FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.order_number=?""",
+                     (order_number,)).fetchone()
+    if not o:
+        conn.close()
+        return render_template("planning/track.html", found=False, onum=order_number)
+    p = conn.execute("""SELECT p.*, m.name AS monteur, m.id AS mid FROM planning p
+                        LEFT JOIN monteurs m ON m.id=p.monteur_id WHERE p.order_id=?""", (o["id"],)).fetchone()
+    status = (p["status"] if p else None) or o["ostatus"] or "in_te_plannen"
+    tijdvak = the_date = eta = monteur = None
+    if p:
+        the_date = p["date"]
+        monteur = p["monteur"]
+        if p["slot_start"]:
+            tijdvak = (p["slot_start"] or "") + " – " + (p["slot_end"] or "")
+        if status == "onderweg" and p["mid"]:
+            try:
+                live = _live_loc(conn, p["mid"])
+                if live:
+                    stops = conn.execute("""SELECT p.order_id, p.slot_start, p.status, o.city, o.montage_min
+                                            FROM planning p JOIN orders o ON o.id=p.order_id
+                                            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""",
+                                         (p["mid"], p["date"])).fetchall()
+                    m = conn.execute("SELECT * FROM monteurs WHERE id=?", (p["mid"],)).fetchone()
+                    arrivals, _ = compute_arrivals(stops, m, live, True)
+                    for st, a in zip(stops, arrivals):
+                        if st["order_id"] == o["id"]:
+                            eta = a.get("at")
+                            break
+            except Exception:
+                eta = None
+    conn.close()
+    return render_template("planning/track.html", found=True, onum=o["order_number"],
+                           client=o["client"], city=o["city"], status=status,
+                           tijdvak=tijdvak, the_date=the_date, eta=eta, monteur=monteur)
+
+
 @bp.route("/api/correspondence/<int:oid>")
 def api_correspondence(oid):
     """Alle e-mailcorrespondentie van de klant achter deze order (voor de snelweergave)."""
@@ -2777,13 +2818,12 @@ def auto_send_daily_mails():
     for r in rows:
         tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
         link = "https://planning-o-i.onrender.com/track/%s" % r["order_number"]
-        try:
-            body = tpl_a.format(klant=(r["client"] or "klant"), datum=today, tijdvak=tijdvak,
-                                eta=tijdvak, trackinglink=link, telefoon="085-0481444", email="info@office-interior.com")
-        except Exception:
-            body = tpl_a
+        greet = "Beste %s," % (r["client"] or "klant")
+        intro = ("Vandaag bezorgen wij uw bestelling. Gekozen voor montage? Dan doen we dat natuurlijk ook! "
+                 "Hieronder vindt u de details. Onze monteur stuurt onderweg nog een bericht zodra hij naar u toe komt.")
+        body = greet + "\n\n" + intro
         subject = "Uw levering vandaag #" + r["order_number"]
-        html = _brand_email("Wij komen vandaag langs", [body],
+        html = _brand_email("Wij komen vandaag langs", [greet, intro],
                             info=[("Tijdvak vandaag", tijdvak), ("Ordernummer", "#" + r["order_number"])],
                             button=("Volg uw levering", link))
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
