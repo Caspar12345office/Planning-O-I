@@ -870,6 +870,7 @@ NAV = [
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
+        {"label": "E-mailteksten", "endpoint": "planning.email_templates", "perm": "manage_settings"},
         {"label": "Koppelingen", "endpoint": "planning.integrations", "perm": "manage_integrations"},
         {"label": "Gebruikers", "endpoint": "planning.users", "perm": "manage_users"}]},
 ]
@@ -1116,6 +1117,33 @@ def _wide_window(slot_start, slot_end):
     return "%02d:00 – %02d:00" % (sh, eh)
 
 
+MAIL_TEXT_DEFAULTS = {
+    "mailtxt_confirm_h": "Uw bestelling is ingepland",
+    "mailtxt_confirm_b": "Goed nieuws, uw bestelling is ingepland. Hieronder vindt u het geplande bezorgmoment.",
+    "mailtxt_today_h": "Wij komen vandaag langs",
+    "mailtxt_today_b": ("Vandaag bezorgen wij uw bestelling. Gekozen voor montage? Dan doen we dat natuurlijk ook! "
+                        "Hieronder vindt u de details. Onze monteur stuurt onderweg nog een bericht zodra hij naar u toe komt.\n\n"
+                        "Wilt u iets aan de chauffeur doorgeven (bijv. \"bel doet het niet\")? Dat kan via de knop hieronder."),
+    "mailtxt_near_h": "Onze monteur is er bijna",
+    "mailtxt_near_b": "Onze monteur is er bijna. U kunt hem live volgen via de knop hieronder.",
+    "mailtxt_delay_h": "Update over uw levertijd",
+    "mailtxt_delay_b": "Door omstandigheden onderweg is de verwachte aankomsttijd iets opgeschoven. Onze excuses voor het ongemak.",
+}
+
+
+def _mailtxt(key):
+    """Bewerkbare mailtekst uit settings, anders de standaardtekst."""
+    conn = db()
+    r = conn.execute("SELECT value FROM settings WHERE skey=?", (key,)).fetchone()
+    conn.close()
+    v = r["value"] if r else None
+    return v if (v is not None and v.strip()) else MAIL_TEXT_DEFAULTS.get(key, "")
+
+
+def _paras(greet, bodytext):
+    return [greet] + [p for p in (bodytext or "").split("\n\n") if p.strip()]
+
+
 def _brand_email(heading, paragraphs, info=None, button=None, note=None):
     """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
     paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
@@ -1166,12 +1194,12 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
 def _planning_confirmation_mail(client, date_iso, slot_start, slot_end, order_number):
     """Bevestiging die automatisch ná het inplannen gaat (ruim tijdvak, geen live ETA)."""
     greet = "Beste %s," % (client or "klant")
-    intro = "Goed nieuws, uw bestelling is ingepland. Hieronder vindt u het geplande bezorgmoment."
+    intro = _mailtxt("mailtxt_confirm_b")
     subject = "Uw bestelling is ingepland #%s" % order_number
     tijd = _wide_window(slot_start, slot_end)
     body = "%s\n\n%s\n\nBezorgdatum: %s\nVerwachte tijd: %s\nOrdernummer: #%s" % (
         greet, intro, _nl_date(date_iso), tijd, order_number)
-    html = _brand_email("Uw bestelling is ingepland", [greet, intro],
+    html = _brand_email(_mailtxt("mailtxt_confirm_h"), _paras(greet, intro),
                         info=[("Bezorgdatum", _nl_date(date_iso)), ("Verwachte tijd", tijd),
                               ("Ordernummer", "#" + str(order_number))],
                         note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur.")
@@ -1340,7 +1368,7 @@ def dashboard():
                                      (SELECT GROUP_CONCAT(qty || 'x ' || name, ', ') FROM order_items WHERE order_id=o.id) AS items
                                      FROM orders o LEFT JOIN clients c ON c.id=o.client_id
                                      WHERE o.status='in_te_plannen' ORDER BY o.desired_date""").fetchall()
-    unplanned = unplanned_all[:4]
+    unplanned = unplanned_all[:3]
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
 
     # kantoorbezetting (dag selecteerbaar)
@@ -1358,7 +1386,8 @@ def dashboard():
         SELECT q.*, uf.name AS from_name, o.order_number FROM team_questions q
         LEFT JOIN users uf ON uf.id=q.from_user_id LEFT JOIN orders o ON o.id=q.order_id
         WHERE q.to_user_id=? AND q.resolved=0 ORDER BY q.ts DESC""", (u["id"],)).fetchall()
-    all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND id!=? ORDER BY name", (u["id"],)).fetchall()
+    all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND role!='monteur' AND id!=? ORDER BY name",
+                             (u["id"],)).fetchall()
     conn.close()
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
                            unplanned_all=unplanned_all, monteurs=monteurs,
@@ -1846,6 +1875,51 @@ def api_correspondence(oid):
                WHERE client_id=? ORDER BY ts DESC, id DESC LIMIT 50""", (o["client_id"],)).fetchall()]
     conn.close()
     return jsonify(ok=True, items=items)
+
+
+@bp.route("/email-templates", methods=["GET", "POST"])
+def email_templates():
+    """Bewerk de teksten van de klantmails (kop + body) met live voorbeeld in de huisstijl."""
+    guard = login_required("manage_settings")
+    if guard:
+        return guard
+    keys = list(MAIL_TEXT_DEFAULTS.keys())
+    if request.method == "POST":
+        conn = db()
+        for k in keys:
+            conn.execute("INSERT INTO settings(skey,value) VALUES(?,?) "
+                         "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
+                         (k, (request.form.get(k) or "").strip()))
+        conn.commit()
+        conn.close()
+        flash("E-mailteksten opgeslagen.")
+        return redirect(url_for("planning.email_templates"))
+    cur = {k: _mailtxt(k) for k in keys}
+
+    def prev(hk, bk, info, button=None, note=None):
+        return _brand_email(cur[hk], _paras("Beste Voorbeeldklant,", cur[bk]), info=info, button=button, note=note)
+
+    previews = {
+        "confirm": prev("mailtxt_confirm_h", "mailtxt_confirm_b",
+                        [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 – 12:00"), ("Ordernummer", "#36399")],
+                        note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur."),
+        "today": prev("mailtxt_today_h", "mailtxt_today_b",
+                      [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30–10:30"), ("Ordernummer", "#36399")],
+                      button=("Volg uw levering & bericht doorgeven", "#")),
+        "near": prev("mailtxt_near_h", "mailtxt_near_b",
+                     [("Monteur", "Tom"), ("Verwachte aankomst", "rond 09:55"), ("Ordernummer", "#36399")],
+                     button=("Volg live op de kaart", "#")),
+        "delay": prev("mailtxt_delay_h", "mailtxt_delay_b",
+                      [("Nieuwe verwachte tijd", "rond 10:40"), ("Ordernummer", "#36399")],
+                      button=("Volg uw levering", "#")),
+    }
+    blocks = [
+        ("confirm", "Bevestiging — automatisch ná het inplannen"),
+        ("today", "Wij komen vandaag langs"),
+        ("near", "Onze monteur is er bijna"),
+        ("delay", "Update over uw levertijd"),
+    ]
+    return render_template("planning/email_templates.html", cur=cur, previews=previews, blocks=blocks)
 
 
 @bp.route("/api/mail", methods=["POST"])
@@ -2876,13 +2950,10 @@ def auto_send_daily_mails():
         tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
         link = "https://planning-o-i.onrender.com/track/%s" % r["order_number"]
         greet = "Beste %s," % (r["client"] or "klant")
-        intro = ("Vandaag bezorgen wij uw bestelling. Gekozen voor montage? Dan doen we dat natuurlijk ook! "
-                 "Hieronder vindt u de details. Onze monteur stuurt onderweg nog een bericht zodra hij naar u toe komt.")
-        note_line = ("Wilt u iets aan de chauffeur doorgeven (bijv. \"bel doet het niet\")? "
-                     "Dat kan via de knop hieronder — kort en duidelijk.")
-        body = greet + "\n\n" + intro + "\n\n" + note_line
+        intro = _mailtxt("mailtxt_today_b")
+        body = greet + "\n\n" + intro
         subject = "Uw levering vandaag #" + r["order_number"]
-        html = _brand_email("Wij komen vandaag langs", [greet, intro, note_line],
+        html = _brand_email(_mailtxt("mailtxt_today_h"), _paras(greet, intro),
                             info=[("Bezorgdatum", _nl_date(today)), ("Tijdvak", tijdvak),
                                   ("Ordernummer", "#" + r["order_number"])],
                             button=("Volg uw levering &amp; bericht doorgeven", link))
@@ -2904,15 +2975,11 @@ def auto_send_daily_mails():
         arrivals, _ = compute_arrivals(stops, m, live, True)
         for st, a in zip(stops, arrivals):
             if a["status"] in ("late",) and (a["delta"] or 0) >= ALERT_THRESHOLD and not st["delay_mailed"]:
-                try:
-                    body = tpl_d.format(klant=(st["client"] or "klant"), datum=today,
-                                        tijdvak=a["at"], eta=a["at"],
-                                        trackinglink="https://planning-o-i.onrender.com/track/%s" % st["order_number"],
-                                        telefoon="085-0481444", email="info@office-interior.com")
-                except Exception:
-                    body = tpl_d
+                greet = "Beste %s," % (st["client"] or "klant")
+                intro = _mailtxt("mailtxt_delay_b")
+                body = greet + "\n\n" + intro
                 subject = "Update levertijd #" + st["order_number"]
-                html = _brand_email("Update over uw levertijd", [body],
+                html = _brand_email(_mailtxt("mailtxt_delay_h"), _paras(greet, intro),
                                     info=[("Nieuwe verwachte tijd", a["at"]), ("Ordernummer", "#" + st["order_number"])],
                                     button=("Volg uw levering",
                                             "https://planning-o-i.onrender.com/track/%s" % st["order_number"]))

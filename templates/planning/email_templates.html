@@ -1,0 +1,38 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}E-mailteksten · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>E-mailteksten</h1><p>Pas de teksten van de klantmails aan — het voorbeeld rechts toont meteen hoe de mail eruitziet</p>{% endblock %}
+{% block page_css %}
+  .etcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:20px}
+  .etcard h3{color:var(--accent);font-size:16px;margin:0 0 12px}
+  .etgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  .etcard label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
+  .etcard input,.etcard textarea{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;box-sizing:border-box}
+  .etcard textarea{min-height:170px;resize:vertical;line-height:1.5}
+  .etcard .hint{font-size:12px;color:var(--muted);margin:6px 0 0}
+  .etprev{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:580px}
+  @media(max-width:900px){.etgrid{grid-template-columns:1fr}}
+{% endblock %}
+{% block content %}
+<form method="post">
+  <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn primary" type="submit">Opslaan</button></div>
+  {% for key,title in blocks %}
+  <div class="etcard">
+    <h3>{{ title }}</h3>
+    <div class="etgrid">
+      <div>
+        <label>Titel (kop in de mail)</label>
+        <input name="mailtxt_{{ key }}_h" value="{{ cur['mailtxt_' + key + '_h'] }}">
+        <label style="margin-top:14px">Bericht</label>
+        <textarea name="mailtxt_{{ key }}_b">{{ cur['mailtxt_' + key + '_b'] }}</textarea>
+        <div class="hint">Een lege regel = nieuwe alinea. <b>"Beste {klant},"</b> en de gegevens (datum, tijdvak, ordernummer, knop) worden automatisch toegevoegd — die hoef je hier niet te typen.</div>
+      </div>
+      <div>
+        <label>Voorbeeld</label>
+        <div class="etprev">{{ previews[key]|safe }}</div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="display:flex;justify-content:flex-end"><button class="btn primary" type="submit">Opslaan</button></div>
+</form>
+{% endblock %}

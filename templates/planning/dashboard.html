@@ -130,6 +130,7 @@
         {% if o.source=='shopify' %}<span class="tag">Shopify</span>{% endif %}
       </a>
       {% else %}<p class="muted">Alles ingepland. 🎉</p>{% endfor %}
+      {% if stats.unplanned > unplanned|length %}<p class="muted" style="margin:4px 0 8px;font-size:12.5px">+ nog <b>{{ stats.unplanned - unplanned|length }}</b> andere order(s) wachten op inplanning</p>{% endif %}
       {% if stats.unplanned %}<button class="btn primary sm" style="margin-top:6px;width:100%" onclick="document.getElementById('planModal').style.display='flex'">Alle {{ stats.unplanned }} openstaande orders inplannen →</button>{% endif %}
     </div>
 
