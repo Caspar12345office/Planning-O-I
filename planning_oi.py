@@ -19,8 +19,9 @@ from werkzeug.utils import secure_filename
 import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib, threading
 
 # Werkzeug kiest standaard 'scrypt' (geheugen-intensief -> traag op kleine servers).
-# pbkdf2 is licht en snel; ruim voldoende i.c.m. de verplichte 2FA.
-_PW_METHOD = "pbkdf2:sha256:150000"
+# pbkdf2 met een bewust lage iteratie-telling is licht/snel; ruim voldoende i.c.m.
+# de verplichte 2FA op deze interne tool. Houdt de login vlot op de kleine server.
+_PW_METHOD = "pbkdf2:sha256:30000"
 
 
 def _hash_pw(pw):
@@ -1366,9 +1367,9 @@ def login():
             u = conn.execute("SELECT * FROM users WHERE lower(email)=? AND active=1", (email,)).fetchone()
             conn.close()
             if u and check_password_hash(u["password"], pw):
-                # Oud (traag, geheugen-intensief) scrypt-hash -> eenmalig omzetten
-                # naar het snelle pbkdf2, zodat elke volgende login snel is.
-                if not (u["password"] or "").startswith("pbkdf2:"):
+                # Oude/zware hash (scrypt of pbkdf2 met hoge telling) -> eenmalig
+                # omzetten naar de lichte methode, zodat elke volgende login snel is.
+                if not (u["password"] or "").startswith(_PW_METHOD):
                     try:
                         cu = db()
                         cu.execute("UPDATE users SET password=? WHERE id=?", (_hash_pw(pw), u["id"]))
