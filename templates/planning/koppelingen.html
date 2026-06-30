@@ -16,7 +16,7 @@
   .node.act{cursor:pointer}.node.act .ic{transition:transform .15s,box-shadow .15s}.node.act:hover .ic{transform:translateY(-3px);box-shadow:0 10px 22px rgba(15,61,62,.18)}
   .ic{position:relative;width:56px;height:56px;border-radius:15px;background:var(--rail);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.10)}
   .node.app .ic{background:transparent;border:0;box-shadow:none}
-  .appic{width:56px;height:56px;border-radius:15px;box-shadow:0 6px 16px rgba(15,61,62,.20)}
+  .appimg{width:56px;height:56px;border-radius:15px;box-shadow:0 6px 16px rgba(15,61,62,.22)}
   .lg{background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
   .gi{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   .st{position:absolute;right:-4px;top:-4px;width:15px;height:15px;border-radius:50%;border:2.5px solid var(--bg);background:var(--green)}
@@ -45,27 +45,27 @@
 {% block content %}
 {% set PIN %}<rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="186" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="239" y="264" width="34" height="150" rx="17" fill="#cda35a"/>{% endset %}
 {% set NODES = [
-  {'id':'app','x':35.0,'y':28.4,'nm':'Monteurs-app','app':true},
-  {'id':'google','x':35.0,'y':72.4,'nm':'Google','logo':'google','c':'#4285F4','lw':26},
-  {'id':'shopify','x':58.75,'y':13.8,'nm':'Shopify','sub':'orders','logo':'shopify','c':'#7AB55C','lw':26},
-  {'id':'velocity','x':80.0,'y':23.3,'nm':'Velocity','sub':'busregistratie','img':'velocity','lw':38},
-  {'id':'render','x':87.5,'y':44.8,'nm':'Render','sub':'hosting','logo':'render','c':'#1f1f1f','lw':24},
-  {'id':'db','x':91.25,'y':64.7,'nm':'Database','sub':'PostgreSQL','logo':'postgresql','c':'#336791','lw':30},
-  {'id':'backend','x':80.0,'y':72.4,'nm':'Backend','sub':'Python','logo':'python','c':'#3776AB','lw':28},
+  {'id':'app','x':33.0,'y':33.0,'nm':'Monteurs-app','app':true},
+  {'id':'google','x':33.0,'y':74.0,'nm':'Google','logo':'google','c':'#4285F4','lw':26},
+  {'id':'shopify','x':58.75,'y':13.8,'nm':'Shopify','logo':'shopify','c':'#7AB55C','lw':26},
+  {'id':'velocity','x':80.0,'y':23.3,'nm':'Velocity','img':'velocity','lw':38},
+  {'id':'render','x':87.5,'y':44.8,'nm':'Render','logo':'render','c':'#1f1f1f','lw':24},
+  {'id':'db','x':91.25,'y':64.7,'nm':'Database','logo':'postgresql','c':'#336791','lw':30},
+  {'id':'backend','x':80.0,'y':72.4,'nm':'Python','logo':'python','c':'#3776AB','lw':28},
   {'id':'resend','x':61.25,'y':89.7,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19},
   {'id':'waze','x':11.9,'y':12.9,'nm':'Waze','logo':'waze','c':'#33CCFF','lw':27},
-  {'id':'gps1','x':8.75,'y':30.2,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
-  {'id':'traffic','x':12.5,'y':47.4,'nm':'Verkeersinfo','img':'ndw','lw':44},
-  {'id':'maps','x':10.0,'y':62.1,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
-  {'id':'gps2','x':9.4,'y':81.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
-  {'id':'oauth','x':28.75,'y':89.7,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
+  {'id':'gps1','x':8.75,'y':33.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'traffic','x':12.5,'y':51.0,'nm':'Verkeersinfo','img':'ndw','lw':44},
+  {'id':'maps','x':10.0,'y':64.0,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
+  {'id':'gps2','x':9.4,'y':82.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'oauth','x':28.75,'y':90.0,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
 ] %}
 {% set LINES = [
-  [280,165,470,290,'app'],[280,420,470,290,'google'],[470,80,470,290,'shopify'],
+  [264,191,470,290,'app'],[264,429,470,290,'google'],[470,80,470,290,'shopify'],
   [640,135,470,290,'velocity'],[700,260,470,290,'render'],[640,420,470,290,'backend'],
   [490,520,470,290,'resend'],[730,375,640,420,'db'],
-  [95,75,280,165,'waze'],[70,175,280,165,'gps1'],[100,275,280,165,'traffic'],
-  [80,360,280,420,'maps'],[75,470,280,420,'gps2'],[230,520,280,420,'oauth']
+  [95,75,264,191,'waze'],[70,191,264,191,'gps1'],[100,296,264,191,'traffic'],
+  [80,371,264,429,'maps'],[75,476,264,429,'gps2'],[230,522,264,429,'oauth']
 ] %}
 
 <div class="ccbar">
@@ -96,7 +96,7 @@
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app -%}
-        <svg class="appic" viewBox="0 0 512 512">{{ PIN|safe }}</svg>
+        <img class="appimg" src="{{ url_for('static', filename='logos/officeroute.svg') }}" alt="Monteurs-app">
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}

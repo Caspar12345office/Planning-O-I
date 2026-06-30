@@ -80,7 +80,7 @@
 {% block content %}
 <div class="daynav">
   <a href="{{ url_for('planning.planning') }}?day={{ prev_day }}"><svg class="ico"><use href="#ic-arrow-left"/></svg> Vorige</a>
-  <span class="lbl">{{ dateobj.strftime('%A %d-%m-%Y') }}</span>
+  <span class="lbl">{{ day_label }}</span>
   <a href="{{ url_for('planning.planning') }}?day={{ next_day }}">Volgende <svg class="ico"><use href="#ic-arrow-right"/></svg></a>
   <a href="{{ url_for('planning.planning') }}">Vandaag</a>
   <input type="date" value="{{ day }}" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">

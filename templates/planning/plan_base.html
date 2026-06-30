@@ -45,6 +45,14 @@
   .navgrp summary::-webkit-details-marker{display:none}
   .navgrp summary:hover{background:var(--soft);color:var(--accent)}
   .navgrp summary .caret{margin-left:auto;font-size:11px;opacity:.7;transition:transform .15s}
+  /* klikbare hoofdlink mét uitklap-caret (Bussen, Documenten) */
+  .navgrp.linkgrp summary{padding:0;gap:0;border-radius:11px}
+  .navgrp.linkgrp summary:hover{background:transparent}
+  .navgrp.linkgrp .grplink{flex:1;display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:11px;color:var(--railtext);font-weight:500}
+  .navgrp.linkgrp .grplink:hover{background:var(--soft);color:var(--accent)}
+  .navgrp.linkgrp .grplink.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 8px 18px rgba(15,61,62,.18)}
+  .navgrp.linkgrp summary .caret{padding:12px 13px;margin-left:0;border-radius:9px}
+  .navgrp.linkgrp summary .caret:hover{background:var(--soft);color:var(--accent)}
   .navgrp[open] summary .caret{transform:rotate(180deg)}
   .rail-nav a.sub{padding:8px 13px 8px 26px;font-size:13.8px}
   .rail-nav a.sub.active{padding-left:26px}
@@ -194,10 +202,13 @@
           {% endif %}
         {% elif item.subs %}
           {% if p_has_perm(item.perm) %}
-          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}</a>
-          {% for s in item.subs %}{% if p_has_perm(s.perm) %}
-          <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ nicon(s.icon) }}{{ s.label }}{% if s.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
-          {% endif %}{% endfor %}
+          {% set sopen = (request.endpoint==item.endpoint) or (item.subs | selectattr('endpoint','equalto',request.endpoint) | list) %}
+          <details class="navgrp linkgrp" {{ 'open' if sopen }}>
+            <summary><a class="grplink {{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}</a><span class="caret">▾</span></summary>
+            {% for s in item.subs %}{% if p_has_perm(s.perm) %}
+            <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ nicon(s.icon) }}{{ s.label }}{% if s.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
+            {% endif %}{% endfor %}
+          </details>
           {% endif %}
         {% elif p_has_perm(item.perm) %}
           <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}{% if item.endpoint=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>{% endif %}{% if item.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
