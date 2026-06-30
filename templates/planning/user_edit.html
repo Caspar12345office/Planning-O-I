@@ -15,7 +15,7 @@
   @media(max-width:640px){.acctgrid{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
-<a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px">← Alle gebruikers</a>
+<a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle gebruikers</a>
 <form method="post">
   <div class="card" style="margin-bottom:18px">
     <div class="acctgrid">

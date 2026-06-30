@@ -25,10 +25,10 @@
 {% block content %}
 <div class="rtop">
   <input type="date" value="{{ day }}" onchange="location.href='{{ url_for('planning.routes') }}?day='+this.value" style="width:auto">
-  <span class="badge {{ 'on' if maps_ready else 'off' }}">🗺 Google Maps {{ 'gekoppeld' if maps_ready else 'nog instellen' }}</span>
-  <span class="badge {{ 'on' if route_ready else 'off' }}">🧭 Route-optimalisatie {{ 'actief' if route_ready else 'nog instellen' }}</span>
+  <span class="badge {{ 'on' if maps_ready else 'off' }}"><svg class="ico"><use href="#ic-map"/></svg> Google Maps {{ 'gekoppeld' if maps_ready else 'nog instellen' }}</span>
+  <span class="badge {{ 'on' if route_ready else 'off' }}"><svg class="ico"><use href="#ic-map"/></svg> Route-optimalisatie {{ 'actief' if route_ready else 'nog instellen' }}</span>
   <div class="spacer" style="flex:1"></div>
-  {% if p_has_perm('optimize_routes') %}<button class="btn gold sm" onclick="alert('Routeoptimalisatie staat klaar. Koppel de Route Optimization API onder Koppelingen om live te optimaliseren.')">⚡ Optimaliseer routes</button>{% endif %}
+  {% if p_has_perm('optimize_routes') %}<button class="btn gold sm" onclick="alert('Routeoptimalisatie staat klaar. Koppel de Route Optimization API onder Koppelingen om live te optimaliseren.')"><svg class="ico"><use href="#ic-bolt"/></svg> Optimaliseer routes</button>{% endif %}
 </div>
 <div class="cols">
   <div class="map">
@@ -55,13 +55,13 @@
     </div>
     {% for m in monteurs %}
     <div class="route-block" id="m{{ m.id }}" style="{{ '' if loop.first else 'display:none' }}">
-      <div class="stop depot"><span class="seq">🏠</span><div class="info"><b>Start · thuis</b><span>{{ m.home_address or HOME_BASE }}</span></div></div>
+      <div class="stop depot"><span class="seq"><svg class="ico"><use href="#ic-home"/></svg></span><div class="info"><b>Start · thuis</b><span>{{ m.home_address or HOME_BASE }}</span></div></div>
       {% for j in routes.get(m.id, []) %}
       <div class="stop"><span class="seq">{{ loop.index }}</span><div class="info"><b>{{ j.client }}</b><span>{{ j.delivery_address }} · {{ j.montage_min }} min</span></div></div>
       {% else %}
       <div class="stop"><span class="seq" style="background:var(--line);color:var(--muted)">–</span><div class="info"><b>Geen stops</b><span>Niets ingepland op {{ day }}</span></div></div>
       {% endfor %}
-      <div class="stop depot"><span class="seq">⌂</span><div class="info"><b>Terug · {{ HOME_BASE }}</b><span>Bus opnieuw laden</span></div></div>
+      <div class="stop depot"><span class="seq"><svg class="ico"><use href="#ic-home"/></svg></span><div class="info"><b>Terug · {{ HOME_BASE }}</b><span>Bus opnieuw laden</span></div></div>
     </div>
     {% endfor %}
   </div>

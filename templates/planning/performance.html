@@ -27,14 +27,14 @@
 {% endblock %}
 {% block content %}
 <div class="toolbar">
-  <a class="btn ghost sm" href="{{ url_for('planning.performance_export') }}">⬇ Excel (CSV)</a>
-  <button class="btn ghost sm" onclick="window.print()">⬇ PDF / print</button>
+  <a class="btn ghost sm" href="{{ url_for('planning.performance_export') }}"><svg class="ico"><use href="#ic-download"/></svg> Excel (CSV)</a>
+  <button class="btn ghost sm" onclick="window.print()"><svg class="ico"><use href="#ic-download"/></svg> PDF / print</button>
 </div>
 
 <div class="kpis">
-  <div class="kpi succesvol"><span class="ic">✓</span><div class="v">{{ tot_mo.succesvol }}</div><div class="l">Succesvol (deze maand)</div></div>
+  <div class="kpi succesvol"><span class="ic"><svg class="ico"><use href="#ic-check"/></svg></span><div class="v">{{ tot_mo.succesvol }}</div><div class="l">Succesvol (deze maand)</div></div>
   <div class="kpi beschadigd"><span class="ic">▲</span><div class="v">{{ tot_mo.beschadigd }}</div><div class="l">Beschadigd / incompleet</div></div>
-  <div class="kpi niet_thuis"><span class="ic">⌂</span><div class="v">{{ tot_mo.niet_thuis }}</div><div class="l">Ontvanger niet thuis</div></div>
+  <div class="kpi niet_thuis"><span class="ic"><svg class="ico"><use href="#ic-home"/></svg></span><div class="v">{{ tot_mo.niet_thuis }}</div><div class="l">Ontvanger niet thuis</div></div>
 </div>
 
 {% macro bar(d, total) %}

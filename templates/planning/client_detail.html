@@ -14,7 +14,7 @@
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
-<a class="btn ghost sm" href="{{ url_for('planning.clients') }}" style="margin-bottom:14px">← Alle klanten</a>
+<a class="btn ghost sm" href="{{ url_for('planning.clients') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle klanten</a>
 <div class="cols">
   <div class="grid" style="align-content:start">
     <div class="card">
@@ -31,12 +31,12 @@
   <div class="grid" style="align-content:start">
     <div class="card">
       <h3 style="color:var(--accent);margin-bottom:10px">E-mailhistorie</h3>
-      {% if gmail_ready %}<span class="gmail-badge on">✉ Gekoppeld aan centrale mailbox</span>
-      {% else %}<span class="gmail-badge off">✉ Gmail nog niet gekoppeld · <a href="{{ url_for('planning.integrations') }}#gmail">instellen</a></span>{% endif %}
+      {% if gmail_ready %}<span class="gmail-badge on"><svg class="ico"><use href="#ic-mail"/></svg> Gekoppeld aan centrale mailbox</span>
+      {% else %}<span class="gmail-badge off"><svg class="ico"><use href="#ic-mail"/></svg> Gmail nog niet gekoppeld · <a href="{{ url_for('planning.integrations') }}#gmail">instellen</a></span>{% endif %}
       {% for m in emails %}
         <div class="mail">
           <div class="mh"><span class="dir {{ m.direction }}">{{ 'Ontvangen' if m.direction=='in' else 'Verzonden' }}</span>
-            <span class="muted" style="font-size:12px">{{ m.ts }}{% if m.has_attachment %} · 📎{% endif %}</span></div>
+            <span class="muted" style="font-size:12px">{{ m.ts }}{% if m.has_attachment %} · <svg class="ico"><use href="#ic-paperclip"/></svg>{% endif %}</span></div>
           <div class="sub">{{ m.subject }}</div>
           <div class="bd">{{ m.body }}</div>
         </div>

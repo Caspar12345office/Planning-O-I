@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card" style="max-width:560px">
   <h2 style="color:var(--accent)">Onvoldoende rechten</h2>
-  <p class="muted">Voor dit onderdeel is het recht <code>{{ perm }}</code> nodig. Vraag een beheerder om je rechten aan te passen via <b>Gebruikers → rollen &amp; rechten</b>.</p>
+  <p class="muted">Voor dit onderdeel is het recht <code>{{ perm }}</code> nodig. Vraag een beheerder om je rechten aan te passen via <b>Gebruikers <svg class="ico"><use href="#ic-arrow-right"/></svg> rollen &amp; rechten</b>.</p>
   <a class="btn primary" href="{{ url_for('planning.home') }}">Terug naar start</a>
 </div>
 {% endblock %}

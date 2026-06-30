@@ -11,8 +11,8 @@
 {% endblock %}
 {% block content %}
 <div class="exp">
-  <a class="btn ghost sm" href="{{ url_for('planning.vehicle_km_export') }}">⬇ Excel (CSV)</a>
-  <button class="btn ghost sm" onclick="window.print()">⬇ PDF / print</button>
+  <a class="btn ghost sm" href="{{ url_for('planning.vehicle_km_export') }}"><svg class="ico"><use href="#ic-download"/></svg> Excel (CSV)</a>
+  <button class="btn ghost sm" onclick="window.print()"><svg class="ico"><use href="#ic-download"/></svg> PDF / print</button>
 </div>
 <div class="kpis">
   <div class="kpi"><div class="v">{{ totals_day }} km</div><div class="l">Totaal vandaag (alle bussen)</div></div>

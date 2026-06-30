@@ -20,7 +20,7 @@
   .vfilter a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 {% endblock %}
 {% block content %}
-<div class="vnote">🪑 Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Filter hieronder op productsoort.</div>
+<div class="vnote"><svg class="ico"><use href="#ic-wrench"/></svg> Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Filter hieronder op productsoort.</div>
 
 <div class="vfilter">
   <a href="{{ url_for('planning.voormonteren') }}" class="{{ 'on' if sel == 'alle' }}">Alles</a>
@@ -30,7 +30,7 @@
 </div>
 
 {% if not days %}
-  <div class="empty">🪑 Geen {{ ('voor te monteren ' + sel|lower) if sel != 'alle' else 'ingeplande leveringen' }}.<br><span style="font-size:13px">Zodra er orders ingepland staan, verschijnt hier per dag wat er klaargezet moet worden.</span></div>
+  <div class="empty"><svg class="ico"><use href="#ic-wrench"/></svg> Geen {{ ('voor te monteren ' + sel|lower) if sel != 'alle' else 'ingeplande leveringen' }}.<br><span style="font-size:13px">Zodra er orders ingepland staan, verschijnt hier per dag wat er klaargezet moet worden.</span></div>
 {% endif %}
 
 {% for d in days %}

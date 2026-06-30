@@ -29,15 +29,15 @@
   </form>
   <div class="pkmeta">
     {% if orders %}
-      📦 <b>{{ orders|length }}</b> order{{ '' if orders|length == 1 else 's' }} ingepland op <b style="text-transform:capitalize">{{ date_label }}</b>.
+      <svg class="ico"><use href="#ic-box"/></svg> <b>{{ orders|length }}</b> order{{ '' if orders|length == 1 else 's' }} ingepland op <b style="text-transform:capitalize">{{ date_label }}</b>.
     {% else %}
-      📭 Geen ingeplande orders op <b style="text-transform:capitalize">{{ date_label }}</b>.
+      <svg class="ico"><use href="#ic-box"/></svg> Geen ingeplande orders op <b style="text-transform:capitalize">{{ date_label }}</b>.
     {% endif %}
   </div>
   <div class="pkbtn">
     <a class="btn primary {{ '' if orders else 'disabled' }}"
        {% if orders %}href="{{ url_for('planning.picklijst_print', date=date) }}" target="_blank"{% else %}disabled onclick="return false"{% endif %}>
-       📥 Pakbonnen uitdraaien{% if orders %} ({{ orders|length }}){% endif %}
+       <svg class="ico"><use href="#ic-download"/></svg> Pakbonnen uitdraaien{% if orders %} ({{ orders|length }}){% endif %}
     </a>
   </div>
   <div class="hint">De pakbonnen openen in een nieuw tabblad en het printvenster verschijnt vanzelf. Kies daar je printer, of “Opslaan als PDF” om te downloaden.</div>

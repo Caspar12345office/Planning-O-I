@@ -15,7 +15,7 @@
   <a class="{{ 'active' if status=='gepland' }}" href="{{ url_for('planning.orders', status='gepland') }}">Gepland ({{ counts.get('gepland',0) }})</a>
   <a class="{{ 'active' if status=='onderweg' }}" href="{{ url_for('planning.orders', status='onderweg') }}">Onderweg ({{ counts.get('onderweg',0) }})</a>
   <a class="{{ 'active' if status=='afgerond' }}" href="{{ url_for('planning.orders', status='afgerond') }}">Afgerond ({{ counts.get('afgerond',0) }})</a>
-  <a class="{{ 'active' if status=='draft' }}" href="{{ url_for('planning.orders', status='draft') }}">🛡 Drafts ({{ counts.get('draft',0) }})</a>
+  <a class="{{ 'active' if status=='draft' }}" href="{{ url_for('planning.orders', status='draft') }}"><svg class="ico"><use href="#ic-shield"/></svg> Drafts ({{ counts.get('draft',0) }})</a>
 </div>
 <div class="card" style="padding:6px 6px">
 <table>
@@ -27,10 +27,10 @@
       <td>{{ o.client }}</td>
       <td class="muted">{{ o.delivery_address }}</td>
       <td>{{ o.desired_date }}</td>
-      <td>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <span title="Belangrijke order">⭐</span>{% endif %}{% else %}—{% endif %}</td>
+      <td>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <span title="Belangrijke order"><svg class="ico"><use href="#ic-star"/></svg></span>{% endif %}{% else %}—{% endif %}</td>
       <td><span class="src {{ o.source }}">{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span></td>
       <td>
-        {% if o.is_draft %}<span class="pill gray">🛡 draft</span>
+        {% if o.is_draft %}<span class="pill gray"><svg class="ico"><use href="#ic-shield"/></svg> draft</span>
         {% elif o.status=='in_te_plannen' %}<span class="pill amber">in te plannen</span>
         {% elif o.status=='gepland' %}<span class="pill blue">gepland</span>
         {% elif o.status=='onderweg' %}<span class="pill blue">onderweg</span>

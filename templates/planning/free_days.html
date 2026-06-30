@@ -67,8 +67,8 @@
       {% if r.reason %}<br>“{{ r.reason }}”{% endif %}
     </div>
     <div class="actions">
-      <button class="btn primary sm" onclick="decide({{ r.id }}, true)">✓ Goedkeuren</button>
-      <button class="btn ghost sm" onclick="decide({{ r.id }}, false)">✕ Afwijzen</button>
+      <button class="btn primary sm" onclick="decide({{ r.id }}, true)"><svg class="ico"><use href="#ic-check"/></svg> Goedkeuren</button>
+      <button class="btn ghost sm" onclick="decide({{ r.id }}, false)"><svg class="ico"><use href="#ic-x"/></svg> Afwijzen</button>
     </div>
   </div>
   {% else %}<p class="muted">Geen openstaande aanvragen. 🎉</p>{% endfor %}

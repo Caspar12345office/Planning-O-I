@@ -61,17 +61,17 @@
 
 {% block content %}
 {% if auto_mails %}
-<div class="draft-banner" style="background:#e3f3da;border-color:#c5e6b6;color:#3c7a2c">✉ <div><b>{{ auto_mails }} klantmail(s) automatisch verstuurd.</b> Tijdvak-bevestigingen voor vandaag en eventuele vertraging-updates (≥20 min) zijn verzonden en in het klantdossier bewaard.</div></div>
+<div class="draft-banner" style="background:#e3f3da;border-color:#c5e6b6;color:#3c7a2c"><svg class="ico"><use href="#ic-mail"/></svg> <div><b>{{ auto_mails }} klantmail(s) automatisch verstuurd.</b> Tijdvak-bevestigingen voor vandaag en eventuele vertraging-updates (≥20 min) zijn verzonden en in het klantdossier bewaard.</div></div>
 {% endif %}
 {% if stats.drafts_blocked %}
-<div class="draft-banner">🛡 <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
+<div class="draft-banner"><svg class="ico"><use href="#ic-shield"/></svg> <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
 {% endif %}
 
 <div class="kpis">
-  <div class="kpi gold"><span class="ic">🧰</span><div class="v">{{ stats.monteurs_active }}</div><div class="l">Monteurs vandaag actief</div><span class="trend pill" style="background:rgba(255,255,255,.18);color:#fff">{{ stats.underway }} onderweg</span></div>
-  <div class="kpi"><span class="ic">📦</span><div class="v">{{ stats.unplanned }}</div><div class="l">Nog in te plannen</div><span class="trend pill amber">{{ stats.open_orders }} open orders</span></div>
-  <div class="kpi"><span class="ic">⭐</span><div class="v">{{ stats.important }}</div><div class="l">Belangrijke orders</div><a class="trend pill" href="{{ url_for('planning.important_orders') }}">bekijk →</a></div>
-  <div class="kpi"><span class="ic">📅</span><div class="v">{{ stats.tomorrow }}</div><div class="l">Leveringen morgen</div><span class="trend pill gray">komende week {{ stats.week }}</span></div>
+  <div class="kpi gold"><span class="ic"><svg class="ico"><use href="#ic-wrench"/></svg></span><div class="v">{{ stats.monteurs_active }}</div><div class="l">Monteurs vandaag actief</div><span class="trend pill" style="background:rgba(255,255,255,.18);color:#fff">{{ stats.underway }} onderweg</span></div>
+  <div class="kpi"><span class="ic"><svg class="ico"><use href="#ic-box"/></svg></span><div class="v">{{ stats.unplanned }}</div><div class="l">Nog in te plannen</div><span class="trend pill amber">{{ stats.open_orders }} open orders</span></div>
+  <div class="kpi"><span class="ic"><svg class="ico"><use href="#ic-star"/></svg></span><div class="v">{{ stats.important }}</div><div class="l">Belangrijke orders</div><a class="trend pill" href="{{ url_for('planning.important_orders') }}">bekijk <svg class="ico"><use href="#ic-arrow-right"/></svg></a></div>
+  <div class="kpi"><span class="ic"><svg class="ico"><use href="#ic-calendar"/></svg></span><div class="v">{{ stats.tomorrow }}</div><div class="l">Leveringen morgen</div><span class="trend pill gray">komende week {{ stats.week }}</span></div>
 </div>
 
 <div class="cols">
@@ -131,7 +131,7 @@
       </a>
       {% else %}<p class="muted">Alles ingepland. 🎉</p>{% endfor %}
       {% if stats.unplanned > unplanned|length %}<p class="muted" style="margin:4px 0 8px;font-size:12.5px">+ nog <b>{{ stats.unplanned - unplanned|length }}</b> andere order(s) wachten op inplanning</p>{% endif %}
-      {% if stats.unplanned %}<button class="btn primary sm" style="margin-top:6px;width:100%" onclick="document.getElementById('planModal').style.display='flex'">Alle {{ stats.unplanned }} openstaande orders inplannen →</button>{% endif %}
+      {% if stats.unplanned %}<button class="btn primary sm" style="margin-top:6px;width:100%" onclick="document.getElementById('planModal').style.display='flex'">Alle {{ stats.unplanned }} openstaande orders inplannen <svg class="ico"><use href="#ic-arrow-right"/></svg></button>{% endif %}
     </div>
 
     <div class="card" id="vragen">
@@ -141,7 +141,7 @@
         <div class="qh"><span>van <b>{{ q.from_name }}</b>{% if q.order_number %} · #{{ q.order_number }}{% endif %}</span><span>{{ q.ts.replace('T',' ') }}</span></div>
         <div class="qt">{{ q.text }}</div>
         <form method="post" action="{{ url_for('planning.api_question_resolve', qid=q.id) }}" style="margin-top:8px">
-          <button class="btn ghost sm" type="submit">✓ Opgelost</button>
+          <button class="btn ghost sm" type="submit"><svg class="ico"><use href="#ic-check"/></svg> Opgelost</button>
         </form>
       </div>
     {% else %}<p class="muted" style="margin-top:0">Geen openstaande vragen. 🎉</p>{% endfor %}
@@ -164,7 +164,7 @@
 
 <div class="modal" id="planModal">
   <div class="box">
-    <div class="mh"><h3>Nog in te plannen — snel inplannen</h3><span class="x" style="cursor:pointer;color:var(--color-text-secondary,#74705f)" onclick="document.getElementById('planModal').style.display='none'">✕</span></div>
+    <div class="mh"><h3>Nog in te plannen — snel inplannen</h3><span class="x" style="cursor:pointer;color:var(--color-text-secondary,#74705f)" onclick="document.getElementById('planModal').style.display='none'"><svg class="ico"><use href="#ic-x"/></svg></span></div>
     <p class="muted" style="font-size:13px;margin:0 0 8px">Kies een monteur en datum en klik op inplannen — de order verdwijnt dan uit deze lijst.</p>
     <div id="planList">
       {% for o in unplanned_all %}

@@ -18,7 +18,7 @@
 {% endblock %}
 {% block content %}
 {% if not issues %}
-  <div class="empty">🔧 Nog geen bus-issues gemeld. Meldingen vanuit de monteur-app verschijnen hier.</div>
+  <div class="empty"><svg class="ico"><use href="#ic-wrench"/></svg> Nog geen bus-issues gemeld. Meldingen vanuit de monteur-app verschijnen hier.</div>
 {% endif %}
 {% for it in issues %}
 <div class="issue {{ 'open' if it.status=='open' else 'done' }}">
@@ -33,9 +33,9 @@
   <div class="actions">
     {% if it.status=='open' %}
       <form method="post" action="{{ url_for('planning.bus_issue_resolve', iid=it.id) }}">
-        <button class="btn ghost sm" type="submit">✓ Markeer opgelost</button>
+        <button class="btn ghost sm" type="submit"><svg class="ico"><use href="#ic-check"/></svg> Markeer opgelost</button>
       </form>
-      {% if it.reporter_email %}<a class="muted" style="font-size:12.5px" href="mailto:{{ it.reporter_email }}">↩ Reageer naar monteur</a>{% endif %}
+      {% if it.reporter_email %}<a class="muted" style="font-size:12.5px" href="mailto:{{ it.reporter_email }}"><svg class="ico"><use href="#ic-reply"/></svg> Reageer naar monteur</a>{% endif %}
     {% else %}
       <span class="muted" style="font-size:12.5px">Opgelost door {{ it.resolved_by }} · {{ it.resolved_at }}</span>
     {% endif %}

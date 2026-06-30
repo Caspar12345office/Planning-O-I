@@ -31,7 +31,7 @@
     </div>
     {% if can_edit %}
     <details class="edit">
-      <summary>✎ Bewerken</summary>
+      <summary><svg class="ico"><use href="#ic-pencil"/></svg> Bewerken</summary>
       <form class="ef" method="post" action="{{ url_for('planning.bus_edit', bid=b.id) }}">
         <div class="row">
           <div><label>Naam</label><input name="name" value="{{ b.name }}"></div>

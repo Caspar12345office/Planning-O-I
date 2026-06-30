@@ -43,7 +43,7 @@
 <!-- ROUTE -->
 <div class="m-pane active" id="pane-route">
   {% if closed %}
-    <div class="jc" style="text-align:center;padding:30px 16px"><div style="font-size:38px">🔒</div><b style="font-size:17px">Route afgesloten</b><div class="ad" style="margin-top:4px">De klantgegevens van vandaag zijn gewist. Fijne dag!</div></div>
+    <div class="jc" style="text-align:center;padding:30px 16px"><div style="font-size:38px"><svg class="ico"><use href="#ic-lock"/></svg></div><b style="font-size:17px">Route afgesloten</b><div class="ad" style="margin-top:4px">De klantgegevens van vandaag zijn gewist. Fijne dag!</div></div>
   {% elif not monteur %}
     <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
   {% else %}
@@ -56,18 +56,18 @@
         <div><b>{{ jobs|sum(attribute='montage_min') }}</b><span>min montage</span></div>
       </div>
     </div>
-    {% if alerts %}<div class="alert">⚠ <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}</div></div>{% endif %}
+    {% if alerts %}<div class="alert"><svg class="ico"><use href="#ic-alert"/></svg> <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}</div></div>{% endif %}
     {% if not jobs %}<div class="jc"><b>Geen leveringen vandaag.</b><div class="ad">Je route is leeg. Fijne dag!</div></div>{% endif %}
     {% for j in jobs %}
     <div class="jc {{ 'done' if j.status=='afgerond' }}">
       <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">#{{ j.order_number }}</span>
-        {% if j.status=='afgerond' %}<span class="donepill">✓ Afgerond</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
+        {% if j.status=='afgerond' %}<span class="donepill"><svg class="ico"><use href="#ic-check"/></svg> Afgerond</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
       <div class="cl">{{ j.client }}</div>
       <div class="ad">{{ j.delivery_address }}</div>
-      <div class="box items">📦 {{ j.items or '—' }}</div>
-      {% if j.service_type=='ophalen' %}<div class="box note">📥 Ophalen{% if j.pakbon %} · <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:700">Pakbon openen</a>{% endif %}</div>{% endif %}
-      {% if j.instructions %}<div class="box note">📝 Van de planning: {{ j.instructions }}</div>{% endif %}
-      <div class="meta"><span class="pill">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}">📞 bel klant</a>{% endif %}</div>
+      <div class="box items"><svg class="ico"><use href="#ic-box"/></svg> {{ j.items or '—' }}</div>
+      {% if j.service_type=='ophalen' %}<div class="box note"><svg class="ico"><use href="#ic-download"/></svg> Ophalen{% if j.pakbon %} · <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:700">Pakbon openen</a>{% endif %}</div>{% endif %}
+      {% if j.instructions %}<div class="box note"><svg class="ico"><use href="#ic-pencil"/></svg> Van de planning: {{ j.instructions }}</div>{% endif %}
+      <div class="meta"><span class="pill">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}"><svg class="ico"><use href="#ic-phone"/></svg> bel klant</a>{% endif %}</div>
       {% set q = j.delivery_address|urlencode %}
       <div class="navrow">
         <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google</a>
@@ -78,7 +78,7 @@
       {% if j.status!='afgerond' %}<button class="btn-lg primary" onclick="openComplete({{ j.id }}, '{{ j.client|e }}')">Levering afronden</button>{% endif %}
     </div>
     {% endfor %}
-    {% if all_done %}<button class="btn-lg danger" onclick="confirmCloseRoute()">🔒 Sluit route voor vandaag</button>{% endif %}
+    {% if all_done %}<button class="btn-lg danger" onclick="confirmCloseRoute()"><svg class="ico"><use href="#ic-lock"/></svg> Sluit route voor vandaag</button>{% endif %}
   {% endif %}
 </div>
 
@@ -86,9 +86,9 @@
 <div class="m-pane" id="pane-meldingen">
   <div class="weather-big"><div class="t mWeather">…</div><div class="muted mWeatherNote" style="font-size:13px;color:var(--muted)">Actueel weer in {{ HOME_BASE }}</div></div>
   {% if alerts %}
-    <div class="alert">⚠ <div><b>Files / werkzaamheden op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}Je aankomsttijden zijn bijgewerkt.</div></div>
+    <div class="alert"><svg class="ico"><use href="#ic-alert"/></svg> <div><b>Files / werkzaamheden op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}Je aankomsttijden zijn bijgewerkt.</div></div>
   {% else %}
-    <div class="okbar">✓ Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
+    <div class="okbar"><svg class="ico"><use href="#ic-check"/></svg> Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
   {% endif %}
   <p class="muted" style="font-size:12.5px;text-align:center">Beslissingen op je verlofaanvragen verschijnen automatisch als melding.</p>
 </div>
@@ -100,9 +100,9 @@
   <div class="ikrow" style="justify-content:space-between"><div><b id="gpsState" style="font-size:14px">Live locatie uit</b><span>Deel je locatie zodat de planning je ziet rijden</span></div>
     <button class="btn-lg primary" style="width:auto;padding:11px 16px;font-size:13.5px" id="gpsBtn" onclick="toggleGps()">Aanzetten</button></div>
   {% endif %}
-  <button class="btn-lg ghost" style="margin-bottom:10px" onclick="document.getElementById('leaveModal').style.display='flex'">📅 Verlof / afspraak aanvragen</button>
+  <button class="btn-lg ghost" style="margin-bottom:10px" onclick="document.getElementById('leaveModal').style.display='flex'"><svg class="ico"><use href="#ic-calendar"/></svg> Verlof / afspraak aanvragen</button>
   <a class="btn-lg ghost" href="{{ url_for('planning.logout') }}">Uitloggen</a>
-  <p class="muted" style="font-size:11.5px;text-align:center;margin-top:14px">Zet de app op je beginscherm: deel-icoon → “Zet op beginscherm”.</p>
+  <p class="muted" style="font-size:11.5px;text-align:center;margin-top:14px">Zet de app op je beginscherm: deel-icoon <svg class="ico"><use href="#ic-arrow-right"/></svg> “Zet op beginscherm”.</p>
 </div>
 
 <!-- modals -->
@@ -135,7 +135,7 @@
 </div></div>
 
 <div class="leavepop" id="closeConfirm" style="display:none">
-  <div class="lb"><div class="ic">🔒</div><h3 style="color:var(--accent)">Route afsluiten?</h3>
+  <div class="lb"><div class="ic"><svg class="ico"><use href="#ic-lock"/></svg></div><h3 style="color:var(--accent)">Route afsluiten?</h3>
     <p>Weet je het zeker? De klantgegevens van vandaag worden gewist (privacy).</p>
     <div style="display:flex;gap:10px"><button class="btn-lg ghost" onclick="document.getElementById('closeConfirm').style.display='none'">Nee</button><button class="btn-lg danger" onclick="doCloseRoute()">Ja, sluit route</button></div>
   </div>

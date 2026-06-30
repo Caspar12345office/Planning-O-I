@@ -8,9 +8,9 @@
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
-<a class="btn ghost sm" href="{{ url_for('planning.orders') }}" style="margin-bottom:14px">← Alle orders</a>
+<a class="btn ghost sm" href="{{ url_for('planning.orders') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle orders</a>
 {% if o.is_draft %}
-<div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px">🛡 <b>Draft order.</b> Deze order is niet bevestigd/betaald en wordt daarom nooit automatisch ingepland.</div>
+<div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px"><svg class="ico"><use href="#ic-shield"/></svg> <b>Draft order.</b> Deze order is niet bevestigd/betaald en wordt daarom nooit automatisch ingepland.</div>
 {% endif %}
 <div class="cols">
   <div class="grid" style="align-content:start">
@@ -32,7 +32,7 @@
       <h3 style="color:var(--accent);margin-bottom:14px">Gegevens</h3>
       <div class="kv">
         <span class="k">Status</span><span>{{ o.status }}</span>
-        <span class="k">Orderwaarde</span><span>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} ⭐ belangrijke order{% endif %}{% else %}—{% endif %}</span>
+        <span class="k">Orderwaarde</span><span>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <svg class="ico"><use href="#ic-star"/></svg> belangrijke order{% endif %}{% else %}—{% endif %}</span>
         <span class="k">Bron</span><span>{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}{% if o.source=='shopify' %} (ordernr = Shopify){% endif %}</span>
         <span class="k">Gewenste datum</span><span>{{ o.desired_date }}</span>
         <span class="k">Telefoon</span><span>{{ o.phone or '—' }}</span>

@@ -19,7 +19,7 @@
 {% block content %}
 <div class="dwrap">
   <div class="upcard">
-    <h3>📤 Nieuw document</h3>
+    <h3><svg class="ico"><use href="#ic-upload"/></svg> Nieuw document</h3>
     <form method="post" action="{{ url_for('planning.documenten_upload') }}" enctype="multipart/form-data">
       <div class="field">
         <label for="title">Titel</label>
@@ -44,20 +44,20 @@
 
   <div>
     {% if not docs %}
-      <div class="empty">📄 Nog geen documenten.<br><span style="font-size:13px">Upload links bijvoorbeeld het formulier waarmee je de leverlocatie bij de klant uitvraagt (lift aanwezig? verdieping? enz.).</span></div>
+      <div class="empty"><svg class="ico"><use href="#ic-doc"/></svg> Nog geen documenten.<br><span style="font-size:13px">Upload links bijvoorbeeld het formulier waarmee je de leverlocatie bij de klant uitvraagt (lift aanwezig? verdieping? enz.).</span></div>
     {% endif %}
     {% for d in docs %}
     <div class="doc">
-      <div class="ic">📄</div>
+      <div class="ic"><svg class="ico"><use href="#ic-doc"/></svg></div>
       <div class="meta">
         <div class="nm">{{ d.title }}</div>
         {% if d.description %}<div class="ds">{{ d.description }}</div>{% endif %}
         <div class="sub">{{ d.filename }} · {{ d.size_h }}{% if d.uploaded_by %} · {{ d.uploaded_by }}{% endif %}{% if d.uploaded_at %} · {{ d.uploaded_at }}{% endif %}</div>
       </div>
       <div class="act">
-        <a class="btn ghost sm" href="{{ url_for('planning.documenten_download', did=d.id) }}">⬇ Download</a>
+        <a class="btn ghost sm" href="{{ url_for('planning.documenten_download', did=d.id) }}"><svg class="ico"><use href="#ic-download"/></svg> Download</a>
         <form method="post" action="{{ url_for('planning.documenten_delete', did=d.id) }}" onsubmit="return confirm('Dit document verwijderen?')">
-          <button class="btn ghost sm" type="submit" title="Verwijderen">🗑</button>
+          <button class="btn ghost sm" type="submit" title="Verwijderen"><svg class="ico"><use href="#ic-trash"/></svg></button>
         </form>
       </div>
     </div>

@@ -48,7 +48,7 @@
   <div class="stat-mini"><div class="v">{{ integrations|length }}</div><div class="l">Beschikbare koppelingen</div></div>
   <div class="stat-mini"><div class="v" style="color:#3c7a2c">{{ n_ok }}</div><div class="l">Klaar voor gebruik</div></div>
   <div class="stat-mini"><div class="v" style="color:#9a6a17">{{ integrations|length - n_ok }}</div><div class="l">Nog in te stellen</div></div>
-  <div class="stat-mini"><div class="v">🔒</div><div class="l">Beveiligde regels actief</div></div>
+  <div class="stat-mini"><div class="v"><svg class="ico"><use href="#ic-lock"/></svg></div><div class="l">Beveiligde regels actief</div></div>
 </div>
 
 <div class="ilist">
@@ -73,7 +73,7 @@
                 <div class="tl">
                   <b>{{ f.label }}</b>
                   {% if f.help %}<span>{{ f.help }}</span>{% endif %}
-                  {% if f.lock_off %}<div class="locknote">🔒 Vergrendeld om veiligheidsredenen.</div>{% endif %}
+                  {% if f.lock_off %}<div class="locknote"><svg class="ico"><use href="#ic-lock"/></svg> Vergrendeld om veiligheidsredenen.</div>{% endif %}
                 </div>
                 <label class="switch">
                   <input type="checkbox" name="{{ f.key }}" {{ 'checked' if (vals.get(f.key, f.get('default','0'))=='1') and not f.lock_off }} {{ 'disabled' if f.lock_off }}>

@@ -10,7 +10,7 @@
   .big{font-size:11px;font-weight:700;color:#9a6a17;background:#fbeccd;border-radius:6px;padding:2px 7px}
 {% endblock %}
 {% block content %}
-<div class="intro">⭐ <b>Vooruitkijken.</b> Hier verzamelen we automatisch alle bevestigde orders met een waarde vanaf € {{ '{:,.0f}'.format(threshold).replace(',','.') }} en een leverdatum in de toekomst. Loop deze lijst elke ochtend even door, zodat grote leveringen op tijd zijn voorbereid (mankracht, busruimte, montagetijd).</div>
+<div class="intro"><svg class="ico"><use href="#ic-star"/></svg> <b>Vooruitkijken.</b> Hier verzamelen we automatisch alle bevestigde orders met een waarde vanaf € {{ '{:,.0f}'.format(threshold).replace(',','.') }} en een leverdatum in de toekomst. Loop deze lijst elke ochtend even door, zodat grote leveringen op tijd zijn voorbereid (mankracht, busruimte, montagetijd).</div>
 <div class="card" style="padding:6px">
 <table>
   <thead><tr><th>Leverdatum</th><th>#Order</th><th>Klant</th><th>Plaats</th><th>Artikel(en)</th><th>Waarde</th><th>Status</th><th></th></tr></thead>
