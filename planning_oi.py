@@ -12,7 +12,7 @@ om met echte API-logica te worden "ingeplugd".
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session,
-    flash, jsonify, Response, abort, send_from_directory,
+    flash, jsonify, Response, abort, send_from_directory, got_request_exception,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -138,6 +138,22 @@ def _get_pg_pool():
 # Versiestempel (Render zet RENDER_GIT_COMMIT automatisch) — zo is via /version
 # te controleren welke build live staat, en het dient als keep-alive-doel.
 APP_VERSION = (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:12]
+
+# Onafgehandelde fouten in de Python-backend opvangen (voor het commandocentrum).
+import collections as _collections
+_APP_ERRORS = _collections.deque(maxlen=25)
+
+
+def _record_app_error(sender=None, exception=None, **extra):
+    try:
+        _APP_ERRORS.append({"ts": time.time(),
+                            "path": getattr(request, "path", "?"),
+                            "err": (type(exception).__name__ + ": " + str(exception))[:160]})
+    except Exception:
+        pass
+
+
+got_request_exception.connect(_record_app_error)
 
 
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
@@ -952,7 +968,7 @@ NAV = [
         {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "sun", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
-        {"label": "Koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
+        {"label": "Live status koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
         {"label": "Koppelingen instellen", "endpoint": "planning.integrations", "icon": "gear", "perm": "manage_integrations"},
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "icon": "gear", "perm": "manage_settings"},
         {"label": "E-mailteksten", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
@@ -2579,6 +2595,10 @@ def _conn_advice(key):
         "velocity": ("Er zijn nog geen busgegevens uit Velocity.",
                ["Controleer de busregistratie-koppeling (Velocity).",
                 "Voeg voertuigen toe onder Bussen."]),
+        "backend": ("Het lijkt erop dat er recent fouten optraden in de OfficeRoute-software zelf.",
+               ["Probeer de pagina waar het misging opnieuw te openen.",
+                "Bekijk de logs van de Render-service voor de exacte foutmelding.",
+                "Blijft het terugkomen? Meld de melding zodat het opgelost wordt."]),
     }
     d = A.get(key)
     return {"diagnose": d[0], "stappen": d[1]} if d else None
@@ -2613,6 +2633,16 @@ def _connection_health(deep=False):
 
     conn = db()
     put("render", "ok", "Hosting online", "nu")
+
+    # Backend (Python) — recente onafgehandelde fouten?
+    recent = [e for e in list(_APP_ERRORS) if time.time() - e["ts"] < 3600]
+    if recent:
+        put("backend", "err",
+            "%d fout%s · laatste: %s" % (len(recent), "en" if len(recent) > 1 else "", recent[-1]["err"][:50]),
+            advice=_conn_advice("backend"))
+    else:
+        put("backend", "ok", "Geen fouten")
+
     try:
         conn.execute("SELECT 1").fetchone()
         put("db", "ok", "Verbinding actief", "nu")

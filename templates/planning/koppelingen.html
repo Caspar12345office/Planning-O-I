@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}Koppelingen · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Koppelingen</h1><p>Live commandocentrum — alle koppelingen met OfficeRoute in één oogopslag</p>{% endblock %}
+{% block title %}Live status koppelingen · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Live status koppelingen</h1><p>Commandocentrum — alle koppelingen met OfficeRoute in één oogopslag</p>{% endblock %}
 {% block page_css %}
   .ccbar{display:flex;align-items:center;gap:10px;margin-bottom:2px;flex-wrap:wrap}
   .ccbar .res{font-size:13.5px;color:var(--ink);font-weight:600;display:inline-flex;align-items:center;gap:7px}
@@ -10,36 +10,31 @@
   .scanbtn{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:11px;background:var(--accent);color:#fff;font:inherit;font-size:13px;font-weight:600;padding:9px 16px;cursor:pointer;box-shadow:0 8px 18px rgba(15,61,62,.2)}
   .scanbtn:active{transform:scale(.97)}.scanbtn[disabled]{opacity:.6;cursor:default}
   .scanbtn svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:1.8}
-  .stage{position:relative;width:100%;max-width:740px;margin:4px auto 0;aspect-ratio:800/580}
+  .stage{position:relative;width:100%;max-width:760px;margin:4px auto 0;aspect-ratio:800/580}
   .stage>svg.wires{position:absolute;inset:0;width:100%;height:100%}
-  .node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;width:108px;z-index:2}
-  .node.leaf{width:90px}
-  .node.act{cursor:pointer;transition:transform .15s}.node.act:hover{transform:translate(-50%,-50%) scale(1.08)}
-  .ic{position:relative;width:48px;height:48px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 7px rgba(15,61,62,.18))}
-  .node.leaf .ic{width:40px;height:40px}
-  .lg{width:44px;height:44px;background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
-  .node.leaf .lg{width:34px;height:34px}
-  .ic img{width:46px;height:46px;border-radius:11px}
-  .node.leaf .ic img{width:36px;height:36px}
-  .ic .gi{width:38px;height:38px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-  .node.leaf .ic .gi{width:30px;height:30px}
-  .ic .appic{width:48px;height:48px;border-radius:12px}
-  .st{position:absolute;right:-3px;top:-3px;width:14px;height:14px;border-radius:50%;border:2px solid var(--bg);background:var(--green)}
+  .node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;width:104px;z-index:2}
+  .node.act{cursor:pointer}.node.act .ic{transition:transform .15s,box-shadow .15s}.node.act:hover .ic{transform:translateY(-3px);box-shadow:0 10px 22px rgba(15,61,62,.18)}
+  .ic{position:relative;width:56px;height:56px;border-radius:15px;background:var(--rail);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.10)}
+  .node.app .ic{background:transparent;border:0;box-shadow:none}
+  .appic{width:56px;height:56px;border-radius:15px;box-shadow:0 6px 16px rgba(15,61,62,.20)}
+  .lg{background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
+  .gi{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .st{position:absolute;right:-4px;top:-4px;width:15px;height:15px;border-radius:50%;border:2.5px solid var(--bg);background:var(--green)}
   .node.warn .st{background:var(--amber)}.node.err .st{background:var(--red)}
+  .node.err .ic{border-color:#eaa9a9}
   .node.checking .st{background:var(--amber);animation:ccp .55s infinite}
   @keyframes ccp{0%,100%{opacity:1}50%{opacity:.3}}
-  .nm{margin-top:7px;font-size:12.5px;font-weight:600;color:var(--ink);text-align:center;line-height:1.15}
-  .node.leaf .nm{font-size:11px;font-weight:500}
+  .nm{margin-top:8px;font-size:12.5px;font-weight:600;color:var(--ink);text-align:center;line-height:1.15}
   .sub{font-size:10px;color:var(--muted);text-align:center}
   .node.err .sub{color:var(--red);font-weight:600}
   .hub{position:absolute;left:58.75%;top:50%;transform:translate(-50%,-50%);z-index:3}
-  .hub .box{width:108px;height:108px;border-radius:27px;overflow:hidden;box-shadow:0 18px 38px rgba(15,61,62,.34)}
+  .hub .box{width:112px;height:112px;border-radius:28px;overflow:hidden;box-shadow:0 18px 38px rgba(15,61,62,.34)}
   .hub .box svg{width:100%;height:100%;display:block}
-  .hub .ring{position:absolute;inset:-9px;border-radius:34px;border:2px solid rgba(205,163,92,.5);animation:ccr 2.6s ease-in-out infinite}
+  .hub .ring{position:absolute;inset:-9px;border-radius:35px;border:2px solid rgba(205,163,92,.5);animation:ccr 2.6s ease-in-out infinite}
   @keyframes ccr{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.05);opacity:.9}}
-  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:6px;font-size:12.5px;color:var(--muted)}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;margin-top:8px;font-size:12.5px;color:var(--muted)}
   .legend span{display:inline-flex;align-items:center;gap:6px}.legend .d{width:9px;height:9px;border-radius:50%}
-  .advice{margin-top:14px;max-width:740px;margin-left:auto;margin-right:auto;border-radius:14px;border:1px solid #f0d49a;background:#fffaf0;padding:14px 16px;display:none}
+  .advice{margin:14px auto 0;max-width:760px;border-radius:14px;border:1px solid #f0d49a;background:#fffaf0;padding:14px 16px;display:none}
   .advice.show{display:block}
   .advice .ah{display:flex;align-items:center;gap:9px;font-weight:700;color:#7a5713;font-size:14px}
   .advice .ah svg{width:18px;height:18px;stroke:#b8762a;fill:none;stroke-width:1.8}
@@ -48,26 +43,29 @@
   .advice .ai{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#b8762a;background:#fbeccd;border-radius:999px;padding:3px 9px}
 {% endblock %}
 {% block content %}
+{% set PIN %}<rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="186" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="239" y="264" width="34" height="150" rx="17" fill="#cda35a"/>{% endset %}
 {% set NODES = [
   {'id':'app','x':35.0,'y':28.4,'nm':'Monteurs-app','app':true},
-  {'id':'google','x':35.0,'y':72.4,'nm':'Google','logo':'google','c':'#4285F4'},
-  {'id':'shopify','x':58.75,'y':13.8,'nm':'Shopify','sub':'orders','logo':'shopify','c':'#7AB55C'},
-  {'id':'velocity','x':81.25,'y':25.9,'nm':'Velocity','sub':'busregistratie','img':'velocity'},
-  {'id':'render','x':87.5,'y':51.7,'nm':'Render','sub':'hosting','logo':'render','c':'#1f1f1f'},
-  {'id':'db','x':90.0,'y':75.9,'nm':'Database','sub':'PostgreSQL','logo':'postgresql','c':'#336791','leaf':true},
-  {'id':'resend','x':62.5,'y':87.9,'nm':'E-mail · Resend','logo':'resend','c':'#1f1f1f'},
-  {'id':'waze','x':11.9,'y':12.9,'nm':'Waze','leaf':true,'logo':'waze','c':'#33CCFF'},
-  {'id':'gps1','x':8.75,'y':30.2,'nm':'Live GPS','leaf':true,'icon':'ic-pin','c':'#1a9e75'},
-  {'id':'traffic','x':12.5,'y':47.4,'nm':'Verkeersinfo','leaf':true,'icon':'ic-cone','c':'#d9962b'},
-  {'id':'maps','x':10.0,'y':62.1,'nm':'Google Maps','leaf':true,'logo':'googlemaps','c':'#1A73E8'},
-  {'id':'gps2','x':9.4,'y':81.0,'nm':'Live GPS','leaf':true,'icon':'ic-pin','c':'#1a9e75'},
-  {'id':'oauth','x':28.75,'y':89.7,'nm':'OAuth + MFA','leaf':true,'icon':'ic-shield','c':'#4285F4'}
+  {'id':'google','x':35.0,'y':72.4,'nm':'Google','logo':'google','c':'#4285F4','lw':26},
+  {'id':'shopify','x':58.75,'y':13.8,'nm':'Shopify','sub':'orders','logo':'shopify','c':'#7AB55C','lw':26},
+  {'id':'velocity','x':80.0,'y':23.3,'nm':'Velocity','sub':'busregistratie','img':'velocity','lw':38},
+  {'id':'render','x':87.5,'y':44.8,'nm':'Render','sub':'hosting','logo':'render','c':'#1f1f1f','lw':24},
+  {'id':'db','x':91.25,'y':64.7,'nm':'Database','sub':'PostgreSQL','logo':'postgresql','c':'#336791','lw':30},
+  {'id':'backend','x':80.0,'y':72.4,'nm':'Backend','sub':'Python','logo':'python','c':'#3776AB','lw':28},
+  {'id':'resend','x':61.25,'y':89.7,'nm':'E-mail · Resend','logo':'resend','c':'#1f1f1f','lw':19},
+  {'id':'waze','x':11.9,'y':12.9,'nm':'Waze','logo':'waze','c':'#33CCFF','lw':27},
+  {'id':'gps1','x':8.75,'y':30.2,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'traffic','x':12.5,'y':47.4,'nm':'Verkeersinfo','icon':'ic-cone','c':'#d9962b'},
+  {'id':'maps','x':10.0,'y':62.1,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
+  {'id':'gps2','x':9.4,'y':81.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'oauth','x':28.75,'y':89.7,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
 ] %}
 {% set LINES = [
   [280,165,470,290,'app'],[280,420,470,290,'google'],[470,80,470,290,'shopify'],
-  [650,150,470,290,'velocity'],[700,300,470,290,'render'],[500,510,470,290,'resend'],
-  [720,440,700,300,'db'],[95,75,280,165,'waze'],[70,175,280,165,'gps1'],
-  [100,275,280,165,'traffic'],[80,360,280,420,'maps'],[75,470,280,420,'gps2'],[230,520,280,420,'oauth']
+  [640,135,470,290,'velocity'],[700,260,470,290,'render'],[640,420,470,290,'backend'],
+  [490,520,470,290,'resend'],[730,375,700,260,'db'],
+  [95,75,280,165,'waze'],[70,175,280,165,'gps1'],[100,275,280,165,'traffic'],
+  [80,360,280,420,'maps'],[75,470,280,420,'gps2'],[230,520,280,420,'oauth']
 ] %}
 
 <div class="ccbar">
@@ -87,24 +85,24 @@
     </g>
     <g fill="#2e9e6b">
       {% for l in LINES %}{% if health.get(l[4],{}).get('status','ok')=='ok' %}
-      <circle r="{{ '4.3' if l[2]==470 else '3.5' }}"{% if l[2]!=470 %} fill="#3aa6c9"{% endif %}><animateMotion dur="2.3s" begin="{{ loop.index0 * 0.26 }}s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>
+      <circle r="{{ '4.3' if l[2]==470 else '3.5' }}"{% if l[2]!=470 %} fill="#3aa6c9"{% endif %}><animateMotion dur="2.3s" begin="{{ loop.index0 * 0.24 }}s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>
       {% endif %}{% endfor %}
     </g>
   </svg>
 
-  <div class="hub"><div class="ring"></div><div class="box"><svg viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="214" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="240" y="298" width="32" height="168" rx="16" fill="#cda35a"/></svg></div></div>
+  <div class="hub"><div class="ring"></div><div class="box"><svg viewBox="0 0 512 512">{{ PIN|safe }}</svg></div></div>
 
   {% for n in NODES %}{% set s = health.get(n.id,{}).get('status','ok') %}
-  <div class="node {{ 'leaf ' if n.leaf }}{{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
+  <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app -%}
-        <svg class="appic" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="214" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="240" y="298" width="32" height="168" rx="16" fill="#cda35a"/></svg>
+        <svg class="appic" viewBox="0 0 512 512">{{ PIN|safe }}</svg>
       {%- elif n.img -%}
-        <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}">
+        <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:{{ n.lw }}px;border-radius:8px">
       {%- elif n.logo -%}
-        <span class="lg" style="--m:url('{{ url_for('static', filename='logos/' + n.logo + '.svg') }}');--c:{{ n.c }}"></span>
+        <span class="lg" style="--m:url('{{ url_for('static', filename='logos/' + n.logo + '.svg') }}');--c:{{ n.c }};width:{{ n.lw }}px;height:{{ n.lw }}px"></span>
       {%- else -%}
-        <svg class="gi" style="color:{{ n.c }}"><use href="#{{ n.icon }}"/></svg>
+        <svg class="gi" style="color:{{ n.c }};width:26px;height:26px"><use href="#{{ n.icon }}"/></svg>
       {%- endif -%}
       <span class="st"></span>
     </div>
@@ -158,13 +156,13 @@
     var nodes=[].slice.call(document.querySelectorAll('.node')); var old=btn.innerHTML;
     btn.disabled=true; btn.textContent='Controleren…';
     document.getElementById('ccres').innerHTML='<span class="d" style="background:#d9962b"></span>Bezig met controleren…';
-    nodes.forEach(function(n,i){ setTimeout(function(){ n.classList.add('checking'); setTimeout(function(){n.classList.remove('checking');},480); }, i*140); });
+    nodes.forEach(function(n,i){ setTimeout(function(){ n.classList.add('checking'); setTimeout(function(){n.classList.remove('checking');},480); }, i*130); });
     fetch('{{ url_for("planning.koppelingen_check") }}').then(function(r){return r.json();}).then(function(d){
       setTimeout(function(){
         HEALTH=d; paint(); btn.disabled=false; btn.innerHTML=old;
         var bad=Object.keys(d).filter(function(k){return d[k].status==='err'&&d[k].advice;});
         if(bad.length){ showAdvice(bad[0]); } else { adv.classList.remove('show'); }
-      }, nodes.length*140+400);
+      }, nodes.length*130+400);
     }).catch(function(){ btn.disabled=false; btn.innerHTML=old; });
   });
 })();
