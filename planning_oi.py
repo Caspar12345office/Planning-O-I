@@ -961,14 +961,12 @@ NAV = [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
         {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
-    {"label": "Documenten", "icon": "doc", "perm": "view_documents", "children": [
-        {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
-        {"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
+    {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents",
+     "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
-    {"label": "Bussen", "icon": "truck", "perm": "view_personnel", "children": [
-        {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel"},
-        {"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel",
+     "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
     {"label": "Rapportages", "icon": "chart", "perm": None, "children": [
         {"label": "Monteursprestaties", "endpoint": "planning.performance", "icon": "chart", "perm": "view_performance"},
         {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "truck", "perm": "view_reports"},
@@ -2806,6 +2804,48 @@ _RESEED_TABLES = ["bus_issues", "bus_choices", "deliveries", "planning", "order_
                   "clients", "route_closed", "free_days", "email_log", "monteur_location",
                   "office_days", "vehicle_km", "team_questions", "chat_messages", "leave_requests",
                   "busses", "monteurs", "users"]
+
+
+_SLOTS_DEMO = [("08:00", "09:15"), ("09:30", "10:45"), ("11:00", "12:15"),
+               ("13:00", "14:15"), ("14:30", "15:45"), ("16:00", "17:15")]
+
+
+@bp.route("/admin/demo-planning", methods=["POST"])
+def admin_demo_planning():
+    """Vul de dagplanning van vandaag met demo-leveringen (beheerder, niet-destructief)."""
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    conn = db()
+    today = _today_iso()
+    monteurs = [m["id"] for m in conn.execute("SELECT id FROM monteurs WHERE active=1 ORDER BY id").fetchall()]
+    buses = [b["id"] for b in conn.execute("SELECT id FROM busses WHERE active=1 ORDER BY id").fetchall()]
+    if not monteurs:
+        conn.close()
+        flash("Geen actieve monteurs om mee te plannen.")
+        return redirect(url_for("planning.dashboard"))
+    orders = conn.execute("""SELECT id FROM orders WHERE is_draft=0
+                             AND status IN('in_te_plannen','gepland') ORDER BY amount DESC LIMIT 18""").fetchall()
+    seqby = {}
+    n = 0
+    for i, o in enumerate(orders):
+        mid = monteurs[i % len(monteurs)]
+        bid = (buses[i % len(buses)] if buses else None)
+        seq = seqby.get(mid, 0)
+        seqby[mid] = seq + 1
+        ss, es = _SLOTS_DEMO[seq % len(_SLOTS_DEMO)]
+        conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,slot_start,slot_end,sequence,status)
+                        VALUES(?,?,?,?,?,?,?,'gepland')
+                        ON CONFLICT(order_id) DO UPDATE SET monteur_id=excluded.monteur_id,bus_id=excluded.bus_id,
+                        date=excluded.date,slot_start=excluded.slot_start,slot_end=excluded.slot_end,
+                        sequence=excluded.sequence,status='gepland'""",
+                     (o["id"], mid, bid, today, ss, es, seq))
+        conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
+        n += 1
+    conn.commit()
+    conn.close()
+    flash("Dagplanning gevuld met %d demo-leveringen voor vandaag." % n)
+    return redirect(url_for("planning.planning"))
 
 
 @bp.route("/admin/reseed-demo", methods=["POST"])

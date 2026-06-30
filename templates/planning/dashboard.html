@@ -66,6 +66,11 @@
 {% if stats.drafts_blocked %}
 <div class="draft-banner"><svg class="ico"><use href="#ic-shield"/></svg> <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
 {% endif %}
+{% if p_user and p_user.role=='beheerder' %}
+<form method="post" action="{{ url_for('planning.admin_demo_planning') }}" style="margin-bottom:16px" onsubmit="return confirm('De dagplanning van vandaag vullen met demo-leveringen?')">
+  <button class="btn gold sm" type="submit"><svg class="ico" style="width:15px;height:15px;vertical-align:-2px"><use href="#ic-bolt"/></svg> Vul dagplanning met demo-data</button>
+</form>
+{% endif %}
 
 <div class="kpis">
   <div class="kpi gold"><span class="ic"><svg class="ico"><use href="#ic-wrench"/></svg></span><div class="v">{{ stats.monteurs_active }}</div><div class="l">Monteurs vandaag actief</div><span class="trend pill" style="background:rgba(255,255,255,.18);color:#fff">{{ stats.underway }} onderweg</span></div>

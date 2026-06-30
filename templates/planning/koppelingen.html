@@ -24,8 +24,8 @@
   .node.err .ic{border-color:#eaa9a9}
   .node.checking .st{background:var(--amber);animation:ccp .55s infinite}
   @keyframes ccp{0%,100%{opacity:1}50%{opacity:.3}}
-  .nm{margin-top:8px;font-size:12.5px;font-weight:600;color:var(--ink);text-align:center;line-height:1.15}
-  .sub{font-size:10px;color:var(--muted);text-align:center}
+  .nm{margin-top:8px;font-size:12.5px;font-weight:600;color:var(--ink);text-align:center;line-height:1.15;background:var(--bg);padding:1px 7px;border-radius:7px}
+  .sub{font-size:10px;color:var(--muted);text-align:center;background:var(--bg);padding:0 6px;border-radius:6px;margin-top:2px}
   .node.err .sub{color:var(--red);font-weight:600}
   .hub{position:absolute;left:58.75%;top:50%;transform:translate(-50%,-50%);z-index:3}
   .hub .box{width:112px;height:112px;border-radius:28px;overflow:hidden;box-shadow:0 18px 38px rgba(15,61,62,.34)}
@@ -52,10 +52,10 @@
   {'id':'render','x':87.5,'y':44.8,'nm':'Render','sub':'hosting','logo':'render','c':'#1f1f1f','lw':24},
   {'id':'db','x':91.25,'y':64.7,'nm':'Database','sub':'PostgreSQL','logo':'postgresql','c':'#336791','lw':30},
   {'id':'backend','x':80.0,'y':72.4,'nm':'Backend','sub':'Python','logo':'python','c':'#3776AB','lw':28},
-  {'id':'resend','x':61.25,'y':89.7,'nm':'E-mail · Resend','logo':'resend','c':'#1f1f1f','lw':19},
+  {'id':'resend','x':61.25,'y':89.7,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19},
   {'id':'waze','x':11.9,'y':12.9,'nm':'Waze','logo':'waze','c':'#33CCFF','lw':27},
   {'id':'gps1','x':8.75,'y':30.2,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
-  {'id':'traffic','x':12.5,'y':47.4,'nm':'Verkeersinfo','icon':'ic-cone','c':'#d9962b'},
+  {'id':'traffic','x':12.5,'y':47.4,'nm':'Verkeersinfo','img':'ndw','lw':44},
   {'id':'maps','x':10.0,'y':62.1,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
   {'id':'gps2','x':9.4,'y':81.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
   {'id':'oauth','x':28.75,'y':89.7,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
@@ -63,7 +63,7 @@
 {% set LINES = [
   [280,165,470,290,'app'],[280,420,470,290,'google'],[470,80,470,290,'shopify'],
   [640,135,470,290,'velocity'],[700,260,470,290,'render'],[640,420,470,290,'backend'],
-  [490,520,470,290,'resend'],[730,375,700,260,'db'],
+  [490,520,470,290,'resend'],[730,375,640,420,'db'],
   [95,75,280,165,'waze'],[70,175,280,165,'gps1'],[100,275,280,165,'traffic'],
   [80,360,280,420,'maps'],[75,470,280,420,'gps2'],[230,520,280,420,'oauth']
 ] %}
@@ -98,7 +98,7 @@
       {%- if n.app -%}
         <svg class="appic" viewBox="0 0 512 512">{{ PIN|safe }}</svg>
       {%- elif n.img -%}
-        <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:{{ n.lw }}px;border-radius:8px">
+        <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
         <span class="lg" style="--m:url('{{ url_for('static', filename='logos/' + n.logo + '.svg') }}');--c:{{ n.c }};width:{{ n.lw }}px;height:{{ n.lw }}px"></span>
       {%- else -%}
