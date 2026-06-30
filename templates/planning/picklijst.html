@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}Picklijsten · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Picklijsten magazijn</h1><p>Draai in één keer alle picklijsten van een leverdag uit</p>{% endblock %}
+{% block title %}Pakbonnen · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Pakbonnen magazijn</h1><p>Draai in één keer alle pakbonnen van een leverdag uit</p>{% endblock %}
 {% block page_css %}
   .pkcard{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px;box-shadow:var(--shadow-sm);max-width:620px}
   .pkcard h2{font-size:18px;color:var(--accent);margin-bottom:6px}
@@ -17,8 +17,8 @@
 {% endblock %}
 {% block content %}
 <div class="pkcard">
-  <h2>Download picklijsten voor de levering van:</h2>
-  <p class="sub">Kies een dag. Je krijgt één picklijst per order — met leveradres, monteur/bus en alle artikelen — klaar om uit te draaien voor het magazijn.</p>
+  <h2>Download pakbonnen voor de levering van:</h2>
+  <p class="sub">Kies een dag. Je krijgt één pakbon per order — met de artikelen om af te vinken — klaar om uit te draaien voor het magazijn.</p>
   <form id="pkform" method="get" action="{{ url_for('planning.picklijst') }}">
     <div class="pkrow">
       <div class="fld">
@@ -37,9 +37,9 @@
   <div class="pkbtn">
     <a class="btn primary {{ '' if orders else 'disabled' }}"
        {% if orders %}href="{{ url_for('planning.picklijst_print', date=date) }}" target="_blank"{% else %}disabled onclick="return false"{% endif %}>
-       📥 Picklijsten uitdraaien{% if orders %} ({{ orders|length }}){% endif %}
+       📥 Pakbonnen uitdraaien{% if orders %} ({{ orders|length }}){% endif %}
     </a>
   </div>
-  <div class="hint">De picklijsten openen in een nieuw tabblad en het printvenster verschijnt vanzelf. Kies daar je printer, of “Opslaan als PDF” om te downloaden.</div>
+  <div class="hint">De pakbonnen openen in een nieuw tabblad en het printvenster verschijnt vanzelf. Kies daar je printer, of “Opslaan als PDF” om te downloaden.</div>
 </div>
 {% endblock %}

@@ -104,6 +104,27 @@ if _PG_URL.startswith("postgres://"):
     _PG_URL = _PG_URL.replace("postgres://", "postgresql://", 1)
 IS_PG = bool(_PG_URL)
 
+# Connection pool voor PostgreSQL: hergebruikt verbindingen i.p.v. per request
+# een nieuwe op te zetten (scheelt de TCP/TLS-handshake bij elk verzoek -> veel
+# sneller bij meerdere gelijktijdige gebruikers). max_size bewust laag gehouden
+# omdat de monteur-app dezelfde database deelt.
+_PG_POOL = None
+_PG_POOL_TRIED = False
+
+
+def _get_pg_pool():
+    global _PG_POOL, _PG_POOL_TRIED
+    if _PG_POOL is not None or _PG_POOL_TRIED:
+        return _PG_POOL
+    _PG_POOL_TRIED = True
+    try:
+        from psycopg_pool import ConnectionPool
+        _PG_POOL = ConnectionPool(_PG_URL, min_size=1, max_size=5,
+                                  kwargs={"autocommit": True}, timeout=10, open=True)
+    except Exception:
+        _PG_POOL = None  # val terug op directe verbindingen
+    return _PG_POOL
+
 
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings"}
@@ -210,8 +231,15 @@ class _PgCur:
 
 class _PgConn:
     def __init__(self):
-        import psycopg
-        self._raw = psycopg.connect(_PG_URL, autocommit=True)
+        self._pool = _get_pg_pool()
+        if self._pool is not None:
+            try:
+                self._raw = self._pool.getconn()
+            except Exception:
+                self._pool = None
+        if self._pool is None:
+            import psycopg
+            self._raw = psycopg.connect(_PG_URL, autocommit=True)
         self._lastid = None
     def cursor(self):
         return _PgCur(self)
@@ -223,7 +251,10 @@ class _PgConn:
         pass
     def close(self):
         try:
-            self._raw.close()
+            if self._pool is not None:
+                self._pool.putconn(self._raw)
+            else:
+                self._raw.close()
         except Exception:
             pass
 
@@ -891,7 +922,7 @@ NAV = [
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
     {"label": "Magazijn", "icon": "🏭", "perm": "view_preassembly", "children": [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "perm": "view_preassembly"},
-        {"label": "Picklijst", "endpoint": "planning.picklijst", "perm": "view_preassembly"}]},
+        {"label": "Pakbonnen", "endpoint": "planning.picklijst", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "📄", "perm": "view_documents"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
@@ -1382,6 +1413,9 @@ self.addEventListener('fetch', e=>{
 # --------------------------------------------------------------------------- #
 #  Dashboard
 # --------------------------------------------------------------------------- #
+_LAST_AUTO_MAIL = 0.0  # throttle: mailbatch hoogstens 1x per 10 min, niet elke dashboard-load
+
+
 @bp.route("/dashboard")
 def dashboard():
     guard = login_required("view_planning")
@@ -1390,10 +1424,13 @@ def dashboard():
     u = current_user()
     auto_mails = 0
     if has_perm("inform_clients") or u["role"] == "beheerder":
-        try:
-            auto_mails = auto_send_daily_mails()
-        except Exception:
-            auto_mails = 0
+        global _LAST_AUTO_MAIL
+        if time.time() - _LAST_AUTO_MAIL > 600:
+            _LAST_AUTO_MAIL = time.time()
+            try:
+                auto_mails = auto_send_daily_mails()
+            except Exception:
+                auto_mails = 0
     conn = db()
     _purge_old_customer_notes(conn)
     today = _today_iso()
