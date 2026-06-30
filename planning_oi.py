@@ -275,6 +275,7 @@ PERMISSIONS = [
     ("view_emails",        "E-mails bekijken",           "Klant"),
     ("view_invoices",      "Factuurinformatie",          "Financieel"),
     ("complete_deliveries","Leveringen afronden",        "Orders"),
+    ("view_preassembly",   "Voormontage (magazijn)",     "Magazijn"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
@@ -296,10 +297,10 @@ ROLE_DEFAULTS = {
     "beheerder": ALL_PERMS,
     "manager": ["view_kpis", "view_planning", "view_reports", "view_performance",
                 "view_signatures", "view_speed", "view_orders", "view_invoices",
-                "view_personnel", "export", "view_emails"],
+                "view_personnel", "export", "view_emails", "view_preassembly"],
     "planner": ["view_planning", "edit_planning", "plan_orders", "assign_monteurs",
                 "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
-                "view_reports", "view_orders", "view_personnel"],
+                "view_reports", "view_orders", "view_personnel", "view_preassembly"],
     "administratie": ["view_orders", "edit_clients", "view_emails", "view_invoices",
                       "view_planning", "complete_deliveries"],
     "monteur": ["monteur_app"],
@@ -865,6 +866,7 @@ NAV = [
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
+    {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "🪑", "perm": "view_preassembly"},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
@@ -2225,6 +2227,76 @@ def bus_issue_resolve(iid):
     conn.close()
     flash("Bus-issue gemarkeerd als opgelost.")
     return redirect(url_for("planning.bus_issues"))
+
+
+# --------------------------------------------------------------------------- #
+#  Voormonteren (magazijn): welke stoelen moeten voorgemonteerd worden?
+# --------------------------------------------------------------------------- #
+# Productnamen zijn vrije tekst (uit Shopify of handmatig). Het magazijn bepaalt
+# zelf welke woorden/modelnamen een "voor te monteren stoel" aanduiden.
+DEFAULT_VOORMONTAGE_KEYWORDS = ["stoel", "fauteuil", "mast", "se7en"]
+
+
+def _voormontage_keywords(conn):
+    row = conn.execute("SELECT value FROM settings WHERE skey='voormontage_keywords'").fetchone()
+    raw = (row["value"] if row else None) or ""
+    words = [w.strip().lower() for w in raw.split(",") if w.strip()]
+    return words or DEFAULT_VOORMONTAGE_KEYWORDS
+
+
+@bp.route("/voormonteren")
+def voormonteren():
+    guard = login_required("view_preassembly")
+    if guard:
+        return guard
+    conn = db()
+    keywords = _voormontage_keywords(conn)
+    today = _today_iso()
+    rows = conn.execute("""
+        SELECT p.date AS date, oi.name AS name, oi.qty AS qty,
+               o.order_number AS onum, o.city AS city, c.name AS client
+        FROM planning p
+        JOIN orders o ON o.id = p.order_id
+        JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN clients c ON c.id = o.client_id
+        WHERE p.date >= ? AND p.status != 'afgerond'
+        ORDER BY p.date, oi.name
+    """, (today,)).fetchall()
+    conn.close()
+
+    days = {}
+    for r in rows:
+        nm = r["name"] or ""
+        if not any(k in nm.lower() for k in keywords):
+            continue
+        qty = int(r["qty"] or 1)
+        d = r["date"]
+        day = days.setdefault(d, {"date": d, "label": _nl_date(d), "total": 0, "lines": {}})
+        it = day["lines"].setdefault(nm, {"name": nm, "qty": 0, "orders": []})
+        it["qty"] += qty
+        day["total"] += qty
+        it["orders"].append({"onum": r["onum"], "client": r["client"], "city": r["city"], "qty": qty})
+
+    day_list = [{"date": d["date"], "label": d["label"], "total": d["total"],
+                 "lines": list(d["lines"].values())} for d in days.values()]
+    return render_template("planning/voormonteren.html", days=day_list,
+                           keywords=", ".join(keywords), today=today,
+                           can_edit=has_perm("view_preassembly"))
+
+
+@bp.route("/voormonteren/instellen", methods=["POST"])
+def voormonteren_instellen():
+    if not has_perm("view_preassembly"):
+        abort(403)
+    words = request.form.get("keywords", "")
+    conn = db()
+    conn.execute("INSERT INTO settings(skey,value) VALUES('voormontage_keywords',?) "
+                 "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
+                 (words.strip(),))
+    conn.commit()
+    conn.close()
+    flash("Zoekwoorden voor voormontage bijgewerkt.")
+    return redirect(url_for("planning.voormonteren"))
 
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).

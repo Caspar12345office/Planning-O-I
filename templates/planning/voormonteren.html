@@ -1,0 +1,62 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Voormonteren · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Voormonteren</h1><p>Overzicht van stoelen die voorgemonteerd moeten worden voor de geplande leveringen</p>{% endblock %}
+{% block page_css %}
+  .vnote{background:var(--soft);border-radius:12px;padding:12px 15px;font-size:13.5px;color:var(--ink);margin-bottom:18px}
+  .vcfg{margin-bottom:20px}
+  .vcfg summary{cursor:pointer;font-size:13.5px;color:var(--muted);font-weight:600;list-style:none}
+  .vcfg summary::-webkit-details-marker{display:none}
+  .vcfg summary::before{content:'⚙ ';}
+  .vcfg .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-top:10px}
+  .vcfg label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .vcfg input{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px}
+  .vcfg .hint{font-size:12px;color:var(--muted);margin:8px 0 12px}
+  .vday{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0;margin-bottom:16px;box-shadow:var(--shadow-sm);overflow:hidden}
+  .vhead{display:flex;align-items:center;gap:12px;background:var(--accent);color:#fff;padding:13px 18px}
+  .vhead .vdate{font-weight:700;font-size:16px;text-transform:capitalize}
+  .vhead .vshort{font-size:13px;color:#cfe1da}
+  .vhead .vtot{margin-left:auto;background:rgba(255,255,255,.16);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700}
+  .vitem{display:flex;align-items:baseline;gap:12px;padding:13px 18px;border-top:1px solid var(--line)}
+  .vitem:first-child{border-top:0}
+  .vqty{font-weight:800;font-size:18px;color:var(--gold);min-width:42px}
+  .vname{font-weight:700;font-size:15.5px;color:var(--ink)}
+  .vorders{margin-left:auto;font-size:12.5px;color:var(--muted);text-align:right;max-width:50%}
+  .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:40px;text-align:center;color:var(--muted)}
+{% endblock %}
+{% block content %}
+<div class="vnote">🪑 Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Hieronder per leverdag wat er klaargezet moet worden.</div>
+
+{% if can_edit %}
+<details class="vcfg">
+  <summary>Welke producten tellen als voor te monteren stoel?</summary>
+  <div class="box">
+    <form method="post" action="{{ url_for('planning.voormonteren_instellen') }}">
+      <label for="kw">Zoekwoorden / modelnamen (gescheiden door komma's)</label>
+      <input id="kw" name="keywords" value="{{ keywords }}" placeholder="stoel, fauteuil, mast, se7en">
+      <div class="hint">Een orderregel telt mee zodra de productnaam één van deze woorden bevat (hoofdletterongevoelig). Bijv. <i>mast</i> vangt “Mast Zwart”.</div>
+      <button class="btn ghost sm" type="submit">Opslaan</button>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+{% if not days %}
+  <div class="empty">🪑 Geen voor te monteren stoelen gevonden in de geplande leveringen.<br><span style="font-size:13px">Zodra er orders met stoelen ingepland staan, verschijnen ze hier per dag.</span></div>
+{% endif %}
+
+{% for d in days %}
+<div class="vday">
+  <div class="vhead">
+    <span class="vdate">{{ d.label }}</span>
+    <span class="vtot">{{ d.total }} stoel{{ '' if d.total == 1 else 'en' }}</span>
+  </div>
+  {% for it in d.lines %}
+  <div class="vitem">
+    <span class="vqty">{{ it.qty }}×</span>
+    <span class="vname">{{ it.name }}</span>
+    <span class="vorders">{% for o in it.orders %}#{{ o.onum }}{% if o.client %} · {{ o.client }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}
