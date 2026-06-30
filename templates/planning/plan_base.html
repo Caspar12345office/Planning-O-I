@@ -188,7 +188,7 @@
             <details class="navgrp" {{ 'open' if open }}>
               <summary>{{ nicon(item.icon) }}{{ item.label }}<span class="caret">▾</span></summary>
               {% for ch in visible %}
-              <a class="sub {{ 'active' if request.endpoint==ch.endpoint }}" href="{{ url_for(ch.endpoint) }}">{{ nicon(ch.icon) }}{{ ch.label }}</a>
+              <a class="sub {{ 'active' if request.endpoint==ch.endpoint }}" href="{{ url_for(ch.endpoint) }}">{{ nicon(ch.icon) }}{{ ch.label }}{% if ch.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
               {% endfor %}
             </details>
           {% endif %}

@@ -1,0 +1,74 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Openbaar kladblok · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Openbaar kladblok</h1><p>Gedeelde aantekeningen — iedereen kan meeschrijven, realtime zichtbaar</p>{% endblock %}
+{% block page_css %}
+  .kbwrap{display:grid;grid-template-columns:1fr;gap:18px}
+  .kbwrap.admin{grid-template-columns:1fr 280px}
+  @media(max-width:900px){.kbwrap.admin{grid-template-columns:1fr}}
+  .paper{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm);overflow:hidden}
+  .paper .top{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line);background:var(--soft);font-size:12.5px;color:var(--muted)}
+  .paper .top .save{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-weight:600}
+  .paper .top .save .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .paper .top .save.busy .dot{background:var(--amber)}
+  .paper textarea{display:block;width:100%;border:0;outline:0;resize:vertical;min-height:58vh;padding:26px 30px;
+        font-family:'Jost',Arial,sans-serif;font-size:15.5px;line-height:1.75;color:var(--ink);background:#fff}
+  .kblog{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;box-shadow:var(--shadow-sm);align-self:start}
+  .kblog h3{font-size:14px;color:var(--accent);margin-bottom:10px}
+  .kblog .row{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+  .kblog .row:last-child{border-bottom:0}
+  .kblog .row b{color:var(--ink);font-weight:600}
+  .kblog .row span{color:var(--muted);font-size:11.5px}
+  .kblog .empty{color:var(--muted);font-size:12.5px}
+{% endblock %}
+{% block content %}
+<div class="kbwrap {{ 'admin' if is_admin }}">
+  <div class="paper">
+    <div class="top">
+      <span id="kbmeta">{% if by %}Laatst bewerkt door <b>{{ by }}</b> · {{ at }}{% else %}Nog niets genoteerd — begin maar te typen.{% endif %}</span>
+      <span class="save" id="kbsave"><span class="dot"></span><span id="kbsavetxt">Opgeslagen</span></span>
+    </div>
+    <textarea id="kbarea" placeholder="Typ hier gezamenlijke aantekeningen…">{{ content }}</textarea>
+  </div>
+  {% if is_admin %}
+  <div class="kblog">
+    <h3>Recente bewerkingen</h3>
+    <div id="kbloglist">
+      {% if log %}{% for l in log %}<div class="row"><b>{{ l.person }}</b><span>{{ l.ts }}</span></div>{% endfor %}
+      {% else %}<div class="empty">Nog geen bewerkingen.</div>{% endif %}
+    </div>
+    <p class="empty" style="margin-top:10px">Alleen jij (beheerder) ziet wie wat wanneer noteerde.</p>
+  </div>
+  {% endif %}
+</div>
+<script>
+(function(){
+  var ta=document.getElementById('kbarea'), meta=document.getElementById('kbmeta');
+  var save=document.getElementById('kbsave'), savetxt=document.getElementById('kbsavetxt');
+  var lastServer=ta.value, timer=null;
+  function setMeta(by,at){ if(by){ meta.innerHTML='Laatst bewerkt door <b>'+by+'</b> · '+at; } }
+  function doSave(){
+    save.classList.add('busy'); savetxt.textContent='Opslaan…';
+    var body=new URLSearchParams(); body.set('content', ta.value);
+    fetch('{{ url_for("planning.kladblok_save") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+      .then(function(r){return r.json();}).then(function(d){
+        save.classList.remove('busy'); savetxt.textContent='Opgeslagen';
+        lastServer=ta.value; if(d&&d.by) setMeta(d.by,d.at);
+      }).catch(function(){ save.classList.remove('busy'); savetxt.textContent='Niet opgeslagen'; });
+  }
+  ta.addEventListener('input',function(){
+    save.classList.add('busy'); savetxt.textContent='Wijzigingen…';
+    clearTimeout(timer); timer=setTimeout(doSave, 1400);
+  });
+  function poll(){
+    fetch('{{ url_for("planning.kladblok_poll") }}').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return;
+      // alleen overschrijven als iemand ánders iets wijzigde én ik nu niet aan het typen ben
+      if(d.content!==lastServer && document.activeElement!==ta){
+        ta.value=d.content; lastServer=d.content; setMeta(d.by,d.at);
+      } else if(d.content===ta.value){ setMeta(d.by,d.at); }
+    }).catch(function(){});
+  }
+  setInterval(poll, 5000);
+})();
+</script>
+{% endblock %}

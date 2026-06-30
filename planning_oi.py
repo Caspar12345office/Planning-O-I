@@ -543,6 +543,10 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT, description TEXT, filename TEXT, mimetype TEXT, size INTEGER,
         data BLOB, uploaded_by TEXT, uploaded_at TEXT);
+    CREATE TABLE IF NOT EXISTS notepad(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT, updated_by TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS notepad_log(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, person TEXT, ts TEXT, content TEXT);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -957,11 +961,14 @@ NAV = [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
         {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
-    {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
+    {"label": "Documenten", "icon": "doc", "perm": "view_documents", "children": [
+        {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
+        {"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
-    {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel",
-     "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
+    {"label": "Bussen", "icon": "truck", "perm": "view_personnel", "children": [
+        {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel"},
+        {"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
     {"label": "Rapportages", "icon": "chart", "perm": None, "children": [
         {"label": "Monteursprestaties", "endpoint": "planning.performance", "icon": "chart", "perm": "view_performance"},
         {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "truck", "perm": "view_reports"},
@@ -2566,6 +2573,61 @@ def documenten_delete(did):
 
 
 # --------------------------------------------------------------------------- #
+#  Openbaar kladblok: gedeelde, real-time aantekeningen (iedereen ziet/bewerkt)
+# --------------------------------------------------------------------------- #
+@bp.route("/kladblok")
+def kladblok():
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    u = current_user()
+    conn = db()
+    row = conn.execute("SELECT content, updated_by, updated_at FROM notepad WHERE id=1").fetchone()
+    log = []
+    if u["role"] == "beheerder":
+        log = [dict(r) for r in conn.execute(
+            "SELECT person, ts FROM notepad_log ORDER BY id DESC LIMIT 40").fetchall()]
+    conn.close()
+    return render_template("planning/kladblok.html",
+                           content=(row["content"] if row else "") or "",
+                           by=(row["updated_by"] if row else ""),
+                           at=(row["updated_at"] if row else ""),
+                           is_admin=(u["role"] == "beheerder"), log=log)
+
+
+@bp.route("/kladblok/poll")
+def kladblok_poll():
+    if not has_perm("view_documents"):
+        return jsonify(ok=False), 403
+    conn = db()
+    row = conn.execute("SELECT content, updated_by, updated_at FROM notepad WHERE id=1").fetchone()
+    conn.close()
+    return jsonify(ok=True, content=(row["content"] if row else "") or "",
+                   by=(row["updated_by"] if row else ""), at=(row["updated_at"] if row else ""))
+
+
+@bp.route("/kladblok/save", methods=["POST"])
+def kladblok_save():
+    if not has_perm("view_documents"):
+        return jsonify(ok=False), 403
+    u = current_user()
+    content = (request.form.get("content") or "")[:50000]
+    now = datetime.now().isoformat(timespec="minutes")
+    conn = db()
+    conn.execute("""INSERT INTO notepad(id,content,updated_by,updated_at) VALUES(1,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET content=excluded.content,
+                    updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
+                 (content, u["name"], now))
+    conn.execute("INSERT INTO notepad_log(person,ts,content) VALUES(?,?,?)", (u["name"], now, content))
+    # alleen de laatste 100 bewerkingen bewaren
+    conn.execute("DELETE FROM notepad_log WHERE id NOT IN "
+                 "(SELECT id FROM notepad_log ORDER BY id DESC LIMIT 100)")
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True, by=u["name"], at=now)
+
+
+# --------------------------------------------------------------------------- #
 #  Commandocentrum: live status van alle koppelingen + AI-advies bij storing
 # --------------------------------------------------------------------------- #
 def _conn_advice(key):
@@ -2599,6 +2661,21 @@ def _conn_advice(key):
                ["Probeer de pagina waar het misging opnieuw te openen.",
                 "Bekijk de logs van de Render-service voor de exacte foutmelding.",
                 "Blijft het terugkomen? Meld de melding zodat het opgelost wordt."]),
+        "app_off": ("Er komt geen live verbinding binnen vanuit de monteurs-app.",
+               ["Laat een monteur inloggen in de app en zijn route openen.",
+                "Zet locatie-deling aan in de app (tab ‘Ik’)."]),
+        "google": ("De Google-koppeling (OAuth/MFA · Maps · GPS) is nog niet actief.",
+               ["Maak een Google Cloud-project met OAuth-client aan.",
+                "Zet de Google-sleutel in ‘Koppelingen instellen’."]),
+        "maps": ("Google Maps is nog niet als koppeling actief.",
+               ["Koppel Google Maps via de Google-sleutel in ‘Koppelingen instellen’."]),
+        "waze": ("Waze is nog niet gekoppeld.",
+               ["Waze werkt nu via deeplinks; een directe koppeling is optioneel."]),
+        "oauth": ("Inloggen via Google (OAuth + MFA) is nog niet ingesteld.",
+               ["Configureer een Google OAuth-client en koppel die in ‘Koppelingen instellen’."]),
+        "traffic": ("Live verkeers-/file-info is nog niet gekoppeld; nu wordt een voorbeeld getoond.",
+               ["Koppel de open verkeersdata van NDW (Nationale Databank Wegverkeersgegevens).",
+                "Vul de NDW-sleutel in bij ‘Koppelingen instellen’."]),
     }
     d = A.get(key)
     return {"diagnose": d[0], "stappen": d[1]} if d else None
@@ -2649,7 +2726,7 @@ def _connection_health(deep=False):
     except Exception:
         put("db", "err", "Geen databaseverbinding", advice=_conn_advice("db"))
 
-    # E-mail / Resend
+    # E-mail / Resend — alleen groen als écht ingesteld + live (+ domein geverifieerd)
     try:
         c = _email_cfg()
     except Exception:
@@ -2657,10 +2734,8 @@ def _connection_health(deep=False):
     rkey = (c.get("resend_api_key") or "").strip()
     frm = (c.get("from_email") or c.get("smtp_user") or "").strip()
     live = (c.get("send_live") or "0") == "1"
-    if not (rkey and frm):
-        put("resend", "err", "Niet ingesteld", advice=_conn_advice("resend_cfg"))
-    elif not live:
-        put("resend", "warn", "Testmodus", advice=_conn_advice("resend_test"))
+    if not (rkey and frm and live):
+        put("resend", "err", "Niet gekoppeld", advice=_conn_advice("resend_cfg"))
     elif deep:
         ok, msg = _resend_domain_ok(rkey, frm)
         put("resend", "ok" if ok else "err", msg,
@@ -2668,7 +2743,7 @@ def _connection_health(deep=False):
     else:
         put("resend", "ok", "Actief", "live")
 
-    # Shopify
+    # Shopify — groen alleen met webhook-secret
     try:
         sh = {r["field"]: r["value"] for r in
               conn.execute("SELECT field,value FROM integrations WHERE ikey='shopify'").fetchall()}
@@ -2677,37 +2752,32 @@ def _connection_health(deep=False):
     if (sh.get("webhook_secret") or "").strip():
         put("shopify", "ok", "Webhook gekoppeld")
     else:
-        put("shopify", "warn", "Nog niet gekoppeld", advice=_conn_advice("shopify"))
+        put("shopify", "err", "Niet gekoppeld", advice=_conn_advice("shopify"))
 
-    # Monteurs-app + live GPS
+    # Monteurs-app + live GPS — groen alleen bij ECHT live locatie (laatste 30 min)
+    cutoff = (datetime.now() - timedelta(minutes=30)).isoformat(timespec="minutes")
     try:
-        rec = conn.execute("SELECT MAX(updated_at) AS m FROM monteur_location").fetchone()
+        rec = conn.execute("SELECT MAX(updated_at) AS m FROM monteur_location WHERE live=1").fetchone()
         last = rec["m"] if rec else None
     except Exception:
         last = None
-    put("app", "ok", "Verbonden")
-    if last:
+    if last and last >= cutoff:
+        put("app", "ok", "Live verbonden")
         put("gps1", "ok", "Live locatie ontvangen")
     else:
-        put("gps1", "warn", "Nog geen live locatie", advice=_conn_advice("gps"))
+        put("app", "err", "Geen live verbinding", advice=_conn_advice("app_off"))
+        put("gps1", "err", "Niet gekoppeld", advice=_conn_advice("gps"))
     st["gps2"] = dict(st["gps1"])
 
-    # Google-bundel + navigatie
-    put("google", "ok", "OAuth · MFA · Maps · GPS")
-    put("maps", "ok", "Routes & navigatie")
-    put("oauth", "ok", "Tweestapsverificatie actief")
-    put("waze", "ok", "Navigatie per stop")
-    put("traffic", "ok", "Files & hinder actueel")
+    # Google-bundel + navigatie + verkeer — nog niet gekoppeld (stubs/deeplinks)
+    put("google", "err", "Niet gekoppeld", advice=_conn_advice("google"))
+    put("maps", "err", "Niet gekoppeld", advice=_conn_advice("maps"))
+    put("oauth", "err", "Niet gekoppeld", advice=_conn_advice("oauth"))
+    put("waze", "err", "Niet gekoppeld", advice=_conn_advice("waze"))
+    put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
 
-    # Velocity (busregistratie)
-    try:
-        nb = conn.execute("SELECT COUNT(*) AS n FROM busses").fetchone()["n"]
-    except Exception:
-        nb = 0
-    if nb:
-        put("velocity", "ok", "%d voertuigen" % nb)
-    else:
-        put("velocity", "warn", "Geen busgegevens", advice=_conn_advice("velocity"))
+    # Velocity (busregistratie) — nog geen koppeling
+    put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
 
     conn.close()
     return st
