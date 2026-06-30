@@ -975,8 +975,7 @@ NAV = [
     {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
         {"label": "Live status koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
         {"label": "Koppelingen instellen", "endpoint": "planning.integrations", "icon": "gear", "perm": "manage_integrations"},
-        {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "icon": "gear", "perm": "manage_settings"},
-        {"label": "E-mailteksten", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
+        {"label": "Automatische e-mails", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
         {"label": "Gebruikers", "endpoint": "planning.users", "icon": "users", "perm": "manage_users"}]},
 ]
 

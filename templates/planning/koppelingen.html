@@ -50,22 +50,22 @@
   {'id':'shopify','x':58.75,'y':13.8,'nm':'Shopify','logo':'shopify','c':'#7AB55C','lw':26},
   {'id':'velocity','x':80.0,'y':23.3,'nm':'Velocity','img':'velocity','lw':38},
   {'id':'render','x':87.5,'y':44.8,'nm':'Render','logo':'render','c':'#1f1f1f','lw':24},
-  {'id':'db','x':91.25,'y':64.7,'nm':'Database','logo':'postgresql','c':'#336791','lw':30},
-  {'id':'backend','x':80.0,'y':72.4,'nm':'Python','logo':'python','c':'#3776AB','lw':28},
-  {'id':'resend','x':61.25,'y':89.7,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19},
-  {'id':'waze','x':11.9,'y':12.9,'nm':'Waze','logo':'waze','c':'#33CCFF','lw':27},
-  {'id':'gps1','x':8.75,'y':33.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
-  {'id':'traffic','x':12.5,'y':51.0,'nm':'Verkeersinfo','img':'ndw','lw':44},
-  {'id':'maps','x':10.0,'y':64.0,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
-  {'id':'gps2','x':9.4,'y':82.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
-  {'id':'oauth','x':28.75,'y':90.0,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
+  {'id':'backend','x':91.25,'y':64.7,'nm':'Python','logo':'python','c':'#3776AB','lw':28},
+  {'id':'db','x':80.0,'y':72.4,'nm':'Database','logo':'postgresql','c':'#336791','lw':30},
+  {'id':'resend','x':61.25,'y':88.0,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19},
+  {'id':'waze','x':12.0,'y':12.0,'nm':'Waze','logo':'waze','c':'#33CCFF','lw':27},
+  {'id':'gps1','x':8.0,'y':31.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'traffic','x':13.0,'y':49.0,'nm':'Verkeersinfo','img':'ndw','lw':44},
+  {'id':'maps','x':9.0,'y':67.0,'nm':'Google Maps','logo':'googlemaps','c':'#1A73E8','lw':26},
+  {'id':'gps2','x':11.0,'y':84.0,'nm':'Live GPS','icon':'ic-pin','c':'#1a9e75'},
+  {'id':'oauth','x':29.0,'y':91.0,'nm':'OAuth + MFA','icon':'ic-shield','c':'#4285F4'}
 ] %}
 {% set LINES = [
   [264,191,470,290,'app'],[264,429,470,290,'google'],[470,80,470,290,'shopify'],
-  [640,135,470,290,'velocity'],[700,260,470,290,'render'],[640,420,470,290,'backend'],
-  [490,520,470,290,'resend'],[730,375,640,420,'db'],
-  [95,75,264,191,'waze'],[70,191,264,191,'gps1'],[100,296,264,191,'traffic'],
-  [80,371,264,429,'maps'],[75,476,264,429,'gps2'],[230,522,264,429,'oauth']
+  [640,135,470,290,'velocity'],[700,260,470,290,'render'],[730,375,470,290,'backend'],
+  [490,510,470,290,'resend'],[640,420,730,375,'db'],
+  [96,70,264,191,'waze'],[64,180,264,191,'gps1'],[104,284,264,191,'traffic'],
+  [72,389,264,429,'maps'],[88,487,264,429,'gps2'],[232,528,264,429,'oauth']
 ] %}
 
 <div class="ccbar">
@@ -96,7 +96,7 @@
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app -%}
-        <img class="appimg" src="{{ url_for('static', filename='logos/officeroute.svg') }}" alt="Monteurs-app">
+        <svg class="appimg" width="52" height="52" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="188" r="90" fill="none" stroke="#cda35a" stroke-width="36"/><rect x="238" y="272" width="36" height="150" rx="18" fill="#cda35a"/></svg>
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
