@@ -8,9 +8,14 @@
   .vcfg summary::-webkit-details-marker{display:none}
   .vcfg summary::before{content:'⚙ ';}
   .vcfg .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-top:10px}
-  .vcfg label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-  .vcfg input{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;font:inherit;font-size:14px}
-  .vcfg .hint{font-size:12px;color:var(--muted);margin:8px 0 12px}
+  .vcfg .hint{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+  .plist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px 18px;max-height:340px;overflow:auto;padding:4px 2px;margin-bottom:14px}
+  .pchk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;padding:5px 6px;border-radius:9px}
+  .pchk:hover{background:var(--soft)}
+  .pchk input{width:18px;height:18px;flex-shrink:0;accent-color:var(--accent);cursor:pointer}
+  .pchk.on{font-weight:700;color:var(--accent)}
+  .ptools{display:flex;gap:14px;align-items:center;margin-bottom:10px;font-size:13px}
+  .ptools a{color:var(--accent);cursor:pointer;font-weight:600}
   .vday{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0;margin-bottom:16px;box-shadow:var(--shadow-sm);overflow:hidden}
   .vhead{display:flex;align-items:center;gap:12px;background:var(--accent);color:#fff;padding:13px 18px}
   .vhead .vdate{font-weight:700;font-size:16px;text-transform:capitalize}
@@ -27,28 +32,42 @@
 <div class="vnote">🪑 Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Hieronder per leverdag wat er klaargezet moet worden.</div>
 
 {% if can_edit %}
-<details class="vcfg">
-  <summary>Welke producten tellen als voor te monteren stoel?</summary>
+<details class="vcfg" {{ 'open' if n_selected == 0 }}>
+  <summary>Welke producten moeten voorgemonteerd worden? ({{ n_selected }} aangevinkt)</summary>
   <div class="box">
-    <form method="post" action="{{ url_for('planning.voormonteren_instellen') }}">
-      <label for="kw">Zoekwoorden / modelnamen (gescheiden door komma's)</label>
-      <input id="kw" name="keywords" value="{{ keywords }}" placeholder="stoel, fauteuil, mast, se7en">
-      <div class="hint">Een orderregel telt mee zodra de productnaam één van deze woorden bevat (hoofdletterongevoelig). Bijv. <i>mast</i> vangt “Mast Zwart”.</div>
-      <button class="btn ghost sm" type="submit">Opslaan</button>
+    <form method="post" action="{{ url_for('planning.voormonteren_producten') }}">
+      <div class="hint">Vink de modellen aan die in het magazijn voorgemonteerd moeten worden. Alleen aangevinkte producten verschijnen in het overzicht hieronder. Stoelen die al voorgemonteerd binnenkomen, laat je gewoon uit.</div>
+      {% if products %}
+      <div class="ptools"><a onclick="vmAll(true)">Alles aanvinken</a><a onclick="vmAll(false)">Alles uitvinken</a></div>
+      <div class="plist">
+        {% for p in products %}
+        <label class="pchk {{ 'on' if p.checked }}">
+          <input type="checkbox" name="product" value="{{ p.name }}" {{ 'checked' if p.checked }} onchange="this.closest('.pchk').classList.toggle('on',this.checked)">
+          <span>{{ p.name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <button class="btn primary sm" type="submit">Selectie opslaan</button>
+      {% else %}
+      <div class="hint">Er zijn nog geen producten bekend. Zodra er orders met producten binnenkomen, verschijnen ze hier om aan te vinken.</div>
+      {% endif %}
     </form>
   </div>
 </details>
+<script>
+function vmAll(on){document.querySelectorAll('.plist input[type=checkbox]').forEach(function(c){c.checked=on;c.closest('.pchk').classList.toggle('on',on);});}
+</script>
 {% endif %}
 
 {% if not days %}
-  <div class="empty">🪑 Geen voor te monteren stoelen gevonden in de geplande leveringen.<br><span style="font-size:13px">Zodra er orders met stoelen ingepland staan, verschijnen ze hier per dag.</span></div>
+  <div class="empty">🪑 Geen voor te monteren producten in de geplande leveringen.<br><span style="font-size:13px">{% if n_selected == 0 %}Vink eerst hierboven aan welke producten voorgemonteerd moeten worden.{% else %}Zodra er orders met deze producten ingepland staan, verschijnen ze hier per dag.{% endif %}</span></div>
 {% endif %}
 
 {% for d in days %}
 <div class="vday">
   <div class="vhead">
     <span class="vdate">{{ d.label }}</span>
-    <span class="vtot">{{ d.total }} stoel{{ '' if d.total == 1 else 'en' }}</span>
+    <span class="vtot">{{ d.total }} stuk{{ '' if d.total == 1 else 's' }}</span>
   </div>
   {% for it in d.lines %}
   <div class="vitem">

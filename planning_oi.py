@@ -484,7 +484,8 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN arrival_mailed INTEGER DEFAULT 0",
                  "ALTER TABLE planning ADD COLUMN delay_mailed INTEGER DEFAULT 0",
                  "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1",
-                 "ALTER TABLE orders ADD COLUMN customer_note TEXT"):
+                 "ALTER TABLE orders ADD COLUMN customer_note TEXT",
+                 "ALTER TABLE order_items ADD COLUMN picked INTEGER DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -866,7 +867,9 @@ NAV = [
     {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
         {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
         {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
-    {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "🪑", "perm": "view_preassembly"},
+    {"label": "Magazijn", "icon": "🏭", "perm": "view_preassembly", "children": [
+        {"label": "Voormonteren", "endpoint": "planning.voormonteren", "perm": "view_preassembly"},
+        {"label": "Picklijst", "endpoint": "planning.picklijst", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
@@ -887,6 +890,15 @@ NAV = [
 
 def _today_iso():
     return datetime.now().date().isoformat()
+
+
+def _shift_iso(iso, days):
+    """ISO-datum N dagen verschuiven; valt terug op vandaag bij onleesbare invoer."""
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d").date()
+    except Exception:
+        d = datetime.now().date()
+    return (d + timedelta(days=days)).isoformat()
 
 
 def _items_by_order(conn, order_ids):
@@ -2230,18 +2242,18 @@ def bus_issue_resolve(iid):
 
 
 # --------------------------------------------------------------------------- #
-#  Voormonteren (magazijn): welke stoelen moeten voorgemonteerd worden?
+#  Magazijn: Voormonteren + Picklijst
 # --------------------------------------------------------------------------- #
-# Productnamen zijn vrije tekst (uit Shopify of handmatig). Het magazijn bepaalt
-# zelf welke woorden/modelnamen een "voor te monteren stoel" aanduiden.
-DEFAULT_VOORMONTAGE_KEYWORDS = ["stoel", "fauteuil", "mast", "se7en"]
-
-
-def _voormontage_keywords(conn):
-    row = conn.execute("SELECT value FROM settings WHERE skey='voormontage_keywords'").fetchone()
-    raw = (row["value"] if row else None) or ""
-    words = [w.strip().lower() for w in raw.split(",") if w.strip()]
-    return words or DEFAULT_VOORMONTAGE_KEYWORDS
+# Het magazijn vinkt zelf aan welke producten (stoelmodellen) voorgemonteerd
+# moeten worden. De selectie is een lijst met exacte productnamen.
+def _voormontage_products(conn):
+    row = conn.execute("SELECT value FROM settings WHERE skey='voormontage_products'").fetchone()
+    if not row or not row["value"]:
+        return set()
+    try:
+        return set(json.loads(row["value"]))
+    except Exception:
+        return set()
 
 
 @bp.route("/voormonteren")
@@ -2250,7 +2262,10 @@ def voormonteren():
     if guard:
         return guard
     conn = db()
-    keywords = _voormontage_keywords(conn)
+    selected = _voormontage_products(conn)
+    # Alle producten die ooit in orders voorkwamen = de aan te vinken catalogus.
+    catalog = [r["name"] for r in conn.execute(
+        "SELECT DISTINCT name FROM order_items WHERE name IS NOT NULL AND name<>'' ORDER BY name").fetchall()]
     today = _today_iso()
     rows = conn.execute("""
         SELECT p.date AS date, oi.name AS name, oi.qty AS qty,
@@ -2267,7 +2282,7 @@ def voormonteren():
     days = {}
     for r in rows:
         nm = r["name"] or ""
-        if not any(k in nm.lower() for k in keywords):
+        if nm not in selected:
             continue
         qty = int(r["qty"] or 1)
         d = r["date"]
@@ -2279,24 +2294,82 @@ def voormonteren():
 
     day_list = [{"date": d["date"], "label": d["label"], "total": d["total"],
                  "lines": list(d["lines"].values())} for d in days.values()]
-    return render_template("planning/voormonteren.html", days=day_list,
-                           keywords=", ".join(keywords), today=today,
+    products = [{"name": nm, "checked": nm in selected} for nm in catalog]
+    return render_template("planning/voormonteren.html", days=day_list, products=products,
+                           n_selected=len(selected), today=today,
                            can_edit=has_perm("view_preassembly"))
 
 
-@bp.route("/voormonteren/instellen", methods=["POST"])
-def voormonteren_instellen():
+@bp.route("/voormonteren/producten", methods=["POST"])
+def voormonteren_producten():
     if not has_perm("view_preassembly"):
         abort(403)
-    words = request.form.get("keywords", "")
+    chosen = request.form.getlist("product")
     conn = db()
-    conn.execute("INSERT INTO settings(skey,value) VALUES('voormontage_keywords',?) "
+    conn.execute("INSERT INTO settings(skey,value) VALUES('voormontage_products',?) "
                  "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
-                 (words.strip(),))
+                 (json.dumps(chosen),))
     conn.commit()
     conn.close()
-    flash("Zoekwoorden voor voormontage bijgewerkt.")
+    flash("Selectie voor te monteren producten opgeslagen.")
     return redirect(url_for("planning.voormonteren"))
+
+
+@bp.route("/picklijst")
+def picklijst():
+    guard = login_required("view_preassembly")
+    if guard:
+        return guard
+    date = request.args.get("date") or _today_iso()
+    conn = db()
+    orders = conn.execute("""
+        SELECT o.id AS oid, o.order_number AS onum, o.delivery_address AS addr, o.city AS city,
+               o.service_type AS service, o.instructions AS instructions, o.notes AS notes,
+               c.name AS client, p.slot_start AS slot_start, p.slot_end AS slot_end,
+               p.sequence AS seq, m.name AS monteur, b.name AS bus
+        FROM planning p
+        JOIN orders o ON o.id = p.order_id
+        LEFT JOIN clients c ON c.id = o.client_id
+        LEFT JOIN monteurs m ON m.id = p.monteur_id
+        LEFT JOIN busses b ON b.id = p.bus_id
+        WHERE p.date = ? AND p.status != 'afgerond'
+        ORDER BY p.sequence, o.order_number
+    """, (date,)).fetchall()
+    order_list = []
+    n_lines = n_picked = 0
+    for o in orders:
+        items = conn.execute("SELECT id, name, qty, COALESCE(picked,0) AS picked FROM order_items WHERE order_id=? ORDER BY id",
+                             (o["oid"],)).fetchall()
+        items = [dict(it) for it in items]
+        n_lines += len(items)
+        n_picked += sum(1 for it in items if it["picked"])
+        order_list.append({**dict(o), "lines": items,
+                           "all_picked": bool(items) and all(it["picked"] for it in items)})
+    conn.close()
+    return render_template("planning/picklijst.html", orders=order_list, date=date,
+                           date_label=_nl_date(date), today=_today_iso(),
+                           prev_date=_shift_iso(date, -1), next_date=_shift_iso(date, 1),
+                           n_lines=n_lines, n_picked=n_picked)
+
+
+@bp.route("/picklijst/opslaan", methods=["POST"])
+def picklijst_opslaan():
+    if not has_perm("view_preassembly"):
+        abort(403)
+    date = request.form.get("date") or _today_iso()
+    checked = set(int(x) for x in request.form.getlist("picked") if str(x).isdigit())
+    conn = db()
+    # Alleen de regels van déze dag bijwerken (zodat andere dagen ongemoeid blijven).
+    ids = [r["id"] for r in conn.execute("""
+        SELECT oi.id FROM order_items oi
+        JOIN planning p ON p.order_id = oi.order_id
+        WHERE p.date = ?""", (date,)).fetchall()]
+    for iid in ids:
+        conn.execute("UPDATE order_items SET picked=? WHERE id=?", (1 if iid in checked else 0, iid))
+    conn.commit()
+    conn.close()
+    flash("Picklijst bijgewerkt.")
+    return redirect(url_for("planning.picklijst", date=date))
 
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).
