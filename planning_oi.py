@@ -17,6 +17,14 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib, threading
+
+# Werkzeug kiest standaard 'scrypt' (geheugen-intensief -> traag op kleine servers).
+# pbkdf2 is licht en snel; ruim voldoende i.c.m. de verplichte 2FA.
+_PW_METHOD = "pbkdf2:sha256:150000"
+
+
+def _hash_pw(pw):
+    return generate_password_hash(pw, method=_PW_METHOD)
 import urllib.request, urllib.error
 from email.message import EmailMessage
 from datetime import datetime, timedelta, date
@@ -589,7 +597,7 @@ def _seed(conn):
         perms = list(ROLE_DEFAULTS[role]) + (extra or [])
         c.execute("""INSERT INTO users(name,email,password,role,permissions,phone,monteur_id,created_at)
                      VALUES(?,?,?,?,?,?,?,?)""",
-                  (name, email, generate_password_hash("PlanningOI2025!"), role,
+                  (name, email, _hash_pw("PlanningOI2025!"), role,
                    json.dumps(perms), phone, monteur_id, iso(today)))
     # kantoor
     mk("Caspar", "caspar@office-interior.nl", "beheerder", phone="085-0481444")
@@ -1358,6 +1366,15 @@ def login():
             u = conn.execute("SELECT * FROM users WHERE lower(email)=? AND active=1", (email,)).fetchone()
             conn.close()
             if u and check_password_hash(u["password"], pw):
+                # Oud (traag, geheugen-intensief) scrypt-hash -> eenmalig omzetten
+                # naar het snelle pbkdf2, zodat elke volgende login snel is.
+                if not (u["password"] or "").startswith("pbkdf2:"):
+                    try:
+                        cu = db()
+                        cu.execute("UPDATE users SET password=? WHERE id=?", (_hash_pw(pw), u["id"]))
+                        cu.commit(); cu.close()
+                    except Exception:
+                        pass
                 code = "%06d" % secrets.randbelow(1000000)
                 show_2fa = True
                 twofa_email = u["email"]
@@ -2960,7 +2977,7 @@ def user_new():
         perms = list(ROLE_DEFAULTS.get(role, []))
         conn.execute("""INSERT INTO users(name,email,password,role,permissions,monteur_id,active,created_at)
                         VALUES(?,?,?,?,?,?,?,?)""",
-                     (name, email, generate_password_hash(pw), role, json.dumps(perms), mid, active, _today_iso()))
+                     (name, email, _hash_pw(pw), role, json.dumps(perms), mid, active, _today_iso()))
         conn.commit(); conn.close()
         flash("Gebruiker aangemaakt.")
         return redirect(url_for("planning.users"))
@@ -2994,7 +3011,7 @@ def user_edit(uid):
                      (name, email, role, json.dumps(perms), active, mid, uid))
         newpw = (request.form.get("new_password") or "").strip()
         if newpw:
-            conn.execute("UPDATE users SET password=? WHERE id=?", (generate_password_hash(newpw), uid))
+            conn.execute("UPDATE users SET password=? WHERE id=?", (_hash_pw(newpw), uid))
         conn.commit(); conn.close()
         flash("Gebruiker bijgewerkt.")
         return redirect(url_for("planning.users"))
