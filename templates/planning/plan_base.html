@@ -24,9 +24,11 @@
 
   /* ---------- sidebar rail (licht) ---------- */
   .rail{width:256px;flex-shrink:0;background:var(--rail);border-right:1px solid var(--line);color:var(--railtext);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
-  .rail-head{padding:22px 20px 14px}
-  .rail-logo{display:flex;flex-direction:column;gap:1px}
-  .rail-logo .wm{font-weight:600;font-size:16px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  .rail-head{padding:20px 18px 14px}
+  .rail-logo{display:flex;align-items:center;gap:11px}
+  .rail-logo .mark{width:42px;height:42px;border-radius:12px;flex-shrink:0;box-shadow:0 6px 14px rgba(15,61,62,.22)}
+  .rail-logo .txt{display:flex;flex-direction:column;gap:1px;min-width:0}
+  .rail-logo .wm{font-weight:700;font-size:20px;letter-spacing:.02em;color:var(--accent);line-height:1}
   .rail-logo small{display:block;font-size:10px;letter-spacing:.02em;color:var(--muted);font-weight:500;text-transform:none}
   .rail-nav{flex:1;overflow:auto;padding:6px 12px 12px}
   .rail-nav::-webkit-scrollbar{width:6px}.rail-nav::-webkit-scrollbar-thumb{background:rgba(0,0,0,.10);border-radius:3px}
@@ -166,11 +168,15 @@
   <symbol id="ic-user" viewBox="0 0 24 24"><path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.5 20.12a7.5 7.5 0 0 1 15 0A17.9 17.9 0 0 1 12 21.75c-2.68 0-5.22-.58-7.5-1.63Z"/></symbol>
   <symbol id="ic-moon" viewBox="0 0 24 24"><path d="M21.75 15.91A9 9 0 1 1 8.09 2.25a7.5 7.5 0 1 0 13.66 13.66Z"/></symbol>
   <symbol id="ic-menu" viewBox="0 0 24 24"><path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></symbol>
+  <symbol id="ic-cone" viewBox="0 0 24 24"><path d="M10 3.5h4l4.5 16h-13l4.5-16Z"/><path d="M3.5 19.5h17M8 13h8M9 8.5h6"/></symbol>
 </defs></svg>
 <div class="app">
   <aside class="rail">
     <div class="rail-head">
-      <div class="rail-logo"><span class="wm">{{ BRAND|upper }}</span><small>Real-time planning optimalisatie</small></div>
+      <div class="rail-logo">
+        <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="214" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="240" y="298" width="32" height="168" rx="16" fill="#cda35a"/></svg>
+        <span class="txt"><span class="wm">OfficeRoute</span><small>Real-time planning optimalisatie</small></span>
+      </div>
     </div>
     <nav class="rail-nav">
       {% macro nicon(key) %}<svg class="i" aria-hidden="true"><use href="#ic-{{ key }}"/></svg>{% endmacro %}

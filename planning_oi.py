@@ -345,12 +345,14 @@ ROLE_DEFAULTS = {
     "beheerder": ALL_PERMS,
     "manager": ["view_kpis", "view_planning", "view_reports", "view_performance",
                 "view_signatures", "view_speed", "view_orders", "view_invoices",
-                "view_personnel", "export", "view_emails", "view_preassembly", "view_documents"],
+                "view_personnel", "export", "view_emails", "view_preassembly", "view_documents",
+                "view_connections"],
     "planner": ["view_planning", "edit_planning", "plan_orders", "assign_monteurs",
                 "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
-                "view_reports", "view_orders", "view_personnel", "view_preassembly", "view_documents"],
+                "view_reports", "view_orders", "view_personnel", "view_preassembly", "view_documents",
+                "view_connections"],
     "administratie": ["view_orders", "edit_clients", "view_emails", "view_invoices",
-                      "view_planning", "complete_deliveries", "view_documents"],
+                      "view_planning", "complete_deliveries", "view_documents", "view_connections"],
     "monteur": ["monteur_app"],
 }
 ROLE_LABELS = {"beheerder": "Beheerder", "manager": "Manager", "planner": "Planner",
@@ -790,37 +792,15 @@ def current_user():
     return u
 
 
-_CC_PUBLIC = [0.0, True]   # cache: (laatst gelezen, zichtbaar voor iedereen)
-
-
-def _cc_public():
-    """Mag iedereen het commandocentrum bekijken? (beheerder-schakelaar, gecachet)."""
-    now = time.time()
-    if now - _CC_PUBLIC[0] > 15:
-        try:
-            conn = db()
-            r = conn.execute("SELECT value FROM settings WHERE skey='cc_public'").fetchone()
-            conn.close()
-            _CC_PUBLIC[1] = (r["value"] if r else "1") != "0"
-        except Exception:
-            _CC_PUBLIC[1] = True
-        _CC_PUBLIC[0] = now
-    return _CC_PUBLIC[1]
-
-
 def user_perms(u):
     if not u:
         return set()
     if u["role"] == "beheerder":
         return set(ALL_PERMS)
     try:
-        perms = set(json.loads(u["permissions"] or "[]"))
+        return set(json.loads(u["permissions"] or "[]"))
     except Exception:
-        perms = set()
-    # Commandocentrum is voor iedereen te bekijken zolang de beheerder dat aan laat staan.
-    if _cc_public():
-        perms.add("view_connections")
-    return perms
+        return set()
 
 
 def has_perm(perm):
@@ -961,7 +941,6 @@ NAV = [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
         {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
-    {"label": "Koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
@@ -973,9 +952,10 @@ NAV = [
         {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "sun", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
+        {"label": "Koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
+        {"label": "Koppelingen instellen", "endpoint": "planning.integrations", "icon": "gear", "perm": "manage_integrations"},
         {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "icon": "gear", "perm": "manage_settings"},
         {"label": "E-mailteksten", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
-        {"label": "Koppelingen", "endpoint": "planning.integrations", "icon": "link", "perm": "manage_integrations"},
         {"label": "Gebruikers", "endpoint": "planning.users", "icon": "users", "perm": "manage_users"}]},
 ]
 
@@ -2710,8 +2690,7 @@ def koppelingen():
         return guard
     return render_template("planning/koppelingen.html",
                            health=_connection_health(deep=False),
-                           can_act=has_perm("manage_integrations"),
-                           cc_public=_cc_public())
+                           can_act=has_perm("manage_integrations"))
 
 
 @bp.route("/koppelingen/check")
@@ -2719,21 +2698,6 @@ def koppelingen_check():
     if not has_perm("manage_integrations"):
         abort(403)
     return jsonify(_connection_health(deep=True))
-
-
-@bp.route("/koppelingen/zichtbaarheid", methods=["POST"])
-def koppelingen_zichtbaarheid():
-    if not has_perm("manage_integrations"):
-        abort(403)
-    val = "1" if request.form.get("public") == "1" else "0"
-    conn = db()
-    conn.execute("INSERT INTO settings(skey,value) VALUES('cc_public',?) "
-                 "ON CONFLICT(skey) DO UPDATE SET value=excluded.value", (val,))
-    conn.commit()
-    conn.close()
-    _CC_PUBLIC[0] = 0.0  # cache direct verversen
-    flash("Zichtbaarheid van het commandocentrum bijgewerkt.")
-    return redirect(url_for("planning.koppelingen"))
 
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).
