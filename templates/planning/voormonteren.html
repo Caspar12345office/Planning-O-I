@@ -1,66 +1,26 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Voormonteren · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Voormonteren</h1><p>Overzicht van stoelen die voorgemonteerd moeten worden voor de geplande leveringen</p>{% endblock %}
+{% block pagehead %}<h1>Voormonteren</h1><p>Wat er per leverdag klaargezet/voorgemonteerd moet worden</p>{% endblock %}
 {% block page_css %}
   .vnote{background:var(--soft);border-radius:12px;padding:12px 15px;font-size:13.5px;color:var(--ink);margin-bottom:18px}
-  .vcfg{margin-bottom:20px}
-  .vcfg summary{cursor:pointer;font-size:13.5px;color:var(--muted);font-weight:600;list-style:none}
-  .vcfg summary::-webkit-details-marker{display:none}
-  .vcfg summary::before{content:'⚙ ';}
-  .vcfg .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-top:10px}
-  .vcfg .hint{font-size:12.5px;color:var(--muted);margin:0 0 14px}
-  .plist{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px 18px;max-height:340px;overflow:auto;padding:4px 2px;margin-bottom:14px}
-  .pchk{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;padding:5px 6px;border-radius:9px}
-  .pchk:hover{background:var(--soft)}
-  .pchk input{width:18px;height:18px;flex-shrink:0;accent-color:var(--accent);cursor:pointer}
-  .pchk.on{font-weight:700;color:var(--accent)}
-  .ptools{display:flex;gap:14px;align-items:center;margin-bottom:10px;font-size:13px}
-  .ptools a{color:var(--accent);cursor:pointer;font-weight:600}
-  .vday{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0;margin-bottom:16px;box-shadow:var(--shadow-sm);overflow:hidden}
+  .vday{background:var(--panel);border:1px solid var(--line);border-radius:16px;margin-bottom:16px;box-shadow:var(--shadow-sm);overflow:hidden}
   .vhead{display:flex;align-items:center;gap:12px;background:var(--accent);color:#fff;padding:13px 18px}
   .vhead .vdate{font-weight:700;font-size:16px;text-transform:capitalize}
-  .vhead .vshort{font-size:13px;color:#cfe1da}
   .vhead .vtot{margin-left:auto;background:rgba(255,255,255,.16);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:700}
-  .vitem{display:flex;align-items:baseline;gap:12px;padding:13px 18px;border-top:1px solid var(--line)}
+  .vcat{border-top:1px solid var(--line)}
+  .vcat .ch{display:flex;align-items:center;gap:9px;padding:10px 18px;background:var(--soft);font-weight:700;font-size:13.5px;color:var(--accent)}
+  .vcat .ch .cnt{margin-left:auto;color:var(--muted);font-weight:600;font-size:12.5px}
+  .vitem{display:flex;align-items:baseline;gap:12px;padding:10px 18px 10px 30px;border-top:1px solid var(--line)}
   .vitem:first-child{border-top:0}
-  .vqty{font-weight:800;font-size:18px;color:var(--gold);min-width:42px}
-  .vname{font-weight:700;font-size:15.5px;color:var(--ink)}
-  .vorders{margin-left:auto;font-size:12.5px;color:var(--muted);text-align:right;max-width:50%}
+  .vqty{font-weight:800;font-size:17px;color:var(--gold);min-width:42px}
+  .vname{font-weight:600;font-size:15px;color:var(--ink)}
   .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:40px;text-align:center;color:var(--muted)}
 {% endblock %}
 {% block content %}
-<div class="vnote">🪑 Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Hieronder per leverdag wat er klaargezet moet worden.</div>
-
-{% if can_edit %}
-<details class="vcfg" {{ 'open' if n_selected == 0 }}>
-  <summary>Welke producten moeten voorgemonteerd worden? ({{ n_selected }} aangevinkt)</summary>
-  <div class="box">
-    <form method="post" action="{{ url_for('planning.voormonteren_producten') }}">
-      <div class="hint">Vink de modellen aan die in het magazijn voorgemonteerd moeten worden. Alleen aangevinkte producten verschijnen in het overzicht hieronder. Stoelen die al voorgemonteerd binnenkomen, laat je gewoon uit.</div>
-      {% if products %}
-      <div class="ptools"><a onclick="vmAll(true)">Alles aanvinken</a><a onclick="vmAll(false)">Alles uitvinken</a></div>
-      <div class="plist">
-        {% for p in products %}
-        <label class="pchk {{ 'on' if p.checked }}">
-          <input type="checkbox" name="product" value="{{ p.name }}" {{ 'checked' if p.checked }} onchange="this.closest('.pchk').classList.toggle('on',this.checked)">
-          <span>{{ p.name }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <button class="btn primary sm" type="submit">Selectie opslaan</button>
-      {% else %}
-      <div class="hint">Er zijn nog geen producten bekend. Zodra er orders met producten binnenkomen, verschijnen ze hier om aan te vinken.</div>
-      {% endif %}
-    </form>
-  </div>
-</details>
-<script>
-function vmAll(on){document.querySelectorAll('.plist input[type=checkbox]').forEach(function(c){c.checked=on;c.closest('.pchk').classList.toggle('on',on);});}
-</script>
-{% endif %}
+<div class="vnote">🪑 Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Per leverdag verdeeld in <b>bureaustoelen</b>, <b>bureaus</b> en <b>overige</b>.</div>
 
 {% if not days %}
-  <div class="empty">🪑 Geen voor te monteren producten in de geplande leveringen.<br><span style="font-size:13px">{% if n_selected == 0 %}Vink eerst hierboven aan welke producten voorgemonteerd moeten worden.{% else %}Zodra er orders met deze producten ingepland staan, verschijnen ze hier per dag.{% endif %}</span></div>
+  <div class="empty">🪑 Geen ingeplande leveringen.<br><span style="font-size:13px">Zodra er orders ingepland staan, verschijnt hier per dag wat er klaargezet moet worden.</span></div>
 {% endif %}
 
 {% for d in days %}
@@ -69,11 +29,12 @@ function vmAll(on){document.querySelectorAll('.plist input[type=checkbox]').forE
     <span class="vdate">{{ d.label }}</span>
     <span class="vtot">{{ d.total }} stuk{{ '' if d.total == 1 else 's' }}</span>
   </div>
-  {% for it in d.lines %}
-  <div class="vitem">
-    <span class="vqty">{{ it.qty }}×</span>
-    <span class="vname">{{ it.name }}</span>
-    <span class="vorders">{% for o in it.orders %}#{{ o.onum }}{% if o.client %} · {{ o.client }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</span>
+  {% for cat in d.cats %}
+  <div class="vcat">
+    <div class="ch">{{ cat.name }}<span class="cnt">{{ cat.total }} stuk{{ '' if cat.total == 1 else 's' }}</span></div>
+    {% for it in cat.lines %}
+    <div class="vitem"><span class="vqty">{{ it.qty }}×</span><span class="vname">{{ it.name }}</span></div>
+    {% endfor %}
   </div>
   {% endfor %}
 </div>

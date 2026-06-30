@@ -1,90 +1,45 @@
 {% extends 'planning/plan_base.html' %}
-{% block title %}Picklijst · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Picklijst magazijn</h1><p>Orders per dag — af te vinken en uit te printen voor het magazijn</p>{% endblock %}
+{% block title %}Picklijsten · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Picklijsten magazijn</h1><p>Draai in één keer alle picklijsten van een leverdag uit</p>{% endblock %}
 {% block page_css %}
-  .pkbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
-  .pkbar .nav{display:flex;align-items:center;gap:8px}
-  .pkbar .day{font-weight:700;font-size:17px;color:var(--accent);text-transform:capitalize;min-width:200px;text-align:center}
-  .pkbar .dateform{display:flex;gap:8px;align-items:center}
-  .pkbar .dateform input{width:auto}
-  .pkbar .spacer{flex:1}
-  .pkprog{font-size:13.5px;color:var(--muted);font-weight:600}
-  .pksheet{display:none;font-size:13px;color:var(--muted);margin-bottom:14px}
-  .ord{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:0;margin-bottom:16px;box-shadow:var(--shadow-sm);overflow:hidden}
-  .ord.done{opacity:.72}
-  .ord .ohead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 18px;background:var(--soft);border-bottom:1px solid var(--line)}
-  .ord .seq{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .ord .onum{font-weight:700;font-size:16px;color:var(--accent)}
-  .ord .cust{font-size:14px}
-  .ord .meta{margin-left:auto;font-size:12.5px;color:var(--muted);text-align:right}
-  .svc{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;border-radius:6px;padding:2px 8px}
-  .svc.montage{background:#fbf3e6;color:var(--gold)}
-  .svc.levering{background:#e4edff;color:#2f5fd0}
-  .pkrow{display:flex;align-items:center;gap:14px;padding:11px 18px;border-top:1px solid var(--line)}
-  .pkrow:first-child{border-top:0}
-  .pkrow input{width:22px;height:22px;flex-shrink:0;accent-color:var(--green);cursor:pointer}
-  .pkrow .q{font-weight:800;font-size:16px;color:var(--gold);min-width:38px}
-  .pkrow .nm{font-size:15px}
-  .pkrow.done .nm{text-decoration:line-through;color:var(--muted)}
-  .oinstr{padding:9px 18px;font-size:12.5px;color:var(--muted);background:#fffaf0;border-top:1px solid var(--line)}
-  .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:40px;text-align:center;color:var(--muted)}
-  .savebar{position:sticky;bottom:16px;display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
-  @media print{
-    .rail,.topbar,.pkbar .nav,.pkbar .dateform,.pkbar .spacer,.savebar,.menu-btn,.onlinebar,.live{display:none!important}
-    .app{display:block}.content{padding:0;max-width:none}
-    .pksheet{display:block}
-    .ord{box-shadow:none;border:1px solid #bbb;break-inside:avoid;margin-bottom:10px}
-    .ord .ohead{background:#eee}
-    .pkrow input{-webkit-appearance:none;appearance:none;width:16px;height:16px;border:1.5px solid #333;border-radius:3px}
-    body{background:#fff}
-  }
+  .pkcard{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:26px;box-shadow:var(--shadow-sm);max-width:620px}
+  .pkcard h2{font-size:18px;color:var(--accent);margin-bottom:6px}
+  .pkcard p.sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+  .pkrow{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+  .pkrow .fld{flex:1;min-width:200px}
+  .pkrow label{font-size:13px}
+  .pkmeta{margin-top:18px;font-size:14px;color:var(--ink)}
+  .pkmeta b{color:var(--accent)}
+  .pkbtn{margin-top:22px}
+  .pkbtn .btn{font-size:15px;padding:14px 22px}
+  .pkbtn .btn[disabled]{opacity:.5;cursor:not-allowed}
+  .hint{margin-top:14px;font-size:12.5px;color:var(--muted)}
 {% endblock %}
 {% block content %}
-<div class="pkbar">
-  <div class="nav">
-    <a class="btn ghost sm" href="{{ url_for('planning.picklijst', date=prev_date) }}">‹ Vorige</a>
-    <span class="day">{{ date_label }}</span>
-    <a class="btn ghost sm" href="{{ url_for('planning.picklijst', date=next_date) }}">Volgende ›</a>
-  </div>
-  <form class="dateform" method="get" action="{{ url_for('planning.picklijst') }}">
-    <input type="date" name="date" value="{{ date }}" onchange="this.form.submit()">
-    {% if date != today %}<a class="btn ghost sm" href="{{ url_for('planning.picklijst') }}">Vandaag</a>{% endif %}
-  </form>
-  <div class="spacer"></div>
-  <span class="pkprog">{{ n_picked }}/{{ n_lines }} regels gepickt</span>
-  <button class="btn ghost sm" type="button" onclick="window.print()">🖨 Printen</button>
-</div>
-
-<div class="pksheet">Picklijst {{ date_label }} · Office-Interior magazijn</div>
-
-{% if not orders %}
-  <div class="empty">📦 Geen ingeplande orders op deze dag.<br><span style="font-size:13px">Kies een andere datum of plan eerst orders in.</span></div>
-{% else %}
-<form method="post" action="{{ url_for('planning.picklijst_opslaan') }}">
-  <input type="hidden" name="date" value="{{ date }}">
-  {% for o in orders %}
-  <div class="ord {{ 'done' if o.all_picked }}">
-    <div class="ohead">
-      {% if o.seq %}<span class="seq">{{ o.seq }}</span>{% endif %}
-      <span class="onum">#{{ o.onum }}</span>
-      <span class="cust">{{ o.client }}{% if o.city %} · {{ o.city }}{% endif %}</span>
-      {% if o.service %}<span class="svc {{ o.service }}">{{ o.service }}</span>{% endif %}
-      <span class="meta">{% if o.slot_start %}{{ o.slot_start }}–{{ o.slot_end }}<br>{% endif %}{% if o.monteur %}{{ o.monteur }}{% endif %}{% if o.bus %} · {{ o.bus }}{% endif %}</span>
+<div class="pkcard">
+  <h2>Download picklijsten voor de levering van:</h2>
+  <p class="sub">Kies een dag. Je krijgt één picklijst per order — met leveradres, monteur/bus en alle artikelen — klaar om uit te draaien voor het magazijn.</p>
+  <form id="pkform" method="get" action="{{ url_for('planning.picklijst') }}">
+    <div class="pkrow">
+      <div class="fld">
+        <label for="d">Leverdag</label>
+        <input type="date" id="d" name="date" value="{{ date }}" onchange="this.form.submit()">
+      </div>
     </div>
-    {% for it in o.lines %}
-    <label class="pkrow {{ 'done' if it.picked }}">
-      <input type="checkbox" name="picked" value="{{ it.id }}" {{ 'checked' if it.picked }} onchange="this.closest('.pkrow').classList.toggle('done',this.checked)">
-      <span class="q">{{ it.qty }}×</span>
-      <span class="nm">{{ it.name }}</span>
-    </label>
-    {% endfor %}
-    {% if not o.lines %}<div class="pkrow"><span class="nm muted">Geen orderregels</span></div>{% endif %}
-    {% if o.instructions %}<div class="oinstr">📝 {{ o.instructions }}</div>{% endif %}
+  </form>
+  <div class="pkmeta">
+    {% if orders %}
+      📦 <b>{{ orders|length }}</b> order{{ '' if orders|length == 1 else 's' }} ingepland op <b style="text-transform:capitalize">{{ date_label }}</b>.
+    {% else %}
+      📭 Geen ingeplande orders op <b style="text-transform:capitalize">{{ date_label }}</b>.
+    {% endif %}
   </div>
-  {% endfor %}
-  <div class="savebar">
-    <button class="btn primary" type="submit">Picklijst opslaan</button>
+  <div class="pkbtn">
+    <a class="btn primary {{ '' if orders else 'disabled' }}"
+       {% if orders %}href="{{ url_for('planning.picklijst_print', date=date) }}" target="_blank"{% else %}disabled onclick="return false"{% endif %}>
+       📥 Picklijsten uitdraaien{% if orders %} ({{ orders|length }}){% endif %}
+    </a>
   </div>
-</form>
-{% endif %}
+  <div class="hint">De picklijsten openen in een nieuw tabblad en het printvenster verschijnt vanzelf. Kies daar je printer, of “Opslaan als PDF” om te downloaden.</div>
+</div>
 {% endblock %}

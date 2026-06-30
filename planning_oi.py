@@ -133,6 +133,7 @@ def _xlate(sql):
     is_ignore = "INSERT OR IGNORE" in sql.upper()
     s = _re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', sql, flags=_re.I)
     s = s.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    s = s.replace(" BLOB", " BYTEA")
     s = s.replace("qty || 'x ' || name", "qty::text || 'x ' || name")
     s = _re.sub(r'GROUP_CONCAT\s*\(', 'string_agg(', s, flags=_re.I)  # SQLite -> PostgreSQL
     s = _sub_placeholders(s)
@@ -276,6 +277,7 @@ PERMISSIONS = [
     ("view_invoices",      "Factuurinformatie",          "Financieel"),
     ("complete_deliveries","Leveringen afronden",        "Orders"),
     ("view_preassembly",   "Voormontage (magazijn)",     "Magazijn"),
+    ("view_documents",     "Documenten",                 "Documenten"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
@@ -297,12 +299,12 @@ ROLE_DEFAULTS = {
     "beheerder": ALL_PERMS,
     "manager": ["view_kpis", "view_planning", "view_reports", "view_performance",
                 "view_signatures", "view_speed", "view_orders", "view_invoices",
-                "view_personnel", "export", "view_emails", "view_preassembly"],
+                "view_personnel", "export", "view_emails", "view_preassembly", "view_documents"],
     "planner": ["view_planning", "edit_planning", "plan_orders", "assign_monteurs",
                 "edit_routes", "optimize_routes", "inform_clients", "manage_freedays",
-                "view_reports", "view_orders", "view_personnel", "view_preassembly"],
+                "view_reports", "view_orders", "view_personnel", "view_preassembly", "view_documents"],
     "administratie": ["view_orders", "edit_clients", "view_emails", "view_invoices",
-                      "view_planning", "complete_deliveries"],
+                      "view_planning", "complete_deliveries", "view_documents"],
     "monteur": ["monteur_app"],
 }
 ROLE_LABELS = {"beheerder": "Beheerder", "manager": "Manager", "planner": "Planner",
@@ -473,6 +475,10 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         from_user_id INTEGER, to_user_id INTEGER, order_id INTEGER,
         text TEXT, ts TEXT, resolved INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS documents(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT, description TEXT, filename TEXT, mimetype TEXT, size INTEGER,
+        data BLOB, uploaded_by TEXT, uploaded_at TEXT);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -871,6 +877,7 @@ NAV = [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "perm": "view_preassembly"},
         {"label": "Picklijst", "endpoint": "planning.picklijst", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
+    {"label": "Documenten", "endpoint": "planning.documenten", "icon": "📄", "perm": "view_documents"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
     {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
@@ -2244,16 +2251,17 @@ def bus_issue_resolve(iid):
 # --------------------------------------------------------------------------- #
 #  Magazijn: Voormonteren + Picklijst
 # --------------------------------------------------------------------------- #
-# Het magazijn vinkt zelf aan welke producten (stoelmodellen) voorgemonteerd
-# moeten worden. De selectie is een lijst met exacte productnamen.
-def _voormontage_products(conn):
-    row = conn.execute("SELECT value FROM settings WHERE skey='voormontage_products'").fetchone()
-    if not row or not row["value"]:
-        return set()
-    try:
-        return set(json.loads(row["value"]))
-    except Exception:
-        return set()
+VOORMONTAGE_CATS = ["Bureaustoelen", "Bureaus", "Overige"]
+
+
+def _voormontage_cat(name):
+    """Deel een productnaam in: Bureaustoelen, Bureaus of Overige."""
+    n = (name or "").lower()
+    if "stoel" in n:
+        return "Bureaustoelen"
+    if "bureau" in n:
+        return "Bureaus"
+    return "Overige"
 
 
 @bp.route("/voormonteren")
@@ -2262,18 +2270,12 @@ def voormonteren():
     if guard:
         return guard
     conn = db()
-    selected = _voormontage_products(conn)
-    # Alle producten die ooit in orders voorkwamen = de aan te vinken catalogus.
-    catalog = [r["name"] for r in conn.execute(
-        "SELECT DISTINCT name FROM order_items WHERE name IS NOT NULL AND name<>'' ORDER BY name").fetchall()]
     today = _today_iso()
     rows = conn.execute("""
-        SELECT p.date AS date, oi.name AS name, oi.qty AS qty,
-               o.order_number AS onum, o.city AS city, c.name AS client
+        SELECT p.date AS date, oi.name AS name, oi.qty AS qty
         FROM planning p
         JOIN orders o ON o.id = p.order_id
         JOIN order_items oi ON oi.order_id = o.id
-        LEFT JOIN clients c ON c.id = o.client_id
         WHERE p.date >= ? AND p.status != 'afgerond'
         ORDER BY p.date, oi.name
     """, (today,)).fetchall()
@@ -2282,49 +2284,30 @@ def voormonteren():
     days = {}
     for r in rows:
         nm = r["name"] or ""
-        if nm not in selected:
-            continue
         qty = int(r["qty"] or 1)
         d = r["date"]
-        day = days.setdefault(d, {"date": d, "label": _nl_date(d), "total": 0, "lines": {}})
-        it = day["lines"].setdefault(nm, {"name": nm, "qty": 0, "orders": []})
-        it["qty"] += qty
+        day = days.setdefault(d, {"date": d, "label": _nl_date(d), "total": 0,
+                                  "cats": {c: {} for c in VOORMONTAGE_CATS}})
+        cat = _voormontage_cat(nm)
+        day["cats"][cat][nm] = day["cats"][cat].get(nm, 0) + qty
         day["total"] += qty
-        it["orders"].append({"onum": r["onum"], "client": r["client"], "city": r["city"], "qty": qty})
 
-    day_list = [{"date": d["date"], "label": d["label"], "total": d["total"],
-                 "lines": list(d["lines"].values())} for d in days.values()]
-    products = [{"name": nm, "checked": nm in selected} for nm in catalog]
-    return render_template("planning/voormonteren.html", days=day_list, products=products,
-                           n_selected=len(selected), today=today,
-                           can_edit=has_perm("view_preassembly"))
-
-
-@bp.route("/voormonteren/producten", methods=["POST"])
-def voormonteren_producten():
-    if not has_perm("view_preassembly"):
-        abort(403)
-    chosen = request.form.getlist("product")
-    conn = db()
-    conn.execute("INSERT INTO settings(skey,value) VALUES('voormontage_products',?) "
-                 "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
-                 (json.dumps(chosen),))
-    conn.commit()
-    conn.close()
-    flash("Selectie voor te monteren producten opgeslagen.")
-    return redirect(url_for("planning.voormonteren"))
+    day_list = []
+    for d in days.values():
+        cats = []
+        for c in VOORMONTAGE_CATS:
+            lines = [{"name": k, "qty": v} for k, v in d["cats"][c].items()]
+            if lines:
+                cats.append({"name": c, "total": sum(l["qty"] for l in lines), "lines": lines})
+        day_list.append({"date": d["date"], "label": d["label"], "total": d["total"], "cats": cats})
+    return render_template("planning/voormonteren.html", days=day_list, today=today)
 
 
-@bp.route("/picklijst")
-def picklijst():
-    guard = login_required("view_preassembly")
-    if guard:
-        return guard
-    date = request.args.get("date") or _today_iso()
-    conn = db()
+def _picklist_orders(conn, date):
+    """Alle ingeplande (niet-afgeronde) orders van een dag, met hun orderregels."""
     orders = conn.execute("""
         SELECT o.id AS oid, o.order_number AS onum, o.delivery_address AS addr, o.city AS city,
-               o.service_type AS service, o.instructions AS instructions, o.notes AS notes,
+               o.service_type AS service, o.instructions AS instructions, o.phone AS phone,
                c.name AS client, p.slot_start AS slot_start, p.slot_end AS slot_end,
                p.sequence AS seq, m.name AS monteur, b.name AS bus
         FROM planning p
@@ -2335,41 +2318,123 @@ def picklijst():
         WHERE p.date = ? AND p.status != 'afgerond'
         ORDER BY p.sequence, o.order_number
     """, (date,)).fetchall()
-    order_list = []
-    n_lines = n_picked = 0
+    out = []
     for o in orders:
-        items = conn.execute("SELECT id, name, qty, COALESCE(picked,0) AS picked FROM order_items WHERE order_id=? ORDER BY id",
+        items = conn.execute("SELECT name, qty FROM order_items WHERE order_id=? ORDER BY id",
                              (o["oid"],)).fetchall()
-        items = [dict(it) for it in items]
-        n_lines += len(items)
-        n_picked += sum(1 for it in items if it["picked"])
-        order_list.append({**dict(o), "lines": items,
-                           "all_picked": bool(items) and all(it["picked"] for it in items)})
-    conn.close()
-    return render_template("planning/picklijst.html", orders=order_list, date=date,
-                           date_label=_nl_date(date), today=_today_iso(),
-                           prev_date=_shift_iso(date, -1), next_date=_shift_iso(date, 1),
-                           n_lines=n_lines, n_picked=n_picked)
+        out.append({**dict(o), "lines": [dict(it) for it in items]})
+    return out
 
 
-@bp.route("/picklijst/opslaan", methods=["POST"])
-def picklijst_opslaan():
-    if not has_perm("view_preassembly"):
-        abort(403)
-    date = request.form.get("date") or _today_iso()
-    checked = set(int(x) for x in request.form.getlist("picked") if str(x).isdigit())
+@bp.route("/picklijst")
+def picklijst():
+    guard = login_required("view_preassembly")
+    if guard:
+        return guard
+    date = request.args.get("date") or _today_iso()
     conn = db()
-    # Alleen de regels van déze dag bijwerken (zodat andere dagen ongemoeid blijven).
-    ids = [r["id"] for r in conn.execute("""
-        SELECT oi.id FROM order_items oi
-        JOIN planning p ON p.order_id = oi.order_id
-        WHERE p.date = ?""", (date,)).fetchall()]
-    for iid in ids:
-        conn.execute("UPDATE order_items SET picked=? WHERE id=?", (1 if iid in checked else 0, iid))
+    orders = _picklist_orders(conn, date)
+    conn.close()
+    return render_template("planning/picklijst.html", orders=orders, date=date,
+                           date_label=_nl_date(date), today=_today_iso())
+
+
+@bp.route("/picklijst/print")
+def picklijst_print():
+    guard = login_required("view_preassembly")
+    if guard:
+        return guard
+    date = request.args.get("date") or _today_iso()
+    conn = db()
+    orders = _picklist_orders(conn, date)
+    conn.close()
+    return render_template("planning/picklijst_print.html", orders=orders, date=date,
+                           date_label=_nl_date(date), HOME_BASE=HOME_BASE)
+
+
+# --------------------------------------------------------------------------- #
+#  Documenten: informatieformulieren e.d. (opgeslagen in de database)
+# --------------------------------------------------------------------------- #
+MAX_DOC_BYTES = 15 * 1024 * 1024  # 15 MB per bestand
+
+
+def _human_size(n):
+    n = n or 0
+    for unit in ("B", "KB", "MB"):
+        if n < 1024 or unit == "MB":
+            return ("%d %s" % (n, unit)) if unit == "B" else ("%.1f %s" % (n, unit))
+        n /= 1024.0
+
+
+@bp.route("/documenten")
+def documenten():
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    conn = db()
+    rows = conn.execute("""SELECT id, title, description, filename, mimetype, size, uploaded_by, uploaded_at
+                           FROM documents ORDER BY id DESC""").fetchall()
+    conn.close()
+    docs = [{**dict(r), "size_h": _human_size(r["size"])} for r in rows]
+    return render_template("planning/documenten.html", docs=docs)
+
+
+@bp.route("/documenten/upload", methods=["POST"])
+def documenten_upload():
+    if not has_perm("view_documents"):
+        abort(403)
+    f = request.files.get("file")
+    title = (request.form.get("title") or "").strip()
+    desc = (request.form.get("description") or "").strip()
+    if not f or not f.filename:
+        flash("Kies een bestand om te uploaden.")
+        return redirect(url_for("planning.documenten"))
+    data = f.read()
+    if len(data) > MAX_DOC_BYTES:
+        flash("Bestand is te groot (max 15 MB).")
+        return redirect(url_for("planning.documenten"))
+    fname = secure_filename(f.filename) or "document"
+    if not title:
+        title = fname
+    u = current_user()
+    conn = db()
+    conn.execute("""INSERT INTO documents(title,description,filename,mimetype,size,data,uploaded_by,uploaded_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                 (title, desc, fname, (f.mimetype or "application/octet-stream"), len(data),
+                  data, (u["name"] if u else ""), datetime.now().isoformat(timespec="minutes")))
     conn.commit()
     conn.close()
-    flash("Picklijst bijgewerkt.")
-    return redirect(url_for("planning.picklijst", date=date))
+    flash("Document geüpload.")
+    return redirect(url_for("planning.documenten"))
+
+
+@bp.route("/documenten/<int:did>")
+def documenten_download(did):
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    conn = db()
+    row = conn.execute("SELECT filename, mimetype, data FROM documents WHERE id=?", (did,)).fetchone()
+    conn.close()
+    if not row or row["data"] is None:
+        abort(404)
+    data = bytes(row["data"])
+    disp = "inline" if request.args.get("inline") else "attachment"
+    fname = (row["filename"] or "document").replace('"', "")
+    return Response(data, mimetype=(row["mimetype"] or "application/octet-stream"),
+                    headers={"Content-Disposition": '%s; filename="%s"' % (disp, fname)})
+
+
+@bp.route("/documenten/<int:did>/verwijderen", methods=["POST"])
+def documenten_delete(did):
+    if not has_perm("view_documents"):
+        abort(403)
+    conn = db()
+    conn.execute("DELETE FROM documents WHERE id=?", (did,))
+    conn.commit()
+    conn.close()
+    flash("Document verwijderd.")
+    return redirect(url_for("planning.documenten"))
 
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).

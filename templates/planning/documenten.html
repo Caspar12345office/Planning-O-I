@@ -1,0 +1,63 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Documenten · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Documenten</h1><p>Informatieformulieren en documenten om naar klanten te sturen</p>{% endblock %}
+{% block page_css %}
+  .dwrap{display:grid;grid-template-columns:340px 1fr;gap:20px;align-items:start}
+  @media(max-width:900px){.dwrap{grid-template-columns:1fr}}
+  .upcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow-sm)}
+  .upcard h3{font-size:15px;color:var(--accent);margin-bottom:14px}
+  .doc{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow-sm)}
+  .doc .ic{width:42px;height:42px;border-radius:10px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+  .doc .meta{min-width:0;flex:1}
+  .doc .nm{font-weight:700;font-size:15px;color:var(--ink)}
+  .doc .ds{font-size:13px;color:var(--muted);margin-top:1px}
+  .doc .sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .doc .act{display:flex;gap:8px;flex-shrink:0}
+  .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px;text-align:center;color:var(--muted)}
+  .fileinp{padding:9px;font-size:13px}
+{% endblock %}
+{% block content %}
+<div class="dwrap">
+  <div class="upcard">
+    <h3>📤 Nieuw document</h3>
+    <form method="post" action="{{ url_for('planning.documenten_upload') }}" enctype="multipart/form-data">
+      <div class="field">
+        <label for="title">Titel</label>
+        <input id="title" name="title" placeholder="Bijv. Leverlocatie-inventarisatie">
+      </div>
+      <div class="field">
+        <label for="description">Omschrijving (optioneel)</label>
+        <textarea id="description" name="description" rows="2" placeholder="Waar is dit formulier voor?"></textarea>
+      </div>
+      <div class="field">
+        <label for="file">Bestand</label>
+        <input class="fileinp" id="file" type="file" name="file" required>
+      </div>
+      <button class="btn primary" type="submit" style="width:100%">Uploaden</button>
+      <p class="muted" style="font-size:11.5px;margin:10px 0 0">PDF, Word, Excel, afbeelding… · max 15 MB per bestand.</p>
+    </form>
+  </div>
+
+  <div>
+    {% if not docs %}
+      <div class="empty">📄 Nog geen documenten.<br><span style="font-size:13px">Upload links bijvoorbeeld het formulier waarmee je de leverlocatie bij de klant uitvraagt (lift aanwezig? verdieping? enz.).</span></div>
+    {% endif %}
+    {% for d in docs %}
+    <div class="doc">
+      <div class="ic">📄</div>
+      <div class="meta">
+        <div class="nm">{{ d.title }}</div>
+        {% if d.description %}<div class="ds">{{ d.description }}</div>{% endif %}
+        <div class="sub">{{ d.filename }} · {{ d.size_h }}{% if d.uploaded_by %} · {{ d.uploaded_by }}{% endif %}{% if d.uploaded_at %} · {{ d.uploaded_at }}{% endif %}</div>
+      </div>
+      <div class="act">
+        <a class="btn ghost sm" href="{{ url_for('planning.documenten_download', did=d.id) }}">⬇ Download</a>
+        <form method="post" action="{{ url_for('planning.documenten_delete', did=d.id) }}" onsubmit="return confirm('Dit document verwijderen?')">
+          <button class="btn ghost sm" type="submit" title="Verwijderen">🗑</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
