@@ -496,6 +496,22 @@ def init_db():
             conn.execute(stmt)
         except Exception:
             pass
+    # Indexen op veelgebruikte kolommen — houdt queries snel bij meerdere
+    # gelijktijdige gebruikers (planning per dag/monteur, orderregels, statussen).
+    for idx in ("CREATE INDEX IF NOT EXISTS idx_planning_date ON planning(date)",
+                "CREATE INDEX IF NOT EXISTS idx_planning_order ON planning(order_id)",
+                "CREATE INDEX IF NOT EXISTS idx_planning_monteur_date ON planning(monteur_id, date)",
+                "CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)",
+                "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
+                "CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id)",
+                "CREATE INDEX IF NOT EXISTS idx_orders_desired ON orders(desired_date)",
+                "CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_messages(ts)",
+                "CREATE INDEX IF NOT EXISTS idx_email_log_client ON email_log(client_id)",
+                "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)"):
+        try:
+            conn.execute(idx)
+        except Exception:
+            pass
     conn.commit()
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed(conn)
@@ -880,8 +896,8 @@ NAV = [
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "📄", "perm": "view_documents"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
-    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel"},
-    {"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "🔧", "perm": "view_personnel"},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel",
+     "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "perm": "view_personnel"}]},
     {"label": "Rapportages", "icon": "📊", "perm": None, "children": [
         {"label": "Monteursprestaties", "endpoint": "planning.performance", "perm": "view_performance"},
         {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"},
@@ -2251,14 +2267,16 @@ def bus_issue_resolve(iid):
 # --------------------------------------------------------------------------- #
 #  Magazijn: Voormonteren + Picklijst
 # --------------------------------------------------------------------------- #
-VOORMONTAGE_CATS = ["Bureaustoelen", "Bureaus", "Overige"]
+VOORMONTAGE_CATS = ["Bureaustoelen", "Bureaus", "Scheidingswanden", "Overige"]
 
 
 def _voormontage_cat(name):
-    """Deel een productnaam in: Bureaustoelen, Bureaus of Overige."""
+    """Deel een productnaam in: Bureaustoelen, Bureaus, Scheidingswanden of Overige."""
     n = (name or "").lower()
     if "stoel" in n:
         return "Bureaustoelen"
+    if "scheidingswand" in n or "akoest" in n or "paneel" in n or ("wand" in n and "kast" not in n):
+        return "Scheidingswanden"
     if "bureau" in n:
         return "Bureaus"
     return "Overige"
@@ -2269,6 +2287,9 @@ def voormonteren():
     guard = login_required("view_preassembly")
     if guard:
         return guard
+    sel = request.args.get("cat") or "alle"
+    if sel not in VOORMONTAGE_CATS:
+        sel = "alle"
     conn = db()
     today = _today_iso()
     rows = conn.execute("""
@@ -2286,29 +2307,37 @@ def voormonteren():
         nm = r["name"] or ""
         qty = int(r["qty"] or 1)
         d = r["date"]
-        day = days.setdefault(d, {"date": d, "label": _nl_date(d), "total": 0,
+        day = days.setdefault(d, {"date": d, "label": _nl_date(d),
                                   "cats": {c: {} for c in VOORMONTAGE_CATS}})
         cat = _voormontage_cat(nm)
         day["cats"][cat][nm] = day["cats"][cat].get(nm, 0) + qty
-        day["total"] += qty
 
     day_list = []
     for d in days.values():
         cats = []
+        day_total = 0
         for c in VOORMONTAGE_CATS:
+            if sel != "alle" and c != sel:
+                continue
             lines = [{"name": k, "qty": v} for k, v in d["cats"][c].items()]
             if lines:
-                cats.append({"name": c, "total": sum(l["qty"] for l in lines), "lines": lines})
-        day_list.append({"date": d["date"], "label": d["label"], "total": d["total"], "cats": cats})
-    return render_template("planning/voormonteren.html", days=day_list, today=today)
+                ct = sum(l["qty"] for l in lines)
+                day_total += ct
+                cats.append({"name": c, "total": ct, "lines": lines})
+        if cats:
+            day_list.append({"date": d["date"], "label": d["label"], "total": day_total, "cats": cats})
+    return render_template("planning/voormonteren.html", days=day_list, today=today,
+                           cats=VOORMONTAGE_CATS, sel=sel)
 
 
 def _picklist_orders(conn, date):
     """Alle ingeplande (niet-afgeronde) orders van een dag, met hun orderregels."""
     orders = conn.execute("""
         SELECT o.id AS oid, o.order_number AS onum, o.delivery_address AS addr, o.city AS city,
+               o.postal AS postal, o.invoice_address AS invoice_address,
                o.service_type AS service, o.instructions AS instructions, o.phone AS phone,
-               c.name AS client, p.slot_start AS slot_start, p.slot_end AS slot_end,
+               c.name AS client, c.invoice_address AS client_invoice,
+               p.slot_start AS slot_start, p.slot_end AS slot_end,
                p.sequence AS seq, m.name AS monteur, b.name AS bus
         FROM planning p
         JOIN orders o ON o.id = p.order_id
@@ -2397,11 +2426,12 @@ def documenten_upload():
     if not title:
         title = fname
     u = current_user()
+    uploader = (request.form.get("uploaded_by") or "").strip() or (u["name"] if u else "")
     conn = db()
     conn.execute("""INSERT INTO documents(title,description,filename,mimetype,size,data,uploaded_by,uploaded_at)
                     VALUES(?,?,?,?,?,?,?,?)""",
                  (title, desc, fname, (f.mimetype or "application/octet-stream"), len(data),
-                  data, (u["name"] if u else ""), datetime.now().isoformat(timespec="minutes")))
+                  data, uploader, datetime.now().isoformat(timespec="minutes")))
     conn.commit()
     conn.close()
     flash("Document geüpload.")

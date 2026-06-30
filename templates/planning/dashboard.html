@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Dashboard · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Dashboard</h1><p>Goedemorgen{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht</p>{% endblock %}
+{% block pagehead %}<h1>Dashboard</h1><p>Hallo{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht</p>{% endblock %}
 
 {% block page_css %}
   .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}

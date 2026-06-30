@@ -140,7 +140,7 @@
           {% if p_has_perm(item.perm) %}
           <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}"><span class="i">{{ item.icon }}</span>{{ item.label }}</a>
           {% for s in item.subs %}{% if p_has_perm(s.perm) %}
-          <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ s.label }}</a>
+          <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ s.label }}{% if s.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
           {% endif %}{% endfor %}
           {% endif %}
         {% elif p_has_perm(item.perm) %}

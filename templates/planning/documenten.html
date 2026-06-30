@@ -30,6 +30,10 @@
         <textarea id="description" name="description" rows="2" placeholder="Waar is dit formulier voor?"></textarea>
       </div>
       <div class="field">
+        <label for="uploaded_by">Geüpload door</label>
+        <input id="uploaded_by" name="uploaded_by" value="{{ p_user.name if p_user else '' }}" placeholder="Naam">
+      </div>
+      <div class="field">
         <label for="file">Bestand</label>
         <input class="fileinp" id="file" type="file" name="file" required>
       </div>

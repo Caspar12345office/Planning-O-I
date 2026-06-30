@@ -2,46 +2,49 @@
 <html lang="nl">
 <head>
 <meta charset="utf-8">
-<title>Picklijsten {{ date }}</title>
+<title>Pakbonnen {{ date }}</title>
 <style>
   *{box-sizing:border-box}
-  body{margin:0;font-family:Arial,Helvetica,sans-serif;color:#16302d;background:#f0f2ee}
-  .sheet{background:#fff;max-width:760px;margin:16px auto;padding:28px 32px;border:1px solid #ddd}
-  .hdr{display:flex;align-items:flex-start;border-bottom:3px solid #0f3d3e;padding-bottom:12px;margin-bottom:16px}
-  .hdr .brand{font-weight:800;letter-spacing:.12em;font-size:15px;color:#0f3d3e;text-transform:uppercase}
-  .hdr .brand small{display:block;font-weight:600;letter-spacing:.02em;font-size:11px;color:#777;text-transform:none;margin-top:2px}
-  .hdr .meta{margin-left:auto;text-align:right;font-size:12.5px;color:#555}
-  .hdr .meta .big{font-size:20px;font-weight:800;color:#0f3d3e}
-  .info{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin-bottom:16px;font-size:13.5px}
-  .info .lbl{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-  .info .val{font-weight:700;font-size:14px}
-  table{width:100%;border-collapse:collapse;margin-top:4px}
-  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#888;border-bottom:2px solid #0f3d3e;padding:7px 8px}
-  td{padding:10px 8px;border-bottom:1px solid #e2e2e2;font-size:14px;vertical-align:middle}
-  .chk{width:22px;height:22px;border:2px solid #0f3d3e;border-radius:4px;display:inline-block}
-  .qty{font-weight:800;font-size:16px;width:48px}
-  .instr{margin-top:14px;background:#fffaf0;border:1px solid #f0e2c4;border-radius:8px;padding:10px 13px;font-size:13px;color:#6b531c}
-  .ftr{margin-top:18px;font-size:11px;color:#999;border-top:1px solid #e2e2e2;padding-top:10px}
-  .bar{position:fixed;top:0;left:0;right:0;background:#0f3d3e;color:#fff;display:flex;align-items:center;justify-content:center;gap:16px;padding:11px;font-size:14px;z-index:9}
+  body{margin:0;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:#1a1a1a;background:#e9ebe8}
+  .bar{position:sticky;top:0;display:flex;align-items:center;justify-content:center;gap:18px;background:#0f3d3e;color:#fff;padding:12px;font-size:14px;z-index:9}
   .bar button{font:inherit;font-weight:700;background:#b88a44;color:#1c1a16;border:0;border-radius:8px;padding:9px 18px;cursor:pointer}
-  .bar a{color:#cfe1da;font-size:13px}
-  .spacer{height:52px}
-  .empty{max-width:760px;margin:80px auto;text-align:center;color:#888;font-size:15px}
+  .bar a{color:#cfe1da;font-size:13px;text-decoration:none}
+  .sheet{background:#fff;max-width:760px;margin:18px auto;padding:46px 50px}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:38px}
+  .hdr .co{font-size:19px;font-weight:800;letter-spacing:.02em}
+  .hdr .ord{text-align:right}
+  .hdr .ord .n{font-size:19px;font-weight:700}
+  .hdr .ord .d{font-size:13px;color:#555;margin-top:2px}
+  .hdr .ord .x{font-size:11.5px;color:#777;margin-top:6px}
+  .addrs{display:grid;grid-template-columns:1fr 1fr;gap:34px;margin-bottom:34px}
+  .addrs h4{font-size:11px;letter-spacing:.09em;color:#888;font-weight:700;margin:0 0 9px;text-transform:uppercase}
+  .addrs .a{font-size:13.5px;line-height:1.55;color:#222}
+  .addrs .a .nm{font-weight:700}
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;letter-spacing:.09em;color:#888;font-weight:700;text-transform:uppercase;border-bottom:2px solid #1a1a1a;padding:0 0 9px}
+  thead th.r{text-align:right}
+  tbody td{padding:15px 0;border-bottom:1px solid #e6e6e6;vertical-align:top;font-size:14px}
+  tbody td.r{text-align:right;font-weight:700;white-space:nowrap}
+  .art .nm{font-weight:700}
+  .art .sub{font-size:12px;color:#777;margin-top:3px}
+  .ft{margin-top:46px;text-align:center}
+  .ft .ty{font-size:15px;font-weight:700;margin-bottom:14px}
+  .ft .co{font-size:13px;line-height:1.6;color:#444}
+  .empty{max-width:760px;margin:90px auto;text-align:center;color:#888;font-size:15px}
   @media print{
-    .bar,.spacer{display:none}
+    .bar{display:none}
     body{background:#fff}
-    .sheet{margin:0;max-width:none;border:0;padding:14mm 14mm;page-break-after:always}
+    .sheet{margin:0;max-width:none;padding:16mm 18mm;page-break-after:always}
     .sheet:last-child{page-break-after:auto}
   }
 </style>
 </head>
 <body>
 <div class="bar">
-  <span>🖨 {{ orders|length }} picklijst{{ '' if orders|length == 1 else 'en' }} · {{ date_label }}</span>
+  <span>{{ orders|length }} pakbon{{ '' if orders|length == 1 else 'nen' }} · {{ date_label }}</span>
   <button onclick="window.print()">Printen / opslaan als PDF</button>
   <a href="#" onclick="window.close();return false">Sluiten</a>
 </div>
-<div class="spacer"></div>
 
 {% if not orders %}
   <div class="empty">Geen ingeplande orders op deze dag.</div>
@@ -50,35 +53,46 @@
 {% for o in orders %}
 <div class="sheet">
   <div class="hdr">
-    <div class="brand">Office-Interior<small>Picklijst magazijn</small></div>
-    <div class="meta">
-      <div class="big">#{{ o.onum }}</div>
-      <div>Leverdag: <b style="text-transform:capitalize">{{ date_label }}</b></div>
-      {% if o.seq %}<div>Stop {{ o.seq }} in de route</div>{% endif %}
+    <div class="co">OFFICE-INTERIOR</div>
+    <div class="ord">
+      <div class="n">Bestelling #{{ o.onum }}</div>
+      <div class="d" style="text-transform:capitalize">{{ date_label }}</div>
+      <div class="x">{% if o.monteur %}Monteur: {{ o.monteur }}{% endif %}{% if o.bus %} · {{ o.bus }}{% endif %}{% if o.slot_start %} · {{ o.slot_start }}–{{ o.slot_end }}{% endif %}</div>
     </div>
   </div>
 
-  <div class="info">
-    <div><div class="lbl">Klant</div><div class="val">{{ o.client or '—' }}</div></div>
-    <div><div class="lbl">Soort</div><div class="val" style="text-transform:capitalize">{{ o.service or 'montage' }}</div></div>
-    <div><div class="lbl">Leveradres</div><div class="val">{{ o.addr or o.city or '—' }}</div></div>
-    <div><div class="lbl">Tijdvak</div><div class="val">{% if o.slot_start %}{{ o.slot_start }}–{{ o.slot_end }}{% else %}n.t.b.{% endif %}</div></div>
-    <div><div class="lbl">Monteur</div><div class="val">{{ o.monteur or '—' }}</div></div>
-    <div><div class="lbl">Bus</div><div class="val">{{ o.bus or '—' }}</div></div>
+  <div class="addrs">
+    <div>
+      <h4>Verzenden naar</h4>
+      <div class="a"><span class="nm">{{ o.client or '—' }}</span><br>{{ o.addr or o.city or '' }}<br>Nederland{% if o.phone %}<br>{{ o.phone }}{% endif %}</div>
+    </div>
+    <div>
+      <h4>Factuur naar</h4>
+      <div class="a"><span class="nm">{{ o.client or '—' }}</span><br>{{ o.invoice_address or o.client_invoice or o.addr or '' }}<br>Nederland</div>
+    </div>
   </div>
 
   <table>
-    <thead><tr><th style="width:30px">✓</th><th style="width:48px">Aantal</th><th>Artikel</th></tr></thead>
+    <thead><tr><th>Artikelen</th><th class="r">Aantal</th></tr></thead>
     <tbody>
       {% for it in o.lines %}
-      <tr><td><span class="chk"></span></td><td class="qty">{{ it.qty }}×</td><td>{{ it.name }}</td></tr>
+      <tr>
+        <td class="art"><div class="nm">{{ it.name }}</div>{% if o.service %}<div class="sub" style="text-transform:capitalize">{{ o.service }}</div>{% endif %}</td>
+        <td class="r">{{ it.qty }} van {{ it.qty }}</td>
+      </tr>
       {% endfor %}
-      {% if not o.lines %}<tr><td></td><td></td><td style="color:#999">Geen artikelen op deze order</td></tr>{% endif %}
+      {% if not o.lines %}<tr><td style="color:#999">Geen artikelen op deze order</td><td></td></tr>{% endif %}
     </tbody>
   </table>
 
-  {% if o.instructions %}<div class="instr">📝 {{ o.instructions }}</div>{% endif %}
-  <div class="ftr">Gepickt door: ______________________    Gecontroleerd: ______________________    Office-Interior · {{ HOME_BASE }}</div>
+  {% if o.instructions %}
+  <div style="margin-top:22px;font-size:12.5px;color:#6b531c;background:#fffaf0;border:1px solid #f0e2c4;border-radius:8px;padding:11px 14px">Opmerking: {{ o.instructions }}</div>
+  {% endif %}
+
+  <div class="ft">
+    <div class="ty">Bedankt voor je bestelling!</div>
+    <div class="co"><b>Office-Interior</b><br>Nikkelstraat 28, 4823 AB Breda, Nederland<br>info@office-interior.com<br>office-interior.com</div>
+  </div>
 </div>
 {% endfor %}
 
