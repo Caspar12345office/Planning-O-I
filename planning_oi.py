@@ -126,6 +126,11 @@ def _get_pg_pool():
     return _PG_POOL
 
 
+# Versiestempel (Render zet RENDER_GIT_COMMIT automatisch) — zo is via /version
+# te controleren welke build live staat, en het dient als keep-alive-doel.
+APP_VERSION = (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:12]
+
+
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings"}
 
@@ -1413,6 +1418,12 @@ self.addEventListener('fetch', e=>{
 # --------------------------------------------------------------------------- #
 #  Dashboard
 # --------------------------------------------------------------------------- #
+@bp.route("/version")
+def version():
+    """Publieke versie-/health-check (geen login). Door keep-alive aangeroepen."""
+    return jsonify(v=APP_VERSION)
+
+
 _LAST_AUTO_MAIL = 0.0  # throttle: mailbatch hoogstens 1x per 10 min, niet elke dashboard-load
 
 

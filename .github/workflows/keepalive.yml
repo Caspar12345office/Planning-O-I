@@ -1,0 +1,19 @@
+name: keep-alive
+
+# Houdt de Render-services wakker (gratis web-tier valt na ~15 min inactiviteit
+# in slaap en heeft dan ~50s om op te starten). We pingen elke 10 minuten het
+# /version-endpoint van beide services.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping OfficeRoute-services
+        run: |
+          echo "Kantoor:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://planning-o-i.onrender.com/version)"
+          echo "Monteur:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://officeroute-mobile-app.onrender.com/version)"
