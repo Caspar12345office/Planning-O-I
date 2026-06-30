@@ -920,30 +920,30 @@ def login_required(perm=None):
 
 # Navigatie: items met 'endpoint' (link) of 'children' (uitklapbare groep onder Instellingen/Orders).
 NAV = [
-    {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "▦", "perm": "view_planning"},
-    {"label": "Planning & routes", "endpoint": "planning.planning", "icon": "🗓", "perm": "view_planning"},
-    {"label": "Orders", "icon": "📦", "perm": "view_orders", "children": [
-        {"label": "Alle orders", "endpoint": "planning.orders", "perm": "view_orders"},
-        {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "perm": "view_orders"}]},
-    {"label": "Magazijn", "icon": "🏭", "perm": "view_preassembly", "children": [
-        {"label": "Voormonteren", "endpoint": "planning.voormonteren", "perm": "view_preassembly"},
-        {"label": "Pakbonnen", "endpoint": "planning.picklijst", "perm": "view_preassembly"}]},
-    {"label": "Klanten", "endpoint": "planning.clients", "icon": "👥", "perm": "view_orders"},
-    {"label": "Documenten", "endpoint": "planning.documenten", "icon": "📄", "perm": "view_documents"},
-    {"label": "Teamchat", "endpoint": "planning.chat", "icon": "💬", "perm": "view_orders"},
-    {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "🧰", "perm": "view_personnel"},
-    {"label": "Bussen", "endpoint": "planning.busses", "icon": "🚐", "perm": "view_personnel",
-     "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "perm": "view_personnel"}]},
-    {"label": "Rapportages", "icon": "📊", "perm": None, "children": [
-        {"label": "Monteursprestaties", "endpoint": "planning.performance", "perm": "view_performance"},
-        {"label": "Kilometers", "endpoint": "planning.vehicle_km", "perm": "view_reports"},
-        {"label": "Handtekeningen", "endpoint": "planning.signatures", "perm": "view_signatures"}]},
-    {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "🏖", "perm": "manage_freedays"},
-    {"label": "Instellingen", "icon": "⚙", "perm": None, "children": [
-        {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "perm": "manage_settings"},
-        {"label": "E-mailteksten", "endpoint": "planning.email_templates", "perm": "manage_settings"},
-        {"label": "Koppelingen", "endpoint": "planning.integrations", "perm": "manage_integrations"},
-        {"label": "Gebruikers", "endpoint": "planning.users", "perm": "manage_users"}]},
+    {"label": "Dashboard", "endpoint": "planning.dashboard", "icon": "grid", "perm": "view_planning"},
+    {"label": "Planning & routes", "endpoint": "planning.planning", "icon": "calendar", "perm": "view_planning"},
+    {"label": "Orders", "icon": "box", "perm": "view_orders", "children": [
+        {"label": "Alle orders", "endpoint": "planning.orders", "icon": "list", "perm": "view_orders"},
+        {"label": "Belangrijke orders", "endpoint": "planning.important_orders", "icon": "star", "perm": "view_orders"}]},
+    {"label": "Magazijn", "icon": "warehouse", "perm": "view_preassembly", "children": [
+        {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
+        {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
+    {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
+    {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
+    {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
+    {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
+    {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel",
+     "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
+    {"label": "Rapportages", "icon": "chart", "perm": None, "children": [
+        {"label": "Monteursprestaties", "endpoint": "planning.performance", "icon": "chart", "perm": "view_performance"},
+        {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "truck", "perm": "view_reports"},
+        {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"}]},
+    {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "sun", "perm": "manage_freedays"},
+    {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
+        {"label": "Bedrijfsinstellingen", "endpoint": "planning.company_settings", "icon": "gear", "perm": "manage_settings"},
+        {"label": "E-mailteksten", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
+        {"label": "Koppelingen", "endpoint": "planning.integrations", "icon": "link", "perm": "manage_integrations"},
+        {"label": "Gebruikers", "endpoint": "planning.users", "icon": "users", "perm": "manage_users"}]},
 ]
 
 
