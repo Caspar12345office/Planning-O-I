@@ -1,0 +1,182 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Koppelingen · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Koppelingen</h1><p>Live commandocentrum — alle koppelingen met OfficeRoute in één oogopslag</p>{% endblock %}
+{% block page_css %}
+  .ccwrap{background:radial-gradient(120% 120% at 50% 0,#ffffff,#eef3ef);border:1px solid var(--line);border-radius:18px;padding:16px}
+  .ccbar{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .ccbar .res{font-size:13px;color:var(--ink);font-weight:600;display:inline-flex;align-items:center;gap:7px}
+  .ccbar .res .d{width:9px;height:9px;border-radius:50%;background:var(--green)}
+  .ccbar .right{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .vis{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .scanbtn{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:11px;background:var(--accent);color:#fff;font:inherit;font-size:13px;font-weight:600;padding:9px 16px;cursor:pointer;box-shadow:0 8px 18px rgba(15,61,62,.2)}
+  .scanbtn:active{transform:scale(.97)}.scanbtn[disabled]{opacity:.6;cursor:default}.scanbtn i{font-size:16px}
+  .stage{position:relative;width:100%;max-width:720px;margin:2px auto 0;aspect-ratio:800/580}
+  .stage>svg{position:absolute;inset:0;width:100%;height:100%}
+  .node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;width:104px;z-index:2}
+  .node.leaf{width:86px}
+  .node.act{cursor:pointer;transition:transform .15s}.node.act:hover{transform:translate(-50%,-50%) scale(1.07)}
+  .node .ic{position:relative;width:50px;height:50px;border-radius:14px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.12)}
+  .node.leaf .ic{width:42px;height:42px;border-radius:12px}
+  .node .ic img{width:30px;height:30px;border-radius:7px}
+  .node.leaf .ic img{width:24px;height:24px}
+  .lg{width:28px;height:28px;background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
+  .node.leaf .lg{width:23px;height:23px}
+  .node .ic i{font-size:24px}
+  .node.app .ic{background:linear-gradient(150deg,#0f3d3e,#17585a);border:0}.node.app .ic i{color:#cda35a}
+  .st{position:absolute;right:-4px;top:-4px;width:14px;height:14px;border-radius:50%;border:2px solid #f3f6f2;background:var(--green)}
+  .node.warn .st{background:var(--amber)}.node.err .st{background:var(--red)}.node.err .ic{border-color:#eaa9a9}
+  .node.checking .st{background:var(--amber);animation:ccp .55s infinite}
+  @keyframes ccp{0%,100%{opacity:1}50%{opacity:.3}}
+  .nm{margin-top:6px;font-size:12px;font-weight:600;color:var(--ink);text-align:center;line-height:1.15}
+  .node.leaf .nm{font-size:11px;font-weight:500}
+  .sub{font-size:9.5px;color:var(--muted);text-align:center}
+  .node.err .sub{color:var(--red);font-weight:600}
+  .hub{position:absolute;left:58.75%;top:50%;transform:translate(-50%,-50%);z-index:3}
+  .hub .box{width:104px;height:104px;border-radius:26px;overflow:hidden;box-shadow:0 18px 36px rgba(15,61,62,.36);border:3px solid #fff}
+  .hub .box svg{width:100%;height:100%;display:block}
+  .hub .ring{position:absolute;inset:-9px;border-radius:32px;border:2px solid rgba(205,163,92,.5);animation:ccr 2.6s ease-in-out infinite}
+  @keyframes ccr{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.05);opacity:.9}}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:4px;font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}.legend .d{width:9px;height:9px;border-radius:50%}
+  .advice{margin-top:12px;border-radius:14px;border:1px solid #f0d49a;background:#fffaf0;padding:14px 16px;display:none}
+  .advice.show{display:block}
+  .advice .ah{display:flex;align-items:center;gap:9px;font-weight:700;color:#7a5713;font-size:14px}
+  .advice .diag{margin:7px 0 4px;font-size:13.5px;color:var(--ink)}
+  .advice ul{margin:4px 0 0;padding-left:20px;font-size:13px;color:var(--ink)}
+  .advice li{margin:3px 0}
+  .advice .ai{margin-left:auto;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#b8762a;background:#fbeccd;border-radius:999px;padding:3px 9px}
+{% endblock %}
+{% block content %}
+{% set NODES = [
+  {'id':'app','x':37.5,'y':30.2,'nm':'Monteurs-app','sub':'','app':true},
+  {'id':'google','x':37.5,'y':71.6,'nm':'Google','sub':'','logo':'google','c':'#4285F4'},
+  {'id':'shopify','x':77.5,'y':24.1,'nm':'Shopify','sub':'orders','logo':'shopify','c':'#7AB55C'},
+  {'id':'velocity','x':87.5,'y':43.1,'nm':'Velocity','sub':'busregistratie','img':'velocity'},
+  {'id':'render','x':87.5,'y':62.1,'nm':'Render','sub':'hosting','logo':'render','c':'#1f1f1f'},
+  {'id':'resend','x':75.0,'y':78.4,'nm':'E-mail · Resend','sub':'','logo':'resend','c':'#1f1f1f'},
+  {'id':'db','x':56.25,'y':86.2,'nm':'Database','sub':'PostgreSQL','logo':'postgresql','c':'#336791'},
+  {'id':'waze','x':13.75,'y':12.0,'nm':'Waze','leaf':true,'logo':'waze','c':'#33CCFF'},
+  {'id':'gps1','x':9.5,'y':27.5,'nm':'Live GPS','leaf':true,'icon':'ti-current-location','c':'#1a9e75'},
+  {'id':'traffic','x':14.5,'y':44.0,'nm':'Verkeersinfo','leaf':true,'icon':'ti-traffic-cone','c':'#d9962b'},
+  {'id':'maps','x':11.5,'y':60.0,'nm':'Google Maps','leaf':true,'logo':'googlemaps','c':'#1A73E8'},
+  {'id':'gps2','x':10.5,'y':77.0,'nm':'Live GPS','leaf':true,'icon':'ti-current-location','c':'#1a9e75'},
+  {'id':'oauth','x':30.0,'y':90.0,'nm':'OAuth + MFA','leaf':true,'icon':'ti-shield-lock','c':'#4285F4'}
+] %}
+{% set LINES = [
+  [300,175,470,290,'app'],[300,415,470,290,'google'],[620,140,470,290,'shopify'],
+  [700,250,470,290,'velocity'],[700,360,470,290,'render'],[600,455,470,290,'resend'],
+  [450,500,470,290,'db'],[110,70,300,175,'waze'],[76,160,300,175,'gps1'],
+  [116,255,300,175,'traffic'],[92,348,300,415,'maps'],[84,447,300,415,'gps2'],[240,522,300,415,'oauth']
+] %}
+{% macro stroke(id) %}{% set s = health.get(id,{}).get('status','ok') %}{{ '#d64545' if s=='err' else ('#d9962b' if s=='warn' else '#8bb6a7') }}{% endmacro %}
+
+<div class="ccwrap">
+  <div class="ccbar">
+    <span class="res" id="ccres"><span class="d"></span>Statusoverzicht</span>
+    <div class="right">
+      {% if can_act %}
+      <form class="vis" method="post" action="{{ url_for('planning.koppelingen_zichtbaarheid') }}">
+        <input type="hidden" name="public" value="{{ '0' if cc_public else '1' }}">
+        <span>Zichtbaar voor iedereen:</span>
+        <button class="btn ghost sm" type="submit">{{ 'AAN — uitzetten' if cc_public else 'UIT — aanzetten' }}</button>
+      </form>
+      <button class="scanbtn" id="ccscan"><i class="ti ti-radar-2"></i>Controle uitvoeren</button>
+      {% else %}
+      <span class="vis">Alleen-lezen weergave</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="stage">
+    <svg viewBox="0 0 800 580" preserveAspectRatio="none" aria-hidden="true">
+      <g stroke-width="2.4" fill="none" stroke-linecap="round">
+        {% for l in LINES %}{% set s = health.get(l[4],{}).get('status','ok') %}
+        <line x1="{{l[0]}}" y1="{{l[1]}}" x2="{{l[2]}}" y2="{{l[3]}}" stroke="{{ stroke(l[4])|trim }}" {{ 'stroke-dasharray="7 6"' if s!='ok' }}/>
+        {% endfor %}
+      </g>
+      <g fill="#2e9e6b">
+        {% for l in LINES %}{% if health.get(l[4],{}).get('status','ok')=='ok' %}
+        <circle r="{{ '4.3' if l[2]==470 else '3.6' }}"{% if l[2]!=470 %} fill="#3aa6c9"{% endif %}><animateMotion dur="2.3s" begin="{{ loop.index0 * 0.27 }}s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>
+        {% endif %}{% endfor %}
+      </g>
+    </svg>
+
+    <div class="hub"><div class="ring"></div><div class="box"><svg viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="214" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="240" y="298" width="32" height="168" rx="16" fill="#cda35a"/></svg></div></div>
+
+    {% for n in NODES %}{% set h = health.get(n.id,{}) %}
+    <div class="node {{ 'leaf ' if n.leaf }}{{ 'app ' if n.app }}{{ h.get('status','ok') if h.get('status','ok')!='ok' else '' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
+      <div class="ic">
+        {%- if n.app %}<i class="ti ti-map-pin"></i>
+        {%- elif n.img %}<img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}">
+        {%- elif n.logo %}<span class="lg" style="--m:url('{{ url_for('static', filename='logos/' + n.logo + '.svg') }}');--c:{{ n.c }}"></span>
+        {%- else %}<i class="{{ n.icon }}" style="color:{{ n.c }};font-size:21px"></i>{% endif %}
+        <span class="st"></span>
+      </div>
+      <div class="nm">{{ n.nm }}</div>
+      {% if n.sub %}<div class="sub">{{ n.sub }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="legend">
+    <span><span class="d" style="background:var(--green)"></span>Verbonden</span>
+    <span><span class="d" style="background:var(--amber)"></span>Controleren</span>
+    <span><span class="d" style="background:var(--red)"></span>Storing</span>
+  </div>
+
+  <div class="advice" id="ccadvice">
+    <div class="ah"><span><svg class="ico" style="color:#b8762a"><use href="#ic-alert"/></svg></span><span id="ccatitle">Advies</span><span class="ai">AI-advies</span></div>
+    <div class="diag" id="ccadiag"></div>
+    <ul id="ccasteps"></ul>
+  </div>
+</div>
+
+{% if can_act %}
+<script>
+(function(){
+  var HEALTH = {{ health|tojson }};
+  var root = document.querySelector('.ccwrap'); if(!root) return;
+  var adv = document.getElementById('ccadvice');
+  function showAdvice(k){
+    var h = HEALTH[k]; if(!h){ return; }
+    if(!h.advice){ adv.classList.remove('show'); return; }
+    document.getElementById('ccatitle').textContent = (h.detail||'Storing');
+    document.getElementById('ccadiag').textContent = h.advice.diagnose||'';
+    var ul = document.getElementById('ccasteps'); ul.innerHTML='';
+    (h.advice.stappen||[]).forEach(function(s){ var li=document.createElement('li'); li.textContent=s; ul.appendChild(li); });
+    adv.classList.add('show');
+  }
+  function paint(){
+    var bad=0, warn=0, tot=0;
+    root.querySelectorAll('.node').forEach(function(n){
+      var h=HEALTH[n.dataset.k]; if(!h) return; tot++;
+      n.classList.remove('warn','err');
+      if(h.status==='err'){ n.classList.add('err'); bad++; }
+      else if(h.status==='warn'){ n.classList.add('warn'); warn++; }
+    });
+    var res=document.getElementById('ccres');
+    res.innerHTML='<span class="d" style="background:'+(bad?'#d64545':(warn?'#d9962b':'#2e9e6b'))+'"></span>'+
+      (bad? bad+' storing'+(bad>1?'en':''):(warn? warn+' aandachtspunt'+(warn>1?'en':''):'Alles verbonden'));
+  }
+  root.querySelectorAll('.node').forEach(function(n){
+    n.addEventListener('click',function(){ showAdvice(n.dataset.k); });
+  });
+  paint();
+  var btn=document.getElementById('ccscan');
+  btn.addEventListener('click',function(){
+    var nodes=[].slice.call(root.querySelectorAll('.node'));
+    btn.disabled=true; var old=btn.innerHTML; btn.innerHTML='<i class="ti ti-loader-2"></i>Controleren…';
+    document.getElementById('ccres').innerHTML='<span class="d" style="background:#d9962b"></span>Bezig met controleren…';
+    nodes.forEach(function(n,i){ setTimeout(function(){ n.classList.add('checking'); setTimeout(function(){n.classList.remove('checking');},480); }, i*150); });
+    fetch('{{ url_for("planning.koppelingen_check") }}').then(function(r){return r.json();}).then(function(d){
+      setTimeout(function(){
+        HEALTH=d; paint(); btn.disabled=false; btn.innerHTML=old;
+        var firstBad=Object.keys(d).find(function(k){return d[k].status==='err' && d[k].advice;});
+        if(firstBad){ showAdvice(firstBad); } else { adv.classList.remove('show'); }
+      }, nodes.length*150+400);
+    }).catch(function(){ btn.disabled=false; btn.innerHTML=old; });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

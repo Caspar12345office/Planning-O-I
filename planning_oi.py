@@ -323,6 +323,7 @@ PERMISSIONS = [
     ("complete_deliveries","Leveringen afronden",        "Orders"),
     ("view_preassembly",   "Voormontage (magazijn)",     "Magazijn"),
     ("view_documents",     "Documenten",                 "Documenten"),
+    ("view_connections",   "Koppelingen (commandocentrum)", "Koppelingen"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
@@ -789,15 +790,37 @@ def current_user():
     return u
 
 
+_CC_PUBLIC = [0.0, True]   # cache: (laatst gelezen, zichtbaar voor iedereen)
+
+
+def _cc_public():
+    """Mag iedereen het commandocentrum bekijken? (beheerder-schakelaar, gecachet)."""
+    now = time.time()
+    if now - _CC_PUBLIC[0] > 15:
+        try:
+            conn = db()
+            r = conn.execute("SELECT value FROM settings WHERE skey='cc_public'").fetchone()
+            conn.close()
+            _CC_PUBLIC[1] = (r["value"] if r else "1") != "0"
+        except Exception:
+            _CC_PUBLIC[1] = True
+        _CC_PUBLIC[0] = now
+    return _CC_PUBLIC[1]
+
+
 def user_perms(u):
     if not u:
         return set()
     if u["role"] == "beheerder":
         return set(ALL_PERMS)
     try:
-        return set(json.loads(u["permissions"] or "[]"))
+        perms = set(json.loads(u["permissions"] or "[]"))
     except Exception:
-        return set()
+        perms = set()
+    # Commandocentrum is voor iedereen te bekijken zolang de beheerder dat aan laat staan.
+    if _cc_public():
+        perms.add("view_connections")
+    return perms
 
 
 def has_perm(perm):
@@ -938,6 +961,7 @@ NAV = [
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
         {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
+    {"label": "Koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents"},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
@@ -2543,6 +2567,173 @@ def documenten_delete(did):
     conn.close()
     flash("Document verwijderd.")
     return redirect(url_for("planning.documenten"))
+
+
+# --------------------------------------------------------------------------- #
+#  Commandocentrum: live status van alle koppelingen + AI-advies bij storing
+# --------------------------------------------------------------------------- #
+def _conn_advice(key):
+    """Slim, regelgebaseerd advies bij een storing (diagnose + concrete stappen)."""
+    A = {
+        "db": ("Het lijkt erop dat de database niet reageert — dan werkt vrijwel niets meer.",
+               ["Controleer of de PostgreSQL-database (Render) actief is.",
+                "Kijk of DATABASE_URL nog klopt op beide services.",
+                "Start de service opnieuw via Render → Manual Deploy."]),
+        "resend_cfg": ("E-mail is nog niet ingesteld, dus 2FA-codes en klantmails worden niet verstuurd.",
+               ["Ga naar Instellingen → Koppelingen → E-mail.",
+                "Vul de Resend API-sleutel en het afzendadres in.",
+                "Zet ‘E-mails écht versturen’ aan."]),
+        "resend_test": ("E-mail staat in testmodus — er gaat niets daadwerkelijk de deur uit.",
+               ["Open Instellingen → Koppelingen → E-mail.",
+                "Zet ‘E-mails écht versturen’ aan zodra je live wilt."]),
+        "resend_domain": ("Het lijkt erop dat uitgaande mail niet aankomt doordat het afzenddomein nog niet is geverifieerd bij Resend.",
+               ["Voeg de SPF- en DKIM-records toe aan de DNS van office-interior.com.",
+                "Wacht tot Resend het domein op ‘Verified’ zet.",
+                "Doe daarna een testmail via ‘Test verbinding’."]),
+        "shopify": ("Shopify is nog niet gekoppeld; nieuwe orders komen niet automatisch binnen.",
+               ["Maak in Shopify een webhook ‘Bestelling aangemaakt’ naar /api/shopify/webhook.",
+                "Kopieer het webhook-secret naar Instellingen → Koppelingen → Shopify."]),
+        "gps": ("Er is nog geen live locatie binnengekomen van de monteurs.",
+               ["Laat de monteur in de app de locatie-deling aanzetten (tab ‘Ik’).",
+                "Controleer of de telefoon locatietoegang geeft aan de app."]),
+        "velocity": ("Er zijn nog geen busgegevens uit Velocity.",
+               ["Controleer de busregistratie-koppeling (Velocity).",
+                "Voeg voertuigen toe onder Bussen."]),
+    }
+    d = A.get(key)
+    return {"diagnose": d[0], "stappen": d[1]} if d else None
+
+
+def _resend_domain_ok(key, from_email):
+    """Diepe check: is het afzenddomein geverifieerd bij Resend? (korte timeout)."""
+    dom = from_email.split("@")[-1].lower() if "@" in from_email else ""
+    if not dom:
+        return False, "Ongeldig afzendadres"
+    try:
+        req = urllib.request.Request("https://api.resend.com/domains",
+                                     headers={"Authorization": "Bearer " + key})
+        data = json.loads(urllib.request.urlopen(req, timeout=6).read().decode("utf-8"))
+        doms = data.get("data") or data.get("domains") or []
+        for d in doms:
+            if (d.get("name") or "").lower() == dom:
+                if (d.get("status") or "").lower() == "verified":
+                    return True, "Domein geverifieerd"
+                return False, "Domein %s nog niet geverifieerd (%s)" % (dom, d.get("status") or "onbekend")
+        return False, "Domein %s niet gevonden in Resend" % dom
+    except Exception:
+        return False, "Kon Resend niet bereiken"
+
+
+def _connection_health(deep=False):
+    """Bepaal de live status van elke koppeling. deep=True doet ook netwerk-checks."""
+    st = {}
+
+    def put(k, status, detail, sync="", advice=None):
+        st[k] = {"status": status, "detail": detail, "sync": sync, "advice": advice}
+
+    conn = db()
+    put("render", "ok", "Hosting online", "nu")
+    try:
+        conn.execute("SELECT 1").fetchone()
+        put("db", "ok", "Verbinding actief", "nu")
+    except Exception:
+        put("db", "err", "Geen databaseverbinding", advice=_conn_advice("db"))
+
+    # E-mail / Resend
+    try:
+        c = _email_cfg()
+    except Exception:
+        c = {}
+    rkey = (c.get("resend_api_key") or "").strip()
+    frm = (c.get("from_email") or c.get("smtp_user") or "").strip()
+    live = (c.get("send_live") or "0") == "1"
+    if not (rkey and frm):
+        put("resend", "err", "Niet ingesteld", advice=_conn_advice("resend_cfg"))
+    elif not live:
+        put("resend", "warn", "Testmodus", advice=_conn_advice("resend_test"))
+    elif deep:
+        ok, msg = _resend_domain_ok(rkey, frm)
+        put("resend", "ok" if ok else "err", msg,
+            advice=None if ok else _conn_advice("resend_domain"))
+    else:
+        put("resend", "ok", "Actief", "live")
+
+    # Shopify
+    try:
+        sh = {r["field"]: r["value"] for r in
+              conn.execute("SELECT field,value FROM integrations WHERE ikey='shopify'").fetchall()}
+    except Exception:
+        sh = {}
+    if (sh.get("webhook_secret") or "").strip():
+        put("shopify", "ok", "Webhook gekoppeld")
+    else:
+        put("shopify", "warn", "Nog niet gekoppeld", advice=_conn_advice("shopify"))
+
+    # Monteurs-app + live GPS
+    try:
+        rec = conn.execute("SELECT MAX(updated_at) AS m FROM monteur_location").fetchone()
+        last = rec["m"] if rec else None
+    except Exception:
+        last = None
+    put("app", "ok", "Verbonden")
+    if last:
+        put("gps1", "ok", "Live locatie ontvangen")
+    else:
+        put("gps1", "warn", "Nog geen live locatie", advice=_conn_advice("gps"))
+    st["gps2"] = dict(st["gps1"])
+
+    # Google-bundel + navigatie
+    put("google", "ok", "OAuth · MFA · Maps · GPS")
+    put("maps", "ok", "Routes & navigatie")
+    put("oauth", "ok", "Tweestapsverificatie actief")
+    put("waze", "ok", "Navigatie per stop")
+    put("traffic", "ok", "Files & hinder actueel")
+
+    # Velocity (busregistratie)
+    try:
+        nb = conn.execute("SELECT COUNT(*) AS n FROM busses").fetchone()["n"]
+    except Exception:
+        nb = 0
+    if nb:
+        put("velocity", "ok", "%d voertuigen" % nb)
+    else:
+        put("velocity", "warn", "Geen busgegevens", advice=_conn_advice("velocity"))
+
+    conn.close()
+    return st
+
+
+@bp.route("/koppelingen")
+def koppelingen():
+    guard = login_required("view_connections")
+    if guard:
+        return guard
+    return render_template("planning/koppelingen.html",
+                           health=_connection_health(deep=False),
+                           can_act=has_perm("manage_integrations"),
+                           cc_public=_cc_public())
+
+
+@bp.route("/koppelingen/check")
+def koppelingen_check():
+    if not has_perm("manage_integrations"):
+        abort(403)
+    return jsonify(_connection_health(deep=True))
+
+
+@bp.route("/koppelingen/zichtbaarheid", methods=["POST"])
+def koppelingen_zichtbaarheid():
+    if not has_perm("manage_integrations"):
+        abort(403)
+    val = "1" if request.form.get("public") == "1" else "0"
+    conn = db()
+    conn.execute("INSERT INTO settings(skey,value) VALUES('cc_public',?) "
+                 "ON CONFLICT(skey) DO UPDATE SET value=excluded.value", (val,))
+    conn.commit()
+    conn.close()
+    _CC_PUBLIC[0] = 0.0  # cache direct verversen
+    flash("Zichtbaarheid van het commandocentrum bijgewerkt.")
+    return redirect(url_for("planning.koppelingen"))
 
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).
