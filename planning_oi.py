@@ -16,7 +16,7 @@ from flask import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib
+import sqlite3, os, json, secrets, csv, io, math, time, hmac, hashlib, base64, smtplib, threading
 import urllib.request, urllib.error
 from email.message import EmailMessage
 from datetime import datetime, timedelta, date
@@ -1142,7 +1142,7 @@ def _api_send(to, subject, text, html=None):
             req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                          headers={"Authorization": "Bearer " + key,
                                                   "Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=15).read()
+            urllib.request.urlopen(req, timeout=10).read()
             return True
         except Exception:
             return False
@@ -1361,11 +1361,17 @@ def login():
                 code = "%06d" % secrets.randbelow(1000000)
                 show_2fa = True
                 twofa_email = u["email"]
-                code_sent = _send_2fa_email(u["email"], code, u["name"])
+                # E-mail op de ACHTERGROND versturen zodat de login niet wacht op
+                # het (trage) Resend-verzoek. Of mail werkt, weten we uit de config
+                # (geen netwerkcall nodig) -> code_sent direct bepaald.
+                if _mail_live():
+                    code_sent = True
+                    threading.Thread(target=_send_2fa_email, args=(u["email"], code, u["name"]),
+                                     daemon=True).start()
+                else:
+                    demo_code = code   # terugval: toon op scherm als e-mail niet is ingesteld
                 session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
                                     "next": request.args.get("next"), "email": u["email"], "sent": code_sent}
-                if not code_sent:
-                    demo_code = code   # terugval: toon op scherm als e-mail (nog) niet werkt
             else:
                 error = "Onjuiste inloggegevens."
     return render_template("planning/login.html", error=error, show_2fa=show_2fa,
@@ -1427,6 +1433,13 @@ def version():
 _LAST_AUTO_MAIL = 0.0  # throttle: mailbatch hoogstens 1x per 10 min, niet elke dashboard-load
 
 
+def _auto_send_bg():
+    try:
+        auto_send_daily_mails()
+    except Exception:
+        pass
+
+
 @bp.route("/dashboard")
 def dashboard():
     guard = login_required("view_planning")
@@ -1438,10 +1451,8 @@ def dashboard():
         global _LAST_AUTO_MAIL
         if time.time() - _LAST_AUTO_MAIL > 600:
             _LAST_AUTO_MAIL = time.time()
-            try:
-                auto_mails = auto_send_daily_mails()
-            except Exception:
-                auto_mails = 0
+            # Op de achtergrond: dashboard wacht niet op het versturen van mails.
+            threading.Thread(target=_auto_send_bg, daemon=True).start()
     conn = db()
     _purge_old_customer_notes(conn)
     today = _today_iso()
@@ -2869,7 +2880,7 @@ def integration_test(ikey):
                                       "text": text, "html": html}).encode("utf-8")
                 req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                              headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
-                urllib.request.urlopen(req, timeout=15).read()
+                urllib.request.urlopen(req, timeout=10).read()
                 return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend — controleer de inbox." % test_to)
             except urllib.error.HTTPError as e:
                 try:

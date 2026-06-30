@@ -144,7 +144,7 @@
           <button class="btn ghost sm" type="submit"><svg class="ico"><use href="#ic-check"/></svg> Opgelost</button>
         </form>
       </div>
-    {% else %}<p class="muted" style="margin-top:0">Geen openstaande vragen. 🎉</p>{% endfor %}
+    {% else %}<p class="muted" style="margin-top:0">Geen openstaande vragen.</p>{% endfor %}
 
     <div class="sec-h" style="margin-top:18px"><h3 style="font-size:15px">Iemand taggen met een vraag</h3></div>
     <form class="askform" method="post" action="{{ url_for('planning.api_question') }}">
