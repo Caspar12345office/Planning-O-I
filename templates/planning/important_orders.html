@@ -8,9 +8,17 @@
   .src{font-size:10px;font-weight:700;border-radius:5px;padding:1px 6px}
   .src.shopify{background:#e4f1e8;color:#2f7d4f}.src.manual{background:#ece9e2;color:#74705f}
   .big{font-size:11px;font-weight:700;color:#9a6a17;background:#fbeccd;border-radius:6px;padding:2px 7px}
+  .sortbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+  .sortbar a{padding:7px 13px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-size:12.5px;font-weight:600;color:var(--muted)}
+  .sortbar a.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 {% endblock %}
 {% block content %}
 <div class="intro"><svg class="ico"><use href="#ic-star"/></svg> <b>Vooruitkijken.</b> Hier verzamelen we automatisch alle bevestigde orders met een waarde vanaf € {{ '{:,.0f}'.format(threshold).replace(',','.') }} en een leverdatum in de toekomst. Loop deze lijst elke ochtend even door, zodat grote leveringen op tijd zijn voorbereid (mankracht, busruimte, montagetijd).</div>
+<div class="sortbar">
+  <span class="muted" style="font-size:12.5px">Sorteren:</span>
+  <a class="{{ 'active' if sort!='oud' }}" href="{{ url_for('planning.important_orders', sort='nieuw') }}">Nieuwste eerst</a>
+  <a class="{{ 'active' if sort=='oud' }}" href="{{ url_for('planning.important_orders', sort='oud') }}">Oudste eerst</a>
+</div>
 <div class="card" style="padding:6px">
 <table>
   <thead><tr><th>Leverdatum</th><th>#Order</th><th>Klant</th><th>Plaats</th><th>Artikel(en)</th><th>Waarde</th><th>Status</th><th></th></tr></thead>

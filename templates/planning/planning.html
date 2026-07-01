@@ -108,6 +108,9 @@
 
 <div class="tray" id="tray">
   <div class="hd"><h3>Nog in te plannen</h3><span class="count">{{ unplanned|length }}</span>
+    <span style="margin-left:12px;font-size:12px;color:var(--muted)">Sorteren:</span>
+    <a href="{{ url_for('planning.planning', day=day, usort='nieuw') }}" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;text-decoration:none;{{ 'background:var(--accent);color:#fff' if usort!='oud' else 'color:var(--muted);border:1px solid var(--line)' }}">Nieuwste eerst</a>
+    <a href="{{ url_for('planning.planning', day=day, usort='oud') }}" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;text-decoration:none;{{ 'background:var(--accent);color:#fff' if usort=='oud' else 'color:var(--muted);border:1px solid var(--line)' }}">Oudste eerst</a>
     {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route. Sleep een rij hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€2000+)</b></span>{% endif %}</div>
   <div class="traycards">
     {% for o in unplanned %}

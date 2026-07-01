@@ -17,6 +17,11 @@
   <a class="{{ 'active' if status=='afgerond' }}" href="{{ url_for('planning.orders', status='afgerond') }}">Afgerond ({{ counts.get('afgerond',0) }})</a>
   <a class="{{ 'active' if status=='draft' }}" href="{{ url_for('planning.orders', status='draft') }}"><svg class="ico"><use href="#ic-shield"/></svg> Drafts ({{ counts.get('draft',0) }})</a>
 </div>
+<div class="filters" style="margin-top:-6px">
+  <span class="muted" style="align-self:center;font-size:12.5px">Sorteren:</span>
+  <a class="{{ 'active' if sort!='oud' }}" href="{{ url_for('planning.orders', status=status or none, sort='nieuw') }}">Nieuwste eerst</a>
+  <a class="{{ 'active' if sort=='oud' }}" href="{{ url_for('planning.orders', status=status or none, sort='oud') }}">Oudste eerst</a>
+</div>
 <div class="card" style="padding:6px 6px">
 <table>
   <thead><tr><th>#Order</th><th>Klant</th><th>Afleveradres</th><th>Gewenste datum</th><th>Waarde</th><th>Bron</th><th>Status</th><th></th></tr></thead>
@@ -45,4 +50,13 @@
   </tbody>
 </table>
 </div>
+{% if is_admin %}
+<div style="margin-top:16px;border:1px solid #f0cf9a;background:#fdf3e6;border-radius:12px;padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <div style="font-size:13px;color:#8a5a12"><b>Testdata opruimen.</b> Verwijder alle demo-/testorders (en bijbehorende planning, magazijn- en pickdata). Handig nu de echte Shopify-orders live gaan binnenkomen.</div>
+  <form method="post" action="{{ url_for('planning.admin_wipe_testdata') }}" style="margin:0 0 0 auto" onsubmit="return confirm('Weet je het zeker? ALLE huidige orders + klanten + planning/magazijndata worden verwijderd. Dit kan niet ongedaan worden gemaakt. Nieuwe echte orders komen daarna gewoon binnen.')">
+    <input type="hidden" name="confirm" value="WIS-TESTDATA">
+    <button class="btn ghost sm" type="submit" style="color:#b23a1e;border-color:#e6b8ac">Alle testdata wissen</button>
+  </form>
+</div>
+{% endif %}
 {% endblock %}

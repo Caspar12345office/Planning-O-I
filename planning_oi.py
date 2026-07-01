@@ -1712,8 +1712,10 @@ def planning():
                o.client_id, c.name AS client
         FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
         WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
+    usort = request.args.get("usort", "nieuw")
     unplanned = conn.execute("""SELECT o.*, c.name AS client FROM orders o LEFT JOIN clients c ON c.id=o.client_id
-                                WHERE o.status='in_te_plannen' ORDER BY o.desired_date""").fetchall()
+                                WHERE o.status='in_te_plannen' ORDER BY """
+                             + ("o.id ASC" if usort == "oud" else "o.id DESC")).fetchall()
     frees = {r["monteur_id"]: r["type"] for r in
              conn.execute("SELECT * FROM free_days WHERE date_from<=? AND date_to>=?", (day, day)).fetchall()}
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
@@ -1765,7 +1767,7 @@ def planning():
                            unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
                            day_label=day_label, dn=["ma", "di", "wo", "do", "vr"],
-                           can_edit=has_perm("edit_planning"))
+                           can_edit=has_perm("edit_planning"), usort=usort)
 
 
 @bp.route("/api/assign", methods=["POST"])
@@ -2184,11 +2186,14 @@ def orders():
     if status:
         q += " WHERE o.status=?"
         args = (status,)
-    q += " ORDER BY o.desired_date, o.id DESC"
+    sort = request.args.get("sort", "nieuw")
+    q += " ORDER BY o.id ASC" if sort == "oud" else " ORDER BY o.id DESC"
     rows = conn.execute(q, args).fetchall()
     counts = {r["status"]: r["n"] for r in conn.execute("SELECT status,COUNT(*) AS n FROM orders GROUP BY status")}
     conn.close()
-    return render_template("planning/orders.html", orders=rows, counts=counts, status=status)
+    u = current_user()
+    return render_template("planning/orders.html", orders=rows, counts=counts, status=status, sort=sort,
+                           is_admin=(u["role"] == "beheerder" if u else False))
 
 
 @bp.route("/orders/belangrijk")
@@ -2197,16 +2202,18 @@ def important_orders():
     if guard:
         return guard
     today = _today_iso()
+    sort = request.args.get("sort", "nieuw")
+    order_by = "o.id ASC" if sort == "oud" else "o.id DESC"
     conn = db()
     rows = conn.execute("""SELECT o.*, c.name AS client,
                            (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
                            FROM orders o LEFT JOIN clients c ON c.id=o.client_id
                            WHERE o.amount>=? AND o.is_draft=0 AND o.desired_date>=?
-                           ORDER BY o.desired_date""", (IMPORTANT_THRESHOLD, today)).fetchall()
+                           ORDER BY """ + order_by, (IMPORTANT_THRESHOLD, today)).fetchall()
     items = _items_by_order(conn, [o["id"] for o in rows])
     conn.close()
     return render_template("planning/important_orders.html", orders=rows, items=items,
-                           threshold=IMPORTANT_THRESHOLD)
+                           threshold=IMPORTANT_THRESHOLD, sort=sort)
 
 
 @bp.route("/orders/<int:oid>")
@@ -3422,6 +3429,30 @@ def admin_reseed_demo():
     session.clear()
     flash("Demodata opnieuw gevuld met de datum van vandaag. Log opnieuw in.")
     return redirect(url_for("planning.login"))
+
+
+@bp.route("/admin/wis-testorders", methods=["POST"])
+def admin_wipe_testdata():
+    """Verwijder alle test-/demo-orders en bijbehorende magazijn-/planningsdata,
+    zodat er vanaf nu alleen echte (Shopify-)orders binnenkomen. Beheerder-only."""
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    if (request.form.get("confirm") or "") != "WIS-TESTDATA":
+        abort(400)
+    conn = db()
+    for stmt in ("DELETE FROM order_items", "DELETE FROM order_magazijn", "DELETE FROM planning",
+                 "DELETE FROM voormontage_done", "DELETE FROM route_pick", "DELETE FROM deliveries",
+                 "DELETE FROM picker_tasks", "DELETE FROM office_notifications",
+                 "DELETE FROM orders", "DELETE FROM clients"):
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+    flash("Alle test-/demo-orders en bijbehorende data zijn gewist. Vanaf nu verschijnen hier alleen nieuwe (echte) orders.")
+    return redirect(url_for("planning.orders"))
 
 
 # --------------------------------------------------------------------------- #
