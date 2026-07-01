@@ -99,7 +99,7 @@
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app -%}
-        <img class="appimg" src="{{ url_for('static', filename='logos/' + n.app + '.svg') }}?v=3" width="56" height="56" alt="{{ n.nm }}" style="display:block;width:56px;height:56px;filter:drop-shadow(0 6px 16px rgba(15,61,62,.24))">
+        <img src="{{ url_for('static', filename='logos/' + n.app + '.svg') }}" alt="{{ n.nm }}" style="width:52px;height:auto;max-height:52px;border-radius:14px;display:block">
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
