@@ -1,0 +1,80 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Live magazijnstatus · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Live magazijnstatus</h1><p>Wat de pickers in de Magazijn-app aftikken, zie je hier direct — voormontage, picken en klaarzetten per order.</p>{% endblock %}
+{% block page_css %}
+  .stats{display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+  .stat{flex:1;min-width:130px;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 16px}
+  .stat b{display:block;font-size:24px;color:var(--accent)}.stat.g b{color:var(--gold)}
+  .stat span{font-size:11.5px;color:var(--muted)}
+  .dsec{margin-bottom:20px}
+  .dhead{display:flex;align-items:center;gap:12px;margin:0 2px 8px}
+  .dhead h2{font-size:16px;color:var(--accent);margin:0}
+  .vmbar{flex:1;max-width:260px;height:8px;border-radius:8px;background:var(--soft);overflow:hidden}
+  .vmbar i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2))}
+  .vmtxt{font-size:12px;color:var(--muted);white-space:nowrap}
+  .tblcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .tblwrap{overflow-x:auto}
+  table.mg{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+  table.mg th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:10px 13px;border-bottom:2px solid var(--line);background:var(--soft)}
+  table.mg td{padding:10px 13px;border-bottom:1px solid var(--line);color:var(--ink)}
+  table.mg tr:last-child td{border-bottom:0}
+  .b{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;white-space:nowrap}
+  .b.todo{background:#f0ece0;color:#8a7a4a}.b.bezig{background:#dbeafe;color:#1e54c8}
+  .b.gepickt{background:#e7f0d8;color:#5a7a1e}.b.klaar{background:#e6f2e0;color:#3b6d11}
+  .who{color:var(--muted)}
+  .pnote{font-size:12px;color:#7a5713;background:#fff8ef;border:1px solid #f0d49a;border-radius:8px;padding:4px 8px;display:inline-block;margin-top:3px}
+  .empty{padding:34px 16px;text-align:center;color:var(--muted)}
+  .paper{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border:1px solid var(--line);color:#375c50;border-radius:12px;padding:12px 14px;font-size:13px;margin-top:6px}
+  .paper svg{width:17px;height:17px;stroke:var(--accent);fill:none;stroke-width:1.8;flex-shrink:0;margin-top:1px}
+{% endblock %}
+{% block content %}
+<div class="stats">
+  <div class="stat"><b>{{ stats.orders }}</b><span>orders ingepland</span></div>
+  <div class="stat g"><b>{{ stats.klaar }}</b><span>klaargezet</span></div>
+  <div class="stat"><b>{{ stats.bezig }}</b><span>bezig met picken</span></div>
+  <div class="stat"><b>{{ stats.vm_open }}</b><span>voormonteren open</span></div>
+</div>
+
+{% for d in days %}
+<div class="dsec">
+  <div class="dhead">
+    <h2>{{ d.label }}</h2>
+    {% if d.vm_total %}
+    <div class="vmbar"><i style="width:{{ (100 * d.vm_done / d.vm_total)|round(0,'floor') }}%"></i></div>
+    <span class="vmtxt">Voormontage {{ d.vm_done }}/{{ d.vm_total }}</span>
+    {% endif %}
+  </div>
+  <div class="tblcard">
+    <div class="tblwrap">
+      <table class="mg">
+        <thead><tr><th>Order</th><th>Klant</th><th>Picken</th><th>Klaargezet</th><th>Gepickt door</th><th>Gecontroleerd</th></tr></thead>
+        <tbody>
+          {% for o in d.orders %}
+          <tr>
+            <td>#{{ o.onum }}</td>
+            <td>{{ o.client or '—' }}{% if o.picker_note %}<div class="pnote">{{ o.picker_note }}</div>{% endif %}</td>
+            <td>
+              {% if o.pick=='klaar' %}<span class="b klaar">Klaar</span>
+              {% elif o.pick=='gepickt' %}<span class="b gepickt">Gepickt</span>
+              {% elif o.pick=='bezig' %}<span class="b bezig">Bezig ({{ o.n_picked }}/{{ o.n_items }})</span>
+              {% else %}<span class="b todo">Nog niet</span>{% endif %}
+            </td>
+            <td>{% if o.klaargezet %}<span class="b klaar">Ja</span>{% else %}<span class="b todo">Nog niet</span>{% endif %}</td>
+            <td class="who">{{ o.gepickt_door or '—' }}</td>
+            <td class="who">{{ o.gecontroleerd_door or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="tblcard"><div class="empty">Geen ingeplande orders vanaf vandaag.</div></div>
+{% endfor %}
+
+<div class="paper">
+  <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></svg>
+  <div><b>Papieren pakbonnen blijven mogelijk.</b> Voor noodgevallen kun je de pakbonnen per leverdag nog steeds downloaden en printen via <a href="{{ url_for('planning.picklijst') }}" style="color:var(--accent);font-weight:600">Pakbonnen</a>.</div>
+</div>
+{% endblock %}
