@@ -553,6 +553,8 @@ def init_db():
         user_email TEXT, user_name TEXT, work_date TEXT, start_time TEXT, end_time TEXT,
         worked_min INTEGER DEFAULT 0, overtime_min INTEGER DEFAULT 0, note TEXT, submitted_at TEXT,
         UNIQUE(monteur_id, work_date));
+    CREATE TABLE IF NOT EXISTS monteur_day_gps(
+        monteur_id INTEGER, date TEXT, home_since TEXT, PRIMARY KEY(monteur_id, date));
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -2321,7 +2323,7 @@ def urenregister():
     if guard:
         return guard
     can_view = has_perm("view_hours")  # inhoud alleen voor wie het recht heeft (standaard beheerder)
-    rows, monteurs_list, week_total, week_ot = [], [], 0, 0
+    entries, monteurs_list, week_total, week_ot, warn_count = [], [], 0, 0, 0
     base = request.args.get("d") or _today_iso()
     try:
         bd = datetime.strptime(base, "%Y-%m-%d").date()
@@ -2346,13 +2348,49 @@ def urenregister():
             q += " AND w.monteur_id=?"; params.append(int(sel_monteur))
         q += " ORDER BY w.work_date, monteur_name"
         rows = conn.execute(q, tuple(params)).fetchall()
+        ws, we = monday.isoformat(), week_end.isoformat()
+        # GPS-thuiskomst per monteur/dag (leidend) + route-afsluiting (terugval)
+        gps = {(r["monteur_id"], r["date"]): r["home_since"] for r in
+               conn.execute("SELECT monteur_id,date,home_since FROM monteur_day_gps WHERE date>=? AND date<=?",
+                            (ws, we)).fetchall() if r["home_since"]}
+        try:
+            closed = {(r["monteur_id"], r["date"]): r["ts"] for r in
+                      conn.execute("SELECT monteur_id,date,ts FROM route_closed WHERE date>=? AND date<=?",
+                                   (ws, we)).fetchall()}
+        except Exception:
+            closed = {}
         conn.close()
-        week_total = sum((r["worked_min"] or 0) for r in rows)
-        week_ot = sum((r["overtime_min"] or 0) for r in rows)
-    return render_template("planning/urenregister.html", can_view=can_view, rows=rows,
+
+        def _mn(hm):
+            try:
+                h, mm = hm.split(":")[:2]
+                return int(h) * 60 + int(mm)
+            except Exception:
+                return None
+
+        for r in rows:
+            key = (r["monteur_id"], r["work_date"])
+            gt, ct = gps.get(key), closed.get(key)
+            ref = gt or ct
+            warn, warn_text = False, ""
+            if ref and r["end_time"]:
+                rt = ref.split("T")[1][:5] if "T" in ref else ref[:5]
+                emin, rmin = _mn(r["end_time"]), _mn(rt)
+                if emin is not None and rmin is not None and emin - rmin >= 30:
+                    warn = True
+                    src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
+                    warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], emin - rmin)
+                    warn_count += 1
+            entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "—",
+                            "start": r["start_time"], "end": r["end_time"],
+                            "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
+                            "note": r["note"] or "", "warn": warn, "warn_text": warn_text})
+        week_total = sum(e["worked_min"] for e in entries)
+        week_ot = sum(e["overtime_min"] for e in entries)
+    return render_template("planning/urenregister.html", can_view=can_view, entries=entries,
                            monteurs=monteurs_list, sel_monteur=sel_monteur, week_label=week_label,
                            prev_week=prev_week, next_week=next_week, week_total=week_total,
-                           week_ot=week_ot, nl_date=_nl_date)
+                           week_ot=week_ot, warn_count=warn_count, nl_date=_nl_date)
 
 
 # --------------------------------------------------------------------------- #

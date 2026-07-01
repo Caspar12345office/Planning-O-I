@@ -22,6 +22,10 @@
   .st{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;background:#e6f2e0;color:#3b6d11}
   table.ur tfoot td{font-weight:700;color:var(--ink);border-top:2px solid var(--line);background:var(--soft)}
   .empty{padding:30px 16px;text-align:center;color:var(--muted);font-size:14px}
+  .notice{display:flex;gap:9px;align-items:flex-start;background:#fdeede;border:1px solid #f0cf9a;color:#8a5a12;border-radius:12px;padding:11px 14px;margin-bottom:14px;font-size:13.5px}
+  .notice svg{width:18px;height:18px;stroke:#c07f1a;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;margin-top:1px}
+  table.ur tr.warnrow td{background:#fdf3e6}
+  .warnbadge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#e0692f;color:#fff;font-weight:800;font-size:13px;margin-left:8px;cursor:help;vertical-align:middle}
 {% endblock %}
 {% block content %}
 {% if not can_view %}
@@ -44,25 +48,31 @@
       </select>
     </form>
   </div>
+  {% if warn_count %}
+  <div class="notice">
+    <svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.1a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+    <div><b>{{ warn_count }} urenregel{{ 'regels' if warn_count>1 else '' }} wijk{{ 'en' if warn_count>1 else 't' }} af</b> — er zijn meer uren ingevuld dan volgens GPS/route daadwerkelijk gewerkt is (30+ min). Herkenbaar aan de <span class="warnbadge" style="width:16px;height:16px;font-size:11px">!</span> in de tabel.</div>
+  </div>
+  {% endif %}
   <div class="tblcard">
     <div class="tblwrap">
       <table class="ur">
         <thead><tr><th>Datum</th><th>Monteur</th><th>Start</th><th>Eind</th><th>Gewerkt</th><th>Overuren</th><th>Opmerking</th><th>Status</th></tr></thead>
         <tbody>
-          {% for r in rows %}
-          <tr>
-            <td>{{ nl_date(r.work_date) }}</td>
-            <td>{{ r.monteur_name or '—' }}</td>
-            <td>{{ r.start_time }}</td>
-            <td>{{ r.end_time }}</td>
-            <td>{{ r.worked_min//60 }}u {{ '%02d'|format(r.worked_min%60) }}m</td>
-            <td class="ov">{% if r.overtime_min %}+{{ r.overtime_min//60 }}u {{ '%02d'|format(r.overtime_min%60) }}m{% else %}—{% endif %}</td>
-            <td>{{ r.note or '' }}</td>
-            <td><span class="st">Doorgegeven</span></td>
+          {% for e in entries %}
+          <tr class="{{ 'warnrow' if e.warn }}">
+            <td>{{ nl_date(e.date) }}</td>
+            <td>{{ e.monteur }}</td>
+            <td>{{ e.start }}</td>
+            <td>{{ e.end }}</td>
+            <td>{{ e.worked_min//60 }}u {{ '%02d'|format(e.worked_min%60) }}m</td>
+            <td class="ov">{% if e.overtime_min %}+{{ e.overtime_min//60 }}u {{ '%02d'|format(e.overtime_min%60) }}m{% else %}—{% endif %}</td>
+            <td>{{ e.note }}</td>
+            <td><span class="st">Doorgegeven</span>{% if e.warn %}<span class="warnbadge" title="{{ e.warn_text }}">!</span>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
-        {% if rows %}
+        {% if entries %}
         <tfoot><tr>
           <td colspan="4">Totaal · {{ week_label }}</td>
           <td>{{ week_total//60 }}u {{ '%02d'|format(week_total%60) }}m</td>
@@ -71,7 +81,7 @@
         </tr></tfoot>
         {% endif %}
       </table>
-      {% if not rows %}<div class="empty">Geen uren doorgegeven in deze week{% if sel_monteur %} voor deze monteur{% endif %}.</div>{% endif %}
+      {% if not entries %}<div class="empty">Geen uren doorgegeven in deze week{% if sel_monteur %} voor deze monteur{% endif %}.</div>{% endif %}
     </div>
   </div>
 {% endif %}
