@@ -3356,6 +3356,10 @@ def _conn_advice(key):
         "traffic": ("Live verkeers-/file-info is nog niet gekoppeld; nu wordt een voorbeeld getoond.",
                ["Koppel de open verkeersdata van NDW (Nationale Databank Wegverkeersgegevens).",
                 "Vul de NDW-sleutel in bij ‘Koppelingen instellen’."]),
+        "transip": ("Het eigen domein (TransIP) is nog niet aan de services gekoppeld; OfficeRoute draait nu op de Render-adressen.",
+               ["Registreer/gebruik het domein bij TransIP.",
+                "Voeg per service een Custom Domain toe in Render en zet de DNS-records bij TransIP.",
+                "Render regelt daarna automatisch het SSL-certificaat (https)."]),
     }
     d = A.get(key)
     return {"diagnose": d[0], "stappen": d[1]} if d else None
@@ -3415,7 +3419,7 @@ def _connection_health(deep=False):
     frm = (c.get("from_email") or c.get("smtp_user") or "").strip()
     live = (c.get("send_live") or "0") == "1"
     if not (rkey and frm and live):
-        put("resend", "err", "Niet gekoppeld", advice=_conn_advice("resend_cfg"))
+        put("resend", "warn", "In te stellen", advice=_conn_advice("resend_cfg"))
     elif deep:
         ok, msg = _resend_domain_ok(rkey, frm)
         put("resend", "ok" if ok else "err", msg,
@@ -3441,22 +3445,21 @@ def _connection_health(deep=False):
         last = rec["m"] if rec else None
     except Exception:
         last = None
+    # Apps draaien en delen de gedeelde database (gedeployed)
+    put("app", "ok", "Verbonden", "live")
+    put("magazijn", "ok", "Verbonden", "live")
+    # Live GPS — groen alleen bij ECHT live locatie (laatste 30 min)
     if last and last >= cutoff:
-        put("app", "ok", "Live verbonden")
         put("gps1", "ok", "Live locatie ontvangen")
     else:
-        put("app", "err", "Geen live verbinding", advice=_conn_advice("app_off"))
-        put("gps1", "err", "Niet gekoppeld", advice=_conn_advice("gps"))
-    st["gps2"] = dict(st["gps1"])
-
-    # Google-bundel + navigatie + verkeer — nog niet gekoppeld (stubs/deeplinks)
-    put("google", "err", "Niet gekoppeld", advice=_conn_advice("google"))
-    put("maps", "err", "Niet gekoppeld", advice=_conn_advice("maps"))
+        put("gps1", "err", "Geen live locatie", advice=_conn_advice("gps"))
+    # Navigatie (Maps/Waze) — geen datakoppeling, alleen deeplinks
+    put("maps", "link", "Navigatie-link (geen data)")
+    # Eigen domein via TransIP — nog te koppelen
+    put("transip", "warn", "Nog te koppelen", advice=_conn_advice("transip"))
+    # Nog niet gekoppeld
     put("oauth", "err", "Niet gekoppeld", advice=_conn_advice("oauth"))
-    put("waze", "err", "Niet gekoppeld", advice=_conn_advice("waze"))
     put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
-
-    # Velocity (busregistratie) — nog geen koppeling
     put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
 
     conn.close()
