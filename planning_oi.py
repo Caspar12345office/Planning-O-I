@@ -605,6 +605,12 @@ def init_db():
             conn.execute(stmt)
         except Exception:
             pass
+    # Eenmalige opschoning bestaande orderregels: merk 'Renab' weghalen (idempotent).
+    try:
+        conn.execute("UPDATE order_items SET name=TRIM(SUBSTR(name,7)) WHERE name LIKE 'Renab %'")
+        conn.commit()
+    except Exception:
+        pass
     # Indexen op veelgebruikte kolommen — houdt queries snel bij meerdere
     # gelijktijdige gebruikers (planning per dag/monteur, orderregels, statussen).
     for idx in ("CREATE INDEX IF NOT EXISTS idx_planning_date ON planning(date)",
@@ -3569,6 +3575,39 @@ def _shopify_cfg():
     return cfg
 
 
+DESK_MODELS = ["Fuse", "Pinta", "Duo", "Now", "Aero", "Rosa"]
+_BLAD_SHORT = {
+    "robuust eiken": "RobEik", "bruin eiken": "BruinEik", "midden eiken": "MidEik",
+    "licht eiken": "LichtEik", "donker eiken": "DonkerEik", "wit eiken": "WitEik",
+    "zwart eiken": "ZwartEik", "naturel eiken": "NatEik",
+}
+
+
+def _blad_short(s):
+    """Korte bladkleur voor snelle herkenning (bv. 'Robuust eiken' -> 'RobEik')."""
+    k = (s or "").strip().lower()
+    return _BLAD_SHORT.get(k, (s or "").strip().replace(" ", ""))
+
+
+def _clean_item_name(li):
+    """Nette, herkenbare artikelnaam voor de planners.
+    - Bureaus (Fuse/Pinta/Duo/Now/Aero/Rosa): 'Model Blad/Frame/Maat', bv. 'Fuse RobEik/Zwart/160'.
+    - Stoelen/overig: merk 'Renab' weghalen (bv. 'Renab Japandi' -> 'Japandi')."""
+    title = (li.get("title") or li.get("name") or "Artikel").strip()
+    variant = (li.get("variant_title") or "").strip()
+    words = title.lower().split()
+    model = next((mdl for mdl in DESK_MODELS if mdl.lower() in words), None)
+    if model:
+        parts = [p.strip() for p in variant.split("/") if p.strip()] if variant else []
+        if parts:
+            parts[0] = _blad_short(parts[0])           # blad afkorten
+            return "%s %s" % (model, "/".join(parts))
+        return model
+    if title.lower().startswith("renab "):
+        title = title[6:].strip()
+    return title
+
+
 def _shopify_import_order(o):
     """Maak van een Shopify-orderpayload een 'in te plannen' order met alle regels
     (ook handmatig toegevoegde/custom producten). Idempotent op shopify_id."""
@@ -3623,9 +3662,8 @@ def _shopify_import_order(o):
                   amount, note, service, gid, _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     for li in (o.get("line_items") or []):
-        title = (li.get("title") or li.get("name") or "Artikel").strip()
         qty = int(li.get("quantity") or 1)
-        conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, title, qty))
+        conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, _clean_item_name(li), qty))
     conn.commit()
     conn.close()
     return "ok"
