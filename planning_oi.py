@@ -3593,11 +3593,18 @@ def _shopify_import_order(o):
     full = ", ".join([p for p in [address1, (postal + " " + city).strip()] if p])
     amount = float(o.get("total_price") or 0)
     note = (o.get("note") or "").strip()
-    # Montage (M) of levering (L) afleiden: 'montage' in een artikel, verzendmethode of notitie.
+    # Montage (M) of levering (L) afleiden uit de Shopify-verzendmethode/artikelen/notitie.
+    # Shopify-teksten: "Delivery including installation ..." = montage,
+    #                  "Delivery without installation ..."  = levering.
     _blob = (" ".join((li.get("title") or li.get("name") or "") for li in (o.get("line_items") or []))
              + " " + " ".join((sl.get("title") or sl.get("code") or "") for sl in (o.get("shipping_lines") or []))
              + " " + note).lower()
-    service = "montage" if "montage" in _blob else "levering"
+    if "without installation" in _blob or "zonder montage" in _blob or "no installation" in _blob:
+        service = "levering"
+    elif "installation" in _blob or "montage" in _blob:
+        service = "montage"
+    else:
+        service = "levering"
     cl = None
     if email:
         cl = conn.execute("SELECT id FROM clients WHERE lower(email)=?", (email.lower(),)).fetchone()
