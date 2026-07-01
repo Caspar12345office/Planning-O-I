@@ -32,8 +32,27 @@
   .empty{padding:34px 16px;text-align:center;color:var(--muted)}
   .paper{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border:1px solid var(--line);color:#375c50;border-radius:12px;padding:12px 14px;font-size:13px;margin-top:6px}
   .paper svg{width:17px;height:17px;stroke:var(--accent);fill:none;stroke-width:1.8;flex-shrink:0;margin-top:1px}
+  .rchip{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#f0ece0;color:#8a7a4a}
+  .rchip.bezig{background:#dbeafe;color:#1e54c8}.rchip.pauze{background:#fbeccd;color:#9a6a17}.rchip.klaar{background:#e6f2e0;color:#3b6d11}
+  .routes{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .notif{background:#eaf4e4;border:1px solid #cfe8c2;color:#3b6d11;border-radius:12px;padding:11px 14px;margin-bottom:16px;font-size:13.5px}
+  .notif b{display:block;margin-bottom:3px}
+  .taskpanel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin:20px 0}
+  .taskpanel h2{font-size:16px;color:var(--accent);margin:0 0 10px}
+  .taskform{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .taskform select,.taskform input{padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13.5px;background:var(--panel);color:var(--ink)}
+  .taskform input{flex:1;min-width:200px}
+  .trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .trow .tw{flex:1}.trow .tw small{color:var(--muted);font-size:11.5px}
+  .trow.tdone .tw{color:var(--muted);text-decoration:line-through}
+  .tstat{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px}
+  .tstat.open{background:#f0ece0;color:#8a7a4a}.tstat.done{background:#e6f2e0;color:#3b6d11}
+  .tdel{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;text-decoration:underline}
 {% endblock %}
 {% block content %}
+{% for n in notes %}
+<div class="notif"><b>Taak afgerond</b>{{ n.text }}</div>
+{% endfor %}
 <div class="stats">
   <div class="stat"><b>{{ stats.orders }}</b><span>orders ingepland</span></div>
   <div class="stat g"><b>{{ stats.klaar }}</b><span>klaargezet</span></div>
@@ -50,6 +69,7 @@
     <div class="vmbar"><i style="width:{{ (100 * d.vm_done / d.vm_total)|round(0,'floor') }}%"></i></div>
     <span class="vmtxt">Voormontage {{ d.vm_done }}/{{ d.vm_total }}</span>
     {% endif %}
+    {% if d.routes %}<div class="routes">{% for r in d.routes %}<span class="rchip {{ r.status }}" title="Route picken">{{ r.name }}: {{ r.label }}</span>{% endfor %}</div>{% endif %}
   </div>
   <div class="tblcard">
     <div class="tblwrap">
@@ -84,6 +104,27 @@
 {% else %}
 <div class="tblcard"><div class="empty">Geen ingeplande orders vanaf vandaag.</div></div>
 {% endfor %}
+
+<div class="taskpanel">
+  <h2>Overige taken voor het magazijn</h2>
+  <form class="taskform" method="post" action="{{ url_for('planning.magazijn_taak') }}">
+    <select name="picker_id" required>
+      <option value="">Kies picker…</option>
+      {% for p in pickers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <input name="text" maxlength="200" placeholder="Taak, bijv. 'Retour Studio Noord uitpakken en controleren'" required>
+    <button class="btn primary sm" type="submit">Toewijzen</button>
+  </form>
+  {% for t in tasks %}
+  <div class="trow {{ 'tdone' if t.done }}">
+    <span class="tstat {{ 'done' if t.done else 'open' }}">{{ 'Afgerond' if t.done else 'Open' }}</span>
+    <div class="tw">{{ t.text }}<br><small>Voor {{ t.picker_name }} · door {{ t.assigned_by }}{% if t.done and t.done_at %} · afgerond {{ t.done_at }}{% endif %}</small></div>
+    <form method="post" action="{{ url_for('planning.magazijn_taak_delete', tid=t.id) }}"><button class="tdel" type="submit" title="Verwijderen">verwijderen</button></form>
+  </div>
+  {% else %}
+  <div class="who" style="font-size:13px">Nog geen taken toegewezen.</div>
+  {% endfor %}
+</div>
 
 <div class="paper">
   <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6z"/><path d="M9 12h7M9 16h7M9 8h3"/></svg>

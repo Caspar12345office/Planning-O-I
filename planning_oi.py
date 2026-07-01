@@ -569,6 +569,14 @@ def init_db():
     CREATE TABLE IF NOT EXISTS voormontage_done(
         work_date TEXT, item_name TEXT, done INTEGER DEFAULT 0, done_by TEXT, done_at TEXT,
         PRIMARY KEY(work_date, item_name));
+    CREATE TABLE IF NOT EXISTS picker_tasks(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, picker_id INTEGER, picker_name TEXT, text TEXT,
+        assigned_by TEXT, created_at TEXT, done INTEGER DEFAULT 0, done_at TEXT);
+    CREATE TABLE IF NOT EXISTS office_notifications(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, recipient TEXT, text TEXT, created_at TEXT, seen INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS route_pick(
+        monteur_id INTEGER, date TEXT, status TEXT DEFAULT 'bezig', picker_name TEXT,
+        started_at TEXT, updated_at TEXT, PRIMARY KEY(monteur_id, date));
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -988,8 +996,7 @@ NAV = [
     {"label": "Magazijn", "icon": "warehouse", "perm": "view_preassembly", "children": [
         {"label": "Live magazijnstatus", "endpoint": "planning.magazijn", "icon": "warehouse", "perm": "view_magazijn"},
         {"label": "Voormonteren", "endpoint": "planning.voormonteren", "icon": "wrench", "perm": "view_preassembly"},
-        {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"},
-        {"label": "Magazijn-accounts", "endpoint": "planning.magazijn_accounts", "icon": "users", "perm": "manage_users"}]},
+        {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents",
      "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
@@ -2697,6 +2704,7 @@ def _magazijn_overview(conn):
     rows = conn.execute("""
         SELECT o.id AS oid, o.order_number AS onum, o.service_type AS service, p.date AS date,
                c.name AS client, o.delivery_address AS addr, o.city AS city,
+               p.monteur_id AS monteur_id, mo.name AS monteur,
                (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items,
                (SELECT COUNT(*) FROM order_items WHERE order_id=o.id AND picked=1) AS n_picked,
                mg.gepickt_door AS gepickt_door, mg.gecontroleerd_door AS gecontroleerd_door,
@@ -2704,10 +2712,13 @@ def _magazijn_overview(conn):
                mg.manco AS manco, mg.manco_note AS manco_note, mg.manco_by AS manco_by
         FROM planning p JOIN orders o ON o.id=p.order_id
         LEFT JOIN clients c ON c.id=o.client_id
+        LEFT JOIN monteurs mo ON mo.id=p.monteur_id
         LEFT JOIN order_magazijn mg ON mg.order_id=o.id
         WHERE p.date>=? AND p.status!='afgerond'
         ORDER BY p.date, p.sequence, o.order_number
     """, (today,)).fetchall()
+    routepick = {(r["monteur_id"], r["date"]): r["status"] for r in
+                 conn.execute("SELECT monteur_id,date,status FROM route_pick WHERE date>=?", (today,)).fetchall()}
     done = {(r["work_date"], r["item_name"]) for r in
             conn.execute("SELECT work_date,item_name FROM voormontage_done WHERE done=1").fetchall()}
     vm = conn.execute("""SELECT DISTINCT p.date AS date, oi.name AS name FROM planning p
@@ -2736,13 +2747,22 @@ def _magazijn_overview(conn):
             stat_bezig += 1
         if r["manco"]:
             stat_manco += 1
-        d = days.setdefault(r["date"], {"date": r["date"], "label": _nl_date(r["date"]), "orders": []})
+        d = days.setdefault(r["date"], {"date": r["date"], "label": _nl_date(r["date"]),
+                                        "orders": [], "_monteurs": {}})
         d["orders"].append({**dict(r), "pick": pick})
+        d["_monteurs"][r["monteur_id"] or 0] = (r["monteur"] or "Niet toegewezen")
+    _RLBL = {"bezig": "Bezig met picken", "pauze": "Pauze", "klaar": "Picken klaar"}
     day_list = []
     for d in sorted(days.keys()):
         vmd = vm_by_day.get(d, {"total": 0, "done": 0})
         stat_vm_open += max(0, vmd["total"] - vmd["done"])
-        day_list.append({**days[d], "vm_total": vmd["total"], "vm_done": vmd["done"]})
+        routes = []
+        for mid, nm in sorted(days[d]["_monteurs"].items(), key=lambda x: (x[1] or "")):
+            st = routepick.get((mid, d), "niet_begonnen")
+            routes.append({"monteur_id": mid, "name": nm, "status": st,
+                           "label": _RLBL.get(st, "Niet begonnen")})
+        day_list.append({"date": days[d]["date"], "label": days[d]["label"], "orders": days[d]["orders"],
+                         "vm_total": vmd["total"], "vm_done": vmd["done"], "routes": routes})
     stats = {"orders": len(rows), "klaar": stat_klaar, "bezig": stat_bezig,
              "vm_open": stat_vm_open, "manco": stat_manco}
     return day_list, stats
@@ -2753,11 +2773,57 @@ def magazijn():
     guard = login_required("view_magazijn")
     if guard:
         return guard
+    u = current_user()
     conn = db()
     days, stats = _magazijn_overview(conn)
+    cutoff = (datetime.now() - timedelta(hours=24)).isoformat(timespec="minutes")
+    tasks = conn.execute("""SELECT * FROM picker_tasks WHERE done=0 OR (done_at IS NOT NULL AND done_at>=?)
+                            ORDER BY done, created_at DESC""", (cutoff,)).fetchall()
+    pickers = conn.execute("SELECT id,name FROM users WHERE role='picker' AND active=1 ORDER BY name").fetchall()
+    notes = []
+    if u:
+        notes = conn.execute("SELECT id,text,created_at FROM office_notifications WHERE recipient=? AND seen=0 "
+                             "ORDER BY id DESC", (u["name"],)).fetchall()
+        if notes:
+            conn.execute("UPDATE office_notifications SET seen=1 WHERE recipient=? AND seen=0", (u["name"],))
+            conn.commit()
     conn.close()
     return render_template("planning/magazijn_status.html", days=days, stats=stats, today=_today_iso(),
-                           can_resolve=has_perm("view_magazijn"))
+                           can_resolve=has_perm("view_magazijn"), tasks=tasks, pickers=pickers, notes=notes)
+
+
+@bp.route("/magazijn/taak", methods=["POST"])
+def magazijn_taak():
+    guard = login_required("view_magazijn")
+    if guard:
+        return guard
+    u = current_user()
+    pid = request.form.get("picker_id")
+    text = (request.form.get("text") or "").strip()[:200]
+    if pid and text:
+        conn = db()
+        pk = conn.execute("SELECT name FROM users WHERE id=?", (pid,)).fetchone()
+        conn.execute("""INSERT INTO picker_tasks(picker_id,picker_name,text,assigned_by,created_at,done)
+                        VALUES(?,?,?,?,?,0)""",
+                     (pid, (pk["name"] if pk else ""), text, (u["name"] if u else ""),
+                      datetime.now().isoformat(timespec="minutes")))
+        conn.commit()
+        conn.close()
+        flash("Taak toegewezen aan %s." % (pk["name"] if pk else "picker"))
+    return redirect(url_for("planning.magazijn"))
+
+
+@bp.route("/magazijn/taak/<int:tid>/verwijderen", methods=["POST"])
+def magazijn_taak_delete(tid):
+    guard = login_required("view_magazijn")
+    if guard:
+        return guard
+    conn = db()
+    conn.execute("DELETE FROM picker_tasks WHERE id=?", (tid,))
+    conn.commit()
+    conn.close()
+    flash("Taak verwijderd.")
+    return redirect(url_for("planning.magazijn"))
 
 
 @bp.route("/magazijn/manco/vrijgeven", methods=["POST"])
@@ -2786,50 +2852,26 @@ _PICKER_DEFAULTS = [
 _PICKER_DEFAULT_PW = "Magazijn2026!"
 
 
-@bp.route("/magazijn/accounts", methods=["GET", "POST"])
-def magazijn_accounts():
+@bp.route("/users/picker-defaults", methods=["POST"])
+def users_picker_defaults():
+    """Snel de standaard picker-accounts aanmaken (vanaf de Gebruikers-pagina)."""
     guard = login_required("manage_users")
     if guard:
         return guard
     conn = db()
-    if request.method == "POST":
-        action = request.form.get("action")
-        if action == "create_default":
-            made = []
-            for name, email in _PICKER_DEFAULTS:
-                if not conn.execute("SELECT id FROM users WHERE lower(email)=?", (email.lower(),)).fetchone():
-                    conn.execute("""INSERT INTO users(name,email,password,role,permissions,active,created_at)
-                                    VALUES(?,?,?,?,?,1,?)""",
-                                 (name, email.lower(), _hash_pw(_PICKER_DEFAULT_PW), "picker",
-                                  json.dumps(list(ROLE_DEFAULTS["picker"])), _today_iso()))
-                    made.append(name)
-            conn.commit()
-            flash("Picker-accounts aangemaakt: %s. Wachtwoord: %s (laat ze dit wijzigen)."
-                  % (", ".join(made) if made else "geen nieuwe", _PICKER_DEFAULT_PW))
-        elif action == "create":
-            name = (request.form.get("name") or "").strip()
-            email = (request.form.get("email") or "").strip().lower()
-            pw = (request.form.get("password") or "").strip() or _PICKER_DEFAULT_PW
-            if name and email and not conn.execute("SELECT id FROM users WHERE lower(email)=?", (email,)).fetchone():
-                conn.execute("""INSERT INTO users(name,email,password,role,permissions,active,created_at)
-                                VALUES(?,?,?,?,?,1,?)""",
-                             (name, email, _hash_pw(pw), "picker",
-                              json.dumps(list(ROLE_DEFAULTS["picker"])), _today_iso()))
-                conn.commit()
-                flash("Picker %s aangemaakt (wachtwoord: %s)." % (name, pw))
-            else:
-                flash("Naam + e-mail verplicht, en e-mail mag niet bestaan.")
-        elif action == "toggle":
-            uid = request.form.get("uid")
-            conn.execute("UPDATE users SET active = CASE WHEN active=1 THEN 0 ELSE 1 END WHERE id=? AND role='picker'", (uid,))
-            conn.commit()
-            flash("Account bijgewerkt.")
-        conn.close()
-        return redirect(url_for("planning.magazijn_accounts"))
-    pickers = conn.execute("SELECT id,name,email,active FROM users WHERE role='picker' ORDER BY name").fetchall()
+    made = []
+    for name, email in _PICKER_DEFAULTS:
+        if not conn.execute("SELECT id FROM users WHERE lower(email)=?", (email.lower(),)).fetchone():
+            conn.execute("""INSERT INTO users(name,email,password,role,permissions,active,created_at)
+                            VALUES(?,?,?,?,?,1,?)""",
+                         (name, email.lower(), _hash_pw(_PICKER_DEFAULT_PW), "picker",
+                          json.dumps(list(ROLE_DEFAULTS["picker"])), _today_iso()))
+            made.append(name)
+    conn.commit()
     conn.close()
-    return render_template("planning/magazijn_accounts.html", pickers=pickers, max_accounts=5,
-                           default_pw=_PICKER_DEFAULT_PW)
+    flash("Picker-accounts aangemaakt: %s. Wachtwoord: %s (laat ze dit wijzigen)."
+          % (", ".join(made) if made else "geen nieuwe (bestonden al)", _PICKER_DEFAULT_PW))
+    return redirect(url_for("planning.users"))
 
 
 def _picklist_orders(conn, date):
