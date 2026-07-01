@@ -582,6 +582,10 @@ def init_db():
         started_at TEXT, updated_at TEXT, PRIMARY KEY(monteur_id, date));
     CREATE TABLE IF NOT EXISTS day_roster(
         date TEXT, monteur_id INTEGER, PRIMARY KEY(date, monteur_id));
+    CREATE TABLE IF NOT EXISTS products(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
+        m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
+        m4 INTEGER DEFAULT 0, m5 INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -1026,6 +1030,7 @@ NAV = [
         {"label": "Live status koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
         {"label": "Koppelingen instellen", "endpoint": "planning.integrations", "icon": "gear", "perm": "manage_integrations"},
         {"label": "Automatische e-mails", "endpoint": "planning.email_templates", "icon": "mail", "perm": "manage_settings"},
+        {"label": "Artikelen", "endpoint": "planning.products", "icon": "box", "perm": "manage_settings"},
         {"label": "Gebruikers", "endpoint": "planning.users", "icon": "users", "perm": "manage_users"}]},
 ]
 
@@ -1800,6 +1805,18 @@ def planning():
     addable = [m for m in monteurs if m["id"] not in shown_ids]
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
+    # Montagetijd (workload) per order uit de artikelcatalogus (val terug op order.montage_min).
+    _prods = _load_products(conn)
+    montage_map = {}
+    if jobs:
+        _oids = [j["order_id"] for j in jobs]
+        _by_o = {}
+        for r in conn.execute("SELECT order_id,name,qty FROM order_items WHERE order_id IN (%s)"
+                              % ",".join("?" * len(_oids)), tuple(_oids)).fetchall():
+            _by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"]})
+        for j in jobs:
+            montage_map[j["order_id"]] = _order_montage(_by_o.get(j["order_id"], []), _prods,
+                                                        fallback=(j["montage_min"] or 0))
 
     is_today = (day == _today_iso())
     raw, totals = {}, {}
@@ -1825,7 +1842,7 @@ def planning():
             enriched.append(d2)
         routes_by_m[m["id"]] = enriched
         if rj:
-            montage = sum((j["montage_min"] or 0) for j in rj)
+            montage = sum(montage_map.get(j["order_id"], j["montage_min"] or 0) for j in rj)
             coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
             for j in rj:
                 coords.append(CITY_COORDS.get(j["city"], BREDA))
@@ -3608,6 +3625,127 @@ def _clean_item_name(li):
     return title
 
 
+def _int(v, d=0):
+    try:
+        return int(float(v))
+    except Exception:
+        return d
+
+
+def _load_products(conn):
+    try:
+        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5 FROM products WHERE active=1").fetchall()
+    except Exception:
+        return []
+    out = []
+    for r in rows:
+        out.append({"name": (r["name"] or "").strip().lower(),
+                    "display": (r["display_name"] or "").strip(),
+                    "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0]})
+    return out
+
+
+def _match_product(item_name, products):
+    nl = (item_name or "").lower()
+    words = nl.replace("/", " ").split()
+    for p in products:
+        pn = p["name"]
+        if pn and (pn in words or nl.startswith(pn)):
+            return p
+    return None
+
+
+def _montage_for_qty(tiers, qty):
+    """Montagetijd voor een aantal stuks o.b.v. de 1-5-tarieven.
+    >5 stuks = zoveel volle blokken van 5 (× tarief-5) + de rest volgens het reststuk-tarief.
+    Lege tarieven vallen lineair terug op het 1-stuks-tarief."""
+    if qty <= 0:
+        return 0
+    m1 = tiers[0] or 0
+
+    def tier(n):   # tijd voor n stuks (1..5)
+        return tiers[n - 1] if tiers[n - 1] else m1 * n
+    if qty <= 5:
+        return tier(qty)
+    full, rem = divmod(qty, 5)
+    return tier(5) * full + (tier(rem) if rem else 0)
+
+
+def _order_montage(items, products, fallback=0):
+    total, matched = 0, False
+    for it in items:
+        p = _match_product(it["name"], products)
+        if p:
+            total += _montage_for_qty(p["tiers"], int(it["qty"] or 1))
+            matched = True
+    return total if matched else fallback
+
+
+@bp.route("/products", methods=["GET", "POST"])
+def products():
+    guard = login_required("manage_settings")
+    if guard:
+        return guard
+    conn = db()
+    if request.method == "POST":
+        act = request.form.get("action")
+        if act == "add":
+            name = (request.form.get("name") or "").strip()
+            if name:
+                conn.execute("""INSERT INTO products(name,display_name,m1,m2,m3,m4,m5,active,created_at)
+                                VALUES(?,?,?,?,?,?,?,1,?)""",
+                             (name, (request.form.get("display_name") or "").strip(),
+                              _int(request.form.get("m1")), _int(request.form.get("m2")), _int(request.form.get("m3")),
+                              _int(request.form.get("m4")), _int(request.form.get("m5")), _today_iso()))
+                conn.commit()
+                flash("Artikel toegevoegd.")
+            else:
+                flash("Geef een (herkennings)naam op.")
+        elif act == "seed_desks":
+            n = 0
+            for mdl in DESK_MODELS:
+                if not conn.execute("SELECT 1 FROM products WHERE lower(name)=?", (mdl.lower(),)).fetchone():
+                    conn.execute("INSERT INTO products(name,active,created_at) VALUES(?,1,?)", (mdl, _today_iso()))
+                    n += 1
+            conn.commit()
+            flash("%d standaard bureaus toegevoegd — vul de montagetijden nog aan." % n)
+        conn.close()
+        return redirect(url_for("planning.products"))
+    rows = conn.execute("SELECT * FROM products ORDER BY active DESC, name").fetchall()
+    conn.close()
+    return render_template("planning/products.html", products=rows)
+
+
+@bp.route("/products/<int:pid>/edit", methods=["POST"])
+def product_edit(pid):
+    guard = login_required("manage_settings")
+    if guard:
+        return guard
+    f = request.form
+    conn = db()
+    conn.execute("UPDATE products SET name=?,display_name=?,m1=?,m2=?,m3=?,m4=?,m5=?,active=? WHERE id=?",
+                 ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(),
+                  _int(f.get("m1")), _int(f.get("m2")), _int(f.get("m3")), _int(f.get("m4")), _int(f.get("m5")),
+                  1 if f.get("active") else 0, pid))
+    conn.commit()
+    conn.close()
+    flash("Artikel bijgewerkt.")
+    return redirect(url_for("planning.products"))
+
+
+@bp.route("/products/<int:pid>/delete", methods=["POST"])
+def product_delete(pid):
+    guard = login_required("manage_settings")
+    if guard:
+        return guard
+    conn = db()
+    conn.execute("DELETE FROM products WHERE id=?", (pid,))
+    conn.commit()
+    conn.close()
+    flash("Artikel verwijderd.")
+    return redirect(url_for("planning.products"))
+
+
 def _shopify_import_order(o):
     """Maak van een Shopify-orderpayload een 'in te plannen' order met alle regels
     (ook handmatig toegevoegde/custom producten). Idempotent op shopify_id."""
@@ -3664,6 +3802,12 @@ def _shopify_import_order(o):
     for li in (o.get("line_items") or []):
         qty = int(li.get("quantity") or 1)
         conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, _clean_item_name(li), qty))
+    # Montagetijd (workload) uit de artikelcatalogus afleiden.
+    prods = _load_products(conn)
+    itr = conn.execute("SELECT name,qty FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    mm = _order_montage([{"name": r["name"], "qty": r["qty"]} for r in itr], prods, fallback=0)
+    if mm:
+        conn.execute("UPDATE orders SET montage_min=? WHERE id=?", (mm, oid))
     conn.commit()
     conn.close()
     return "ok"
