@@ -157,7 +157,8 @@ got_request_exception.connect(_record_app_error)
 
 
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
-_NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings"}
+_NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
+                 "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps"}
 
 
 def _sub_placeholders(sql):
@@ -577,6 +578,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS route_pick(
         monteur_id INTEGER, date TEXT, status TEXT DEFAULT 'bezig', picker_name TEXT,
         started_at TEXT, updated_at TEXT, PRIMARY KEY(monteur_id, date));
+    CREATE TABLE IF NOT EXISTS day_roster(
+        date TEXT, monteur_id INTEGER, PRIMARY KEY(date, monteur_id));
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -1697,6 +1700,63 @@ def api_question_resolve(qid):
 # --------------------------------------------------------------------------- #
 #  Planning (dagweergave in routeblokken, zoals het vertrouwde overzicht)
 # --------------------------------------------------------------------------- #
+def _ensure_roster(conn, day, monteurs):
+    """Zet, als er nog geen roster voor deze dag is, de standaard-monteurs klaar
+    zodat toevoegen/verwijderen daarna expliciet per dag werkt."""
+    if not conn.execute("SELECT 1 FROM day_roster WHERE date=? LIMIT 1", (day,)).fetchone():
+        for m in monteurs:
+            if m["standard"]:
+                conn.execute("INSERT OR IGNORE INTO day_roster(date,monteur_id) VALUES(?,?)", (day, m["id"]))
+
+
+def _day_roster_ids(conn, day, monteurs, job_mids):
+    """Welke monteurs verschijnen op deze dag: het dag-roster (of standaard-monteurs
+    als er nog geen roster is) plus iedereen die al stops heeft."""
+    rows = conn.execute("SELECT monteur_id FROM day_roster WHERE date=?", (day,)).fetchall()
+    base = {r["monteur_id"] for r in rows} if rows else {m["id"] for m in monteurs if m["standard"]}
+    return base | set(job_mids)
+
+
+@bp.route("/planning/roster/add", methods=["POST"])
+def roster_add():
+    guard = login_required("edit_planning")
+    if guard:
+        return guard
+    day = request.form.get("day") or _today_iso()
+    mid = request.form.get("monteur_id")
+    if mid:
+        conn = db()
+        mons = conn.execute("SELECT id,standard FROM monteurs WHERE active=1").fetchall()
+        _ensure_roster(conn, day, mons)
+        conn.execute("INSERT OR IGNORE INTO day_roster(date,monteur_id) VALUES(?,?)", (day, mid))
+        conn.commit()
+        conn.close()
+        flash("Monteur toegevoegd aan deze dag.")
+    return redirect(url_for("planning.planning", day=day))
+
+
+@bp.route("/planning/roster/remove", methods=["POST"])
+def roster_remove():
+    guard = login_required("edit_planning")
+    if guard:
+        return guard
+    day = request.form.get("day") or _today_iso()
+    mid = request.form.get("monteur_id")
+    if mid:
+        conn = db()
+        if conn.execute("SELECT 1 FROM planning WHERE date=? AND monteur_id=?", (day, mid)).fetchone():
+            conn.close()
+            flash("Deze monteur heeft nog stops op deze dag — sleep die er eerst af.")
+            return redirect(url_for("planning.planning", day=day))
+        mons = conn.execute("SELECT id,standard FROM monteurs WHERE active=1").fetchall()
+        _ensure_roster(conn, day, mons)
+        conn.execute("DELETE FROM day_roster WHERE date=? AND monteur_id=?", (day, mid))
+        conn.commit()
+        conn.close()
+        flash("Monteur van deze dag gehaald.")
+    return redirect(url_for("planning.planning", day=day))
+
+
 @bp.route("/planning")
 def planning():
     guard = login_required("view_planning")
@@ -1718,6 +1778,9 @@ def planning():
                              + ("o.id ASC" if usort == "oud" else "o.id DESC")).fetchall()
     frees = {r["monteur_id"]: r["type"] for r in
              conn.execute("SELECT * FROM free_days WHERE date_from<=? AND date_to>=?", (day, day)).fetchall()}
+    job_mids = {j["monteur_id"] for j in jobs if j["monteur_id"]}
+    shown_ids = _day_roster_ids(conn, day, monteurs, job_mids)
+    addable = [m for m in monteurs if m["id"] not in shown_ids]
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
 
@@ -1767,7 +1830,8 @@ def planning():
                            unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
                            day_label=day_label, dn=["ma", "di", "wo", "do", "vr"],
-                           can_edit=has_perm("edit_planning"), usort=usort)
+                           can_edit=has_perm("edit_planning"), usort=usort,
+                           shown_ids=shown_ids, addable=addable)
 
 
 @bp.route("/api/assign", methods=["POST"])

@@ -83,11 +83,18 @@
   <span class="lbl">{{ day_label }}</span>
   <a href="{{ url_for('planning.planning') }}?day={{ next_day }}">Volgende <svg class="ico"><use href="#ic-arrow-right"/></svg></a>
   <a href="{{ url_for('planning.planning') }}">Vandaag</a>
-  <input type="date" value="{{ day }}" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">
+  <span style="font-weight:600;color:var(--muted);font-size:13px;margin-left:4px">Ga naar dag:</span>
+  <input type="date" value="{{ day }}" title="Kies een dag — ook ver vooruit" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">
   {% if can_edit %}
   <span style="flex:1"></span>
   <button class="btn ghost sm" onclick="document.getElementById('manualModal').style.display='flex'">+ Handmatig adres</button>
-  <button class="btn ghost sm" id="incBtn" onclick="toggleInc(this)">+ Incidentele monteurs</button>
+  <form method="post" action="{{ url_for('planning.roster_add') }}" style="margin:0">
+    <input type="hidden" name="day" value="{{ day }}">
+    <select name="monteur_id" onchange="if(this.value)this.form.submit()" class="btn ghost sm" style="cursor:pointer;padding-right:8px">
+      <option value="">+ Monteur toevoegen</option>
+      {% for m in addable %}<option value="{{ m.id }}">{{ m.name }}{{ ' (incidenteel)' if not m.standard }}</option>{% endfor %}
+    </select>
+  </form>
   <button class="btn ghost sm" id="workBtn" onclick="toggleWork(this)">Verberg niet-werkenden</button>
   <button class="btn gold sm" onclick="autoPlan(this)" title="Plant openstaande Shopify-orders automatisch op de best passende dag/route"><svg class="ico"><use href="#ic-bolt"/></svg> Automatisch inplannen</button>
   <button class="btn primary sm" onclick="sendConfirmations(this)" title="Stuurt de leveringsmail naar iedereen die nog niet bevestigd is én nog geen mail kreeg (geen dubbele mails)">📧 Mail iedereen</button>
@@ -119,16 +126,15 @@
       <div class="cl">{{ o.client }}</div>
       <div class="it">{{ items.get(o.id, '—') }}</div>
     </div>
-    {% else %}<p class="hint">Alles is ingepland. 🎉</p>{% endfor %}
+    {% else %}<p class="hint">Alles is ingepland.</p>{% endfor %}
   </div>
 </div>
 
 <div class="blocks">
-{% for m in monteurs %}
+{% for m in monteurs if m.id in shown_ids %}
 {% set rj = routes.get(m.id, []) %}
 {% set t = totals.get(m.id, {}) %}
-{% set hidden = (not m.standard) and (rj|length == 0) %}
-<div class="route {{ 'inc-hidden' if hidden }}" data-monteur="{{ m.id }}" data-working="{{ 0 if frees.get(m.id) else 1 }}" {% if hidden %}style="display:none"{% endif %}>
+<div class="route" data-monteur="{{ m.id }}" data-working="{{ 0 if frees.get(m.id) else 1 }}">
   <div class="rhead" style="background:linear-gradient(135deg,{{ m.color or '#0f3d3e' }},#0f3d3e)">
     <span class="sw"></span>
     <span class="mn">{{ m.name }}</span>
@@ -141,6 +147,7 @@
     {% if t.stops %}<span class="exp" title="Bekijk route op kaart" onclick="showRouteMap(event,{{ m.id }},'{{ m.name|e }}')"><svg class="ico"><use href="#ic-map"/></svg></span>{% endif %}
     {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer stopvolgorde (kortste route)" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
     <span class="exp" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
+    {% if can_edit and not t.stops %}<form method="post" action="{{ url_for('planning.roster_remove') }}" style="margin:0;display:inline" onsubmit="return confirm('{{ m.name|e }} van deze dag halen?')"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="monteur_id" value="{{ m.id }}"><button class="exp" type="submit" title="Haal deze monteur van deze dag">✕</button></form>{% endif %}
     <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
   <table class="rtbl">
