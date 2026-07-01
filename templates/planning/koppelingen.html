@@ -47,8 +47,8 @@
   {'id':'shopify','x':50.0,'y':9.0,'nm':'Shopify','logo':'shopify','c':'#7AB55C','lw':26,'sub':'orders (webhook)'},
   {'id':'transip','x':26.0,'y':13.0,'nm':'TransIP','icon':'ic-link','c':'#0a3aa6','sub':'domein / DNS'},
   {'id':'resend','x':74.0,'y':13.0,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19,'sub':'e-mail'},
-  {'id':'app','x':10.0,'y':45.0,'nm':'Monteurs-app','app':'pin','sub':'route · uren'},
-  {'id':'magazijn','x':90.0,'y':45.0,'nm':'Magazijn-app','app':'m','sub':'picken'},
+  {'id':'app','x':10.0,'y':45.0,'nm':'Monteurs-app','app':'monteurs','sub':'route · uren'},
+  {'id':'magazijn','x':90.0,'y':45.0,'nm':'Magazijn-app','app':'magazijn','sub':'picken'},
   {'id':'render','x':25.0,'y':84.0,'nm':'Render','logo':'render','c':'#1f1f1f','lw':24,'sub':'hosting'},
   {'id':'db','x':50.0,'y':92.0,'nm':'Database','logo':'postgresql','c':'#336791','lw':30,'sub':'PostgreSQL · gedeeld'},
   {'id':'backend','x':75.0,'y':84.0,'nm':'Python / Flask','logo':'python','c':'#3776AB','lw':28,'sub':'backend ↔ DB'},
@@ -98,10 +98,8 @@
   {% for n in NODES %}{% set s = health.get(n.id,{}).get('status','ok') %}
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
-      {%- if n.app=='pin' -%}
-        <svg class="appimg" width="56" height="56" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="205" r="96" fill="none" stroke="#cda35a" stroke-width="44"/><rect x="234" y="250" width="44" height="166" rx="22" fill="#cda35a"/></svg>
-      {%- elif n.app=='m' -%}
-        <svg class="appimg" width="56" height="56" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M158 430 158 300 256 384 354 300 354 430" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      {%- if n.app -%}
+        <img class="appimg" src="{{ url_for('static', filename='logos/' + n.app + '.svg') }}" width="56" height="56" alt="{{ n.nm }}">
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
