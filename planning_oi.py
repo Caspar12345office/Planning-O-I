@@ -2326,32 +2326,50 @@ def urenregister():
     if guard:
         return guard
     can_view = has_perm("view_hours")  # inhoud alleen voor wie het recht heeft (standaard beheerder)
-    entries, monteurs_list, week_total, week_ot, warn_count = [], [], 0, 0, 0
-    base = request.args.get("d") or _today_iso()
-    try:
-        bd = datetime.strptime(base, "%Y-%m-%d").date()
-    except Exception:
-        bd = datetime.now().date()
-    monday = bd - timedelta(days=bd.weekday())
-    week_end = monday + timedelta(days=6)
-    week_no = monday.isocalendar()[1]
-    week_label = "Week %d · %d %s – %d %s" % (week_no, monday.day, _NL_MONTHS[monday.month][:3],
-                                              week_end.day, _NL_MONTHS[week_end.month][:3])
-    prev_week = (monday - timedelta(days=7)).isoformat()
-    next_week = (monday + timedelta(days=7)).isoformat()
+    entries, monteurs_list, range_total, range_ot, warn_count = [], [], 0, 0, 0
     sel_monteur = request.args.get("monteur") or ""
+    van = request.args.get("van") or ""
+    tot = request.args.get("tot") or ""
+    # Periode: standaard de huidige week; met van/tot een vrij datumbereik.
+    custom, start, end = False, None, None
+    try:
+        if van and tot:
+            sd = datetime.strptime(van, "%Y-%m-%d").date()
+            ed = datetime.strptime(tot, "%Y-%m-%d").date()
+            if ed < sd:
+                sd, ed = ed, sd
+            start, end, custom = sd, ed, True
+    except Exception:
+        custom = False
+    if not custom:
+        base = request.args.get("d") or _today_iso()
+        try:
+            bd = datetime.strptime(base, "%Y-%m-%d").date()
+        except Exception:
+            bd = datetime.now().date()
+        start = bd - timedelta(days=bd.weekday())
+        end = start + timedelta(days=6)
+    prev_week = (start - timedelta(days=7)).isoformat()
+    next_week = (start + timedelta(days=7)).isoformat()
+    if custom:
+        range_label = "%d %s – %d %s %d" % (start.day, _NL_MONTHS[start.month][:3],
+                                            end.day, _NL_MONTHS[end.month][:3], end.year)
+    else:
+        range_label = "Week %d · %d %s – %d %s" % (start.isocalendar()[1], start.day,
+                                                   _NL_MONTHS[start.month][:3], end.day, _NL_MONTHS[end.month][:3])
+    van_val, tot_val = (van or start.isoformat()), (tot or end.isoformat())
     if can_view:
         conn = db()
         monteurs_list = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
         q = ("""SELECT w.*, COALESCE(m.name, w.user_name) AS monteur_name FROM work_hours w
                 LEFT JOIN monteurs m ON m.id=w.monteur_id
                 WHERE w.work_date>=? AND w.work_date<=?""")
-        params = [monday.isoformat(), week_end.isoformat()]
+        params = [start.isoformat(), end.isoformat()]
         if sel_monteur:
             q += " AND w.monteur_id=?"; params.append(int(sel_monteur))
         q += " ORDER BY w.work_date, monteur_name"
         rows = conn.execute(q, tuple(params)).fetchall()
-        ws, we = monday.isoformat(), week_end.isoformat()
+        ws, we = start.isoformat(), end.isoformat()
         # GPS-thuiskomst per monteur/dag (leidend) + route-afsluiting (terugval)
         gps = {(r["monteur_id"], r["date"]): r["home_since"] for r in
                conn.execute("SELECT monteur_id,date,home_since FROM monteur_day_gps WHERE date>=? AND date<=?",
@@ -2375,27 +2393,27 @@ def urenregister():
             key = (r["monteur_id"], r["work_date"])
             gt, ct = gps.get(key), closed.get(key)
             ref = gt or ct
-            warn, warn_text = False, ""
+            warn, warn_text, warn_over = False, "", 0
             if ref and r["end_time"]:
                 rt = ref.split("T")[1][:5] if "T" in ref else ref[:5]
                 emin, rmin = _mn(r["end_time"]), _mn(rt)
                 if emin is not None and rmin is not None and emin - rmin >= 30:
-                    warn = True
+                    warn, warn_over = True, emin - rmin
                     src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
-                    warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], emin - rmin)
+                    warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], warn_over)
                     warn_count += 1
             entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "—",
                             "start": r["start_time"], "end": r["end_time"],
                             "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
-                            "note": r["note"] or "", "warn": warn, "warn_text": warn_text})
-        week_total = sum(e["worked_min"] for e in entries)
-        week_ot = sum(e["overtime_min"] for e in entries)
+                            "note": r["note"] or "", "warn": warn, "warn_text": warn_text, "warn_over": warn_over})
+        range_total = sum(e["worked_min"] for e in entries)
+        range_ot = sum(e["overtime_min"] for e in entries)
     u = current_user()
     return render_template("planning/urenregister.html", can_view=can_view, entries=entries,
-                           monteurs=monteurs_list, sel_monteur=sel_monteur, week_label=week_label,
-                           prev_week=prev_week, next_week=next_week, week_total=week_total,
-                           week_ot=week_ot, warn_count=warn_count, nl_date=_nl_date,
-                           is_admin=bool(u and u["role"] == "beheerder"))
+                           monteurs=monteurs_list, sel_monteur=sel_monteur, range_label=range_label,
+                           prev_week=prev_week, next_week=next_week, range_total=range_total,
+                           range_ot=range_ot, warn_count=warn_count, nl_date=_nl_date, custom=custom,
+                           van=van_val, tot=tot_val, is_admin=bool(u and u["role"] == "beheerder"))
 
 
 @bp.route("/urenregister/demo", methods=["POST"])
