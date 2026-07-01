@@ -50,6 +50,12 @@
   .tdel{background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px;text-decoration:underline}
 {% endblock %}
 {% block content %}
+{% if is_admin %}
+<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:12px">
+  <form method="post" action="{{ url_for('planning.magazijn_demo') }}" style="margin:0"><button class="btn gold sm" type="submit">Testdata invullen</button></form>
+  <form method="post" action="{{ url_for('planning.magazijn_demo_clear') }}" style="margin:0"><button class="btn ghost sm" type="submit">Wissen</button></form>
+</div>
+{% endif %}
 {% for n in notes %}
 <div class="notif"><b>Taak afgerond</b>{{ n.text }}</div>
 {% endfor %}

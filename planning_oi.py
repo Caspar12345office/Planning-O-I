@@ -2789,7 +2789,8 @@ def magazijn():
             conn.commit()
     conn.close()
     return render_template("planning/magazijn_status.html", days=days, stats=stats, today=_today_iso(),
-                           can_resolve=has_perm("view_magazijn"), tasks=tasks, pickers=pickers, notes=notes)
+                           can_resolve=has_perm("view_magazijn"), tasks=tasks, pickers=pickers, notes=notes,
+                           is_admin=(u["role"] == "beheerder" if u else False))
 
 
 @bp.route("/magazijn/taak", methods=["POST"])
@@ -2823,6 +2824,112 @@ def magazijn_taak_delete(tid):
     conn.commit()
     conn.close()
     flash("Taak verwijderd.")
+    return redirect(url_for("planning.magazijn"))
+
+
+_DEMO_ORDERS = [
+    ("DEMO-1", "Gemeente Tilburg", "Stadhuisplein 130", "Tilburg",
+     [("Se:Fit bureaustoel zwart", 4), ("Kastenwand eiken", 1)]),
+    ("DEMO-2", "Studio Noord", "Overhoeksplein 1", "Amsterdam",
+     [("Zit-sta bureau 160", 2), ("Verrijdbaar ladeblok", 3)]),
+    ("DEMO-3", "Advocatenkantoor Rets", "Keizersgracht 12", "Amsterdam",
+     [("Mast bureaustoel", 6), ("Akoestisch paneel", 2)]),
+    ("DEMO-4", "De Bibliotheek", "Marktplein 5", "Breda",
+     [("Bureau wit 140", 1), ("Verrijdbaar ladeblok", 2)]),
+]
+
+
+def _clear_magazijn_demo(conn):
+    for r in conn.execute("SELECT id FROM orders WHERE order_number LIKE 'DEMO-%'").fetchall():
+        oid = r["id"]
+        conn.execute("DELETE FROM order_items WHERE order_id=?", (oid,))
+        conn.execute("DELETE FROM planning WHERE order_id=?", (oid,))
+        conn.execute("DELETE FROM order_magazijn WHERE order_id=?", (oid,))
+        conn.execute("DELETE FROM orders WHERE id=?", (oid,))
+    conn.execute("DELETE FROM picker_tasks WHERE assigned_by='Demo'")
+    conn.execute("DELETE FROM route_pick")
+    conn.execute("DELETE FROM voormontage_done WHERE done_by='Demo'")
+
+
+@bp.route("/magazijn/demo", methods=["POST"])
+def magazijn_demo():
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    conn = db()
+    monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY id").fetchall()
+    if not monteurs:
+        conn.close()
+        flash("Geen actieve monteurs — voeg er eerst een toe.")
+        return redirect(url_for("planning.magazijn"))
+    _clear_magazijn_demo(conn)
+    today = datetime.now().date()
+    t0, t1 = today.isoformat(), (today + timedelta(days=1)).isoformat()
+    now = datetime.now().isoformat(timespec="minutes")
+    cl = conn.execute("SELECT id FROM clients WHERE name='Demo Klant' LIMIT 1").fetchone()
+    if cl:
+        cid = cl["id"]
+    else:
+        cid = conn.execute("INSERT INTO clients(name,city,created_at) VALUES('Demo Klant','Breda',?)", (now,)).lastrowid
+    made = []
+    for i, (onum, client, addr, city, items) in enumerate(_DEMO_ORDERS):
+        d = t0 if i < 2 else t1
+        mid = monteurs[i % len(monteurs)]["id"]
+        oid = conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,
+                              city,service_type,created_at) VALUES(?,?,?,0,'gepland',?,?,?,?)""",
+                           (onum, cid, "demo", addr, city, "montage", now)).lastrowid
+        for nm, qty in items:
+            conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, nm, qty))
+        conn.execute("""INSERT INTO planning(order_id,monteur_id,date,sequence,status)
+                        VALUES(?,?,?,?,'gepland')""", (oid, mid, d, i))
+        made.append((oid, d, mid, items))
+    conn.commit()
+    # Voortgang zodat de statussen zichtbaar zijn
+    first_mid = monteurs[0]["id"]
+    conn.execute("""INSERT INTO route_pick(monteur_id,date,status,picker_name,started_at,updated_at)
+                    VALUES(?,?,?,?,?,?)""", (first_mid, t0, "bezig", "Gurami", now, now))
+    if made:
+        oid0 = made[0][0]
+        conn.execute("UPDATE order_items SET picked=1 WHERE order_id=?", (oid0,))
+        conn.execute("""INSERT INTO order_magazijn(order_id,gepickt_door,gecontroleerd_door,klaargezet,
+                        klaargezet_at,updated_at) VALUES(?,?,?,1,?,?)""",
+                     (oid0, "Gurami", "Tim", now, now))
+    if len(made) > 1:
+        conn.execute("""INSERT INTO order_magazijn(order_id,manco,manco_note,manco_by,updated_at)
+                        VALUES(?,1,?,?,?)""",
+                     (made[1][0], "1 bureaustoel beschadigd aangeleverd", "Gurami", now))
+    # Voormontage: helft van vandaag afvinken
+    vmnames = [r["name"] for r in conn.execute("""SELECT DISTINCT oi.name AS name FROM planning p
+                 JOIN orders o ON o.id=p.order_id JOIN order_items oi ON oi.order_id=o.id
+                 WHERE p.date=? AND p.status!='afgerond'""", (t0,)).fetchall()]
+    for i, nm in enumerate(vmnames):
+        if i % 2 == 0:
+            conn.execute("""INSERT INTO voormontage_done(work_date,item_name,done,done_by,done_at)
+                            VALUES(?,?,1,'Demo',?)""", (t0, nm, now))
+    # Taken
+    pk = conn.execute("SELECT id,name FROM users WHERE role='picker' AND active=1 ORDER BY id LIMIT 1").fetchone()
+    if pk:
+        for txt in ["Retour Studio Noord uitpakken en controleren",
+                    "Voorraad bureaustoelen bijvullen uit magazijn 2"]:
+            conn.execute("""INSERT INTO picker_tasks(picker_id,picker_name,text,assigned_by,created_at,done)
+                            VALUES(?,?,?,'Demo',?,0)""", (pk["id"], pk["name"], txt, now))
+    conn.commit()
+    conn.close()
+    flash("Magazijn gevuld met testdata (routes, picken, 1 manco, voormontage, taken)."
+          + ("" if pk else " Let op: nog geen picker-account — maak die aan onder Gebruikers voor de taken."))
+    return redirect(url_for("planning.magazijn"))
+
+
+@bp.route("/magazijn/demo-clear", methods=["POST"])
+def magazijn_demo_clear():
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    conn = db()
+    _clear_magazijn_demo(conn)
+    conn.commit()
+    conn.close()
+    flash("Magazijn-testdata gewist.")
     return redirect(url_for("planning.magazijn"))
 
 
