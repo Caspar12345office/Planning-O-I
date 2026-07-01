@@ -378,6 +378,8 @@ ROLE_DEFAULTS = {
 }
 ROLE_LABELS = {"beheerder": "Beheerder", "manager": "Manager", "planner": "Planner",
                "administratie": "Administratie", "monteur": "Monteur", "picker": "Picker"}
+# Vaste kantoorploeg voor de bezetting op het dashboard (los van rollen/accounts).
+OFFICE_STAFF = ["Aleks", "Caspar", "Chris", "Jorik", "Stijn Pas", "Thom", "Yelith"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1594,14 +1596,13 @@ def dashboard():
     unplanned = unplanned_all[:3]
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
 
-    # kantoorbezetting (dag selecteerbaar)
+    # kantoorbezetting (dag selecteerbaar) — vaste kantoorploeg
     office_day = request.args.get("office_day", today)
-    office_staff = conn.execute("SELECT name FROM users WHERE role!='monteur' AND active=1 ORDER BY name").fetchall()
     od = {r["person"]: r for r in conn.execute("SELECT * FROM office_days WHERE date=?", (office_day,)).fetchall()}
     office = []
-    for s in office_staff:
-        rec = od.get(s["name"])
-        office.append({"person": s["name"], "status": (rec["status"] if rec else "kantoor"),
+    for name in OFFICE_STAFF:
+        rec = od.get(name)
+        office.append({"person": name, "status": (rec["status"] if rec else "kantoor"),
                        "note": (rec["note"] if rec else "")})
 
     # team-vragen (@mentions) aan mij
@@ -1609,7 +1610,7 @@ def dashboard():
         SELECT q.*, uf.name AS from_name, o.order_number FROM team_questions q
         LEFT JOIN users uf ON uf.id=q.from_user_id LEFT JOIN orders o ON o.id=q.order_id
         WHERE q.to_user_id=? AND q.resolved=0 ORDER BY q.ts DESC""", (u["id"],)).fetchall()
-    all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND role!='monteur' AND id!=? ORDER BY name",
+    all_users = conn.execute("SELECT id,name FROM users WHERE active=1 AND role NOT IN('monteur','picker') AND id!=? ORDER BY name",
                              (u["id"],)).fetchall()
     conn.close()
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
@@ -1814,21 +1815,28 @@ def planning():
             d2["important"] = (s["amount"] or 0) >= 2000
             st = s["service_type"]
             d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
-            d2["items"] = items_map.get(s["order_id"], "")
+            d2["arts"] = items_map.get(s["order_id"], "")
             enriched.append(d2)
         routes_by_m[m["id"]] = enriched
-        montage = sum((j["montage_min"] or 0) for j in rj)
-        coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
-        for j in rj:
-            coords.append(CITY_COORDS.get(j["city"], BREDA))
-        coords.append(BREDA)
-        km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1)) if len(coords) > 1 else 0
-        alerts = route_alerts(m["id"], bool(rj))
-        totals[m["id"]] = {"stops": len(rj), "km": round(km),
-                           "time": fmt_duration(montage + km / 45 * 60),
-                           "region": region_for([j["city"] for j in rj]),
-                           "eta_back": eta_back, "live": bool(live),
-                           "alerts": alerts, "delay": sum(a["min"] for a in alerts)}
+        if rj:
+            montage = sum((j["montage_min"] or 0) for j in rj)
+            coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
+            for j in rj:
+                coords.append(CITY_COORDS.get(j["city"], BREDA))
+            coords.append(BREDA)
+            km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
+            alerts = route_alerts(m["id"], True)
+            totals[m["id"]] = {"stops": len(rj), "km": round(km),
+                               "time": fmt_duration(montage + km / 45 * 60),
+                               "region": region_for([j["city"] for j in rj]),
+                               "eta_back": eta_back, "live": bool(live),
+                               "alerts": alerts, "delay": sum(a["min"] for a in alerts),
+                               "on_leave": bool(frees.get(m["id"]))}
+        else:
+            # Geen stops → geen reistijd/km tonen (voorkomt 'spook'-reistijd)
+            totals[m["id"]] = {"stops": 0, "km": 0, "time": "—", "region": "—",
+                               "eta_back": None, "live": bool(live), "alerts": [], "delay": 0,
+                               "on_leave": bool(frees.get(m["id"]))}
     conn.close()
 
     def _workday(dd, step):
@@ -1876,8 +1884,15 @@ def api_assign():
                         VALUES(?,?,?,?,?,'gepland')""", (oid, mid, bus_id, d, seq))
     conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (oid,))
     conn.commit()
+    warn = None
+    fd = conn.execute("SELECT type FROM free_days WHERE monteur_id=? AND date_from<=? AND date_to>=?",
+                      (mid, d, d)).fetchone()
+    if fd:
+        mn = conn.execute("SELECT name FROM monteurs WHERE id=?", (mid,)).fetchone()
+        warn = "Let op: %s heeft vrij (%s) op deze dag — toch ingepland." % (
+            (mn["name"] if mn else "Deze monteur"), fd["type"])
     conn.close()
-    return jsonify(ok=True)
+    return jsonify(ok=True, warn=warn)
 
 
 @bp.route("/api/unassign", methods=["POST"])
@@ -3578,6 +3593,11 @@ def _shopify_import_order(o):
     full = ", ".join([p for p in [address1, (postal + " " + city).strip()] if p])
     amount = float(o.get("total_price") or 0)
     note = (o.get("note") or "").strip()
+    # Montage (M) of levering (L) afleiden: 'montage' in een artikel, verzendmethode of notitie.
+    _blob = (" ".join((li.get("title") or li.get("name") or "") for li in (o.get("line_items") or []))
+             + " " + " ".join((sl.get("title") or sl.get("code") or "") for sl in (o.get("shipping_lines") or []))
+             + " " + note).lower()
+    service = "montage" if "montage" in _blob else "levering"
     cl = None
     if email:
         cl = conn.execute("SELECT id FROM clients WHERE lower(email)=?", (email.lower(),)).fetchone()
@@ -3590,10 +3610,10 @@ def _shopify_import_order(o):
                      (client_name, email, phone, address1, postal, city, _today_iso()))
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
-                    invoice_address,phone,email,amount,notes,shopify_id,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    invoice_address,phone,email,amount,notes,service_type,shopify_id,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                  (onum, cid, "shopify", 0, "in_te_plannen", full, city, postal, full, phone, email,
-                  amount, note, gid, _today_iso()))
+                  amount, note, service, gid, _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     for li in (o.get("line_items") or []):
         title = (li.get("title") or li.get("name") or "Artikel").strip()

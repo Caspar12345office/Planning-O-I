@@ -144,6 +144,7 @@
     <span class="chip"><svg class="ico"><use href="#ic-pin"/></svg> {{ t.region or '—' }}</span>
     {% if t.stops %}{% if t.alerts %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="{% for a in t.alerts %}{{ a.desc }} (+{{ a.min }} min) {% endfor %}"><svg class="ico"><use href="#ic-alert"/></svg> +{{ t.delay }} min file/werk</span>{% else %}<span class="chip" style="background:rgba(115,191,82,.35)"><svg class="ico"><use href="#ic-check"/></svg> vrije route</span>{% endif %}{% endif %}
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
+    {% if frees.get(m.id) and t.stops %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Deze monteur heeft vrij op deze dag maar staat wél ingepland"><svg class="ico"><use href="#ic-alert"/></svg> Ingepland op vrije dag!</span>{% endif %}
     <div class="spacer"></div>
     {% if t.eta_back %}<span class="eta"><svg class="ico"><use href="#ic-home"/></svg> terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
     {% if t.stops %}<span class="exp" title="Bekijk route op kaart" onclick="showRouteMap(event,{{ m.id }},'{{ m.name|e }}')"><svg class="ico"><use href="#ic-map"/></svg></span>{% endif %}
@@ -156,7 +157,7 @@
     <colgroup><col style="width:16px"><col style="width:38px"><col style="width:44px"><col><col style="width:48px"><col style="width:22px"><col style="width:22px"><col style="width:20px"><col style="width:38px"><col style="width:20px"></colgroup>
     <thead><tr>
       <th></th><th>GT</th><th>AT</th><th>Naam · artikel</th><th>Order</th><th style="text-align:center">Opm</th>
-      <th style="text-align:center">M/L</th><th style="text-align:center">Akk</th><th style="text-align:center">Adr</th><th></th>
+      <th style="text-align:center" title="M = montage · L = levering · O = ophalen/vervangen">Type</th><th style="text-align:center">Akk</th><th style="text-align:center">Adr</th><th></th>
     </tr></thead>
     <tbody>
       {% for j in rj %}
@@ -168,7 +169,7 @@
           {% elif j.at_status=='none' %}<span class="at-none">—</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm"><b>{{ j.client }}</b> <span>· {{ j.items or '—' }}</span></td>
+        <td class="nm"><b>{{ j.client }}</b> <span>· {{ j.arts or '—' }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
@@ -244,7 +245,7 @@
       <div><label>Monteur</label><select id="mo_monteur"><option value="">Nog niet toewijzen (in te plannen)</option>{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}{{ ' (incidenteel)' if not m.standard }}</option>{% endfor %}</select></div>
       <div><label>Datum</label><input type="date" id="mo_date" value="{{ day }}"></div>
       <div><label>Montagetijd (min)</label><input type="number" id="mo_montage" value="30"></div>
-      <div><label>Type</label><select id="mo_service" onchange="togglePakbon()"><option value="montage">Montage</option><option value="levering">Levering</option><option value="ophalen">Ophalen (bij leverancier)</option></select></div>
+      <div><label>Type</label><select id="mo_service" onchange="togglePakbon()"><option value="montage">Montage</option><option value="levering">Levering</option><option value="ophalen">Ophalen / vervangen (O)</option></select></div>
       <div><label>Orderwaarde (€)</label><input type="number" id="mo_amount" value="0"></div>
       <div style="grid-column:1/-1;display:none" id="pakbonRow">
         <label>Pakbon (PDF) — de monteur kan deze op locatie controleren</label>
@@ -509,7 +510,7 @@ function sendConfirmations(btn){
       e.preventDefault();block.classList.remove('drop-on');
       if(!dragOrder)return;
       post('{{ url_for("planning.api_assign") }}',{order_id:dragOrder,monteur_id:block.getAttribute('data-monteur'),date:'{{ day }}'})
-        .then(function(res){if(res.ok)location.reload();else alert(res.error||'Mislukt');});
+        .then(function(res){if(res.ok){if(res.warn)alert('⚠ '+res.warn);location.reload();}else alert(res.error||'Mislukt');});
     });
   });
   var tray=document.getElementById('tray');
