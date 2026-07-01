@@ -387,10 +387,10 @@ INTEGRATIONS = [
      "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'. Ordernummers komen overeen met Shopify.",
      "fields": [
         {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
-        {"key": "api_key", "label": "API-sleutel", "type": "password"},
-        {"key": "api_secret", "label": "API-secret", "type": "password"},
-        {"key": "access_token", "label": "Admin access token", "type": "password"},
-        {"key": "webhook_secret", "label": "Webhook-secret", "type": "password"},
+        {"key": "webhook_secret", "label": "Webhook-secret (verplicht voor de import)", "type": "password"},
+        {"key": "api_key", "label": "API-sleutel (optioneel — alleen voor backfill)", "type": "password", "optional": True},
+        {"key": "api_secret", "label": "API-secret (optioneel — alleen voor backfill)", "type": "password", "optional": True},
+        {"key": "access_token", "label": "Admin access token (optioneel — alleen voor backfill)", "type": "password", "optional": True},
         {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
         {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"}]},
@@ -907,7 +907,8 @@ def integ_status(ikey):
     rows = {r["field"]: r["value"] for r in
             conn.execute("SELECT field,value FROM integrations WHERE ikey=?", (ikey,)).fetchall()}
     conn.close()
-    required = [f["key"] for f in integ["fields"] if f["type"] in ("text", "password")]
+    required = [f["key"] for f in integ["fields"]
+                if f["type"] in ("text", "password") and not f.get("optional")]
     filled = [k for k in required if (rows.get(k) or "").strip()]
     if required and len(filled) == len(required):
         return "verbonden"
@@ -3771,6 +3772,13 @@ def integration_test(ikey):
             return jsonify(ok=True, message="Testmail verstuurd via SMTP naar %s." % test_to)
         except Exception as e:
             return jsonify(ok=False, message="Versturen mislukt: %s" % e)
+    if ikey == "shopify":
+        sh = _shopify_cfg()
+        if not (sh.get("webhook_secret") or "").strip():
+            return jsonify(ok=False, message="Vul het Webhook-secret in (verplicht). Shop-URL is aanbevolen; "
+                                             "de API-velden zijn optioneel (alleen nodig voor backfill van oude orders).")
+        return jsonify(ok=True, message="Shopify-webhook staat klaar. Plaats een testorder in Shopify "
+                                        "(of klik 'Testmelding versturen') — de order verschijnt bij 'Nog in te plannen'.")
     if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")
