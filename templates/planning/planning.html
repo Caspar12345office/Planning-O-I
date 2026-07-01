@@ -79,9 +79,9 @@
 
 {% block content %}
 <div class="daynav">
-  <a href="{{ url_for('planning.planning') }}?day={{ prev_day }}"><svg class="ico"><use href="#ic-arrow-left"/></svg> Vorige</a>
+  <a href="{{ url_for('planning.planning') }}?day={{ prev_day }}&nd={{ nd }}"><svg class="ico"><use href="#ic-arrow-left"/></svg> Vorige</a>
   <span class="lbl">{{ day_label }}</span>
-  <a href="{{ url_for('planning.planning') }}?day={{ next_day }}">Volgende <svg class="ico"><use href="#ic-arrow-right"/></svg></a>
+  <a href="{{ url_for('planning.planning') }}?day={{ next_day }}&nd={{ nd }}">Volgende <svg class="ico"><use href="#ic-arrow-right"/></svg></a>
   <a href="{{ url_for('planning.planning') }}">Vandaag</a>
   <span style="font-weight:600;color:var(--muted);font-size:13px;margin-left:4px">Ga naar dag:</span>
   <input type="date" value="{{ day }}" title="Kies een dag — ook ver vooruit" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">
@@ -101,12 +101,14 @@
   {% endif %}
 </div>
 <div class="weekstrip">
-  {% set dn=['ma','di','wo','do','vr'] %}
   {% for wd in week_days %}
-  <a class="wd {{ 'active' if wd.isoformat()==day }} {{ 'today' if wd.isoformat()==today }}" href="{{ url_for('planning.planning') }}?day={{ wd.isoformat() }}">
-    <span>{{ dn[loop.index0] }}</span><b>{{ wd.strftime('%d/%m') }}</b>
+  <a class="wd {{ 'active' if wd.isoformat()==day }} {{ 'today' if wd.isoformat()==today }}" href="{{ url_for('planning.planning') }}?day={{ wd.isoformat() }}&nd={{ nd }}">
+    <span>{{ daynames[wd.weekday()] }}</span><b>{{ wd.strftime('%d/%m') }}</b>
   </a>
   {% endfor %}
+  <a class="wd" href="{{ url_for('planning.planning') }}?day={{ day }}&nd={{ nd + 1 }}" title="Voeg de volgende werkdag toe (weekends worden overgeslagen)" style="border-style:dashed;color:var(--accent);font-weight:700">
+    <span>+</span><b>werkdag</b>
+  </a>
 </div>
 <div id="liveBanner" onclick="location.reload()" style="display:none;align-items:center;gap:8px;background:#e4edff;border:1px solid #b5d4f4;color:#185fa5;border-radius:11px;padding:9px 13px;margin-bottom:12px;font-size:13.5px;font-weight:600;cursor:pointer"><svg class="ico"><use href="#ic-refresh"/></svg> De planning is bijgewerkt door een collega — klik om te vernieuwen</div>
 <div id="focusBackdrop" onclick="clearFocus()"></div>

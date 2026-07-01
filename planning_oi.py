@@ -1553,7 +1553,8 @@ def dashboard():
         "unplanned": scalar("SELECT COUNT(*) FROM orders WHERE status='in_te_plannen'"),
         "open_orders": scalar("SELECT COUNT(*) FROM orders WHERE status IN('in_te_plannen','gepland')"),
         "underway": scalar("SELECT COUNT(*) FROM planning WHERE status='onderweg'"),
-        "monteurs_active": scalar("SELECT COUNT(*) FROM monteurs WHERE active=1"),
+        "monteurs_active": scalar("SELECT COUNT(DISTINCT monteur_id) FROM planning "
+                                  "WHERE date=? AND monteur_id IS NOT NULL AND status!='afgerond'", (today,)),
         "drafts_blocked": scalar("SELECT COUNT(*) FROM orders WHERE is_draft=1"),
         "important": scalar("SELECT COUNT(*) FROM orders WHERE amount>=? AND is_draft=0 AND desired_date>=?",
                             (IMPORTANT_THRESHOLD, today)),
@@ -1821,16 +1822,30 @@ def planning():
                            "alerts": alerts, "delay": sum(a["min"] for a in alerts)}
     conn.close()
 
-    prev_day = (d - timedelta(days=1)).isoformat()
-    next_day = (d + timedelta(days=1)).isoformat()
+    def _workday(dd, step):
+        dd += timedelta(days=step)
+        while dd.weekday() >= 5:   # zaterdag/zondag overslaan
+            dd += timedelta(days=step)
+        return dd
+
+    prev_day = _workday(d, -1).isoformat()
+    next_day = _workday(d, 1).isoformat()
     monday = d - timedelta(days=d.weekday())
-    week_days = [monday + timedelta(days=i) for i in range(5)]   # ma t/m vr
+    try:
+        nd = max(5, min(int(request.args.get("nd") or 5), 30))
+    except Exception:
+        nd = 5
+    week_days, dd = [], monday
+    while len(week_days) < nd:          # alleen werkdagen (ma t/m vr)
+        if dd.weekday() < 5:
+            week_days.append(dd)
+        dd += timedelta(days=1)
     day_label = _NL_DAYS[d.weekday()].capitalize() + d.strftime(" %d-%m-%Y")
     return render_template("planning/planning.html", monteurs=monteurs, routes=routes_by_m, totals=totals,
                            unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
-                           day_label=day_label, dn=["ma", "di", "wo", "do", "vr"],
-                           can_edit=has_perm("edit_planning"), usort=usort,
+                           day_label=day_label, daynames=["ma", "di", "wo", "do", "vr", "za", "zo"],
+                           nd=nd, can_edit=has_perm("edit_planning"), usort=usort,
                            shown_ids=shown_ids, addable=addable)
 
 
