@@ -21,8 +21,14 @@
   .b{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;white-space:nowrap}
   .b.todo{background:#f0ece0;color:#8a7a4a}.b.bezig{background:#dbeafe;color:#1e54c8}
   .b.gepickt{background:#e7f0d8;color:#5a7a1e}.b.klaar{background:#e6f2e0;color:#3b6d11}
+  .b.manco{background:#fbe3dd;color:#b23a1e}
+  .stat.r b{color:#c0392b}
+  table.mg tr.mancorow td{background:#fdeeea}
   .who{color:var(--muted)}
   .pnote{font-size:12px;color:#7a5713;background:#fff8ef;border:1px solid #f0d49a;border-radius:8px;padding:4px 8px;display:inline-block;margin-top:3px}
+  .mancobox{font-size:12px;color:#b23a1e;background:#fbe3dd;border:1px solid #f0b8ab;border-radius:8px;padding:5px 9px;margin-top:4px}
+  .mancobox b{display:block}
+  .vrijgeef{margin-top:5px;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer}
   .empty{padding:34px 16px;text-align:center;color:var(--muted)}
   .paper{display:flex;gap:9px;align-items:flex-start;background:var(--soft);border:1px solid var(--line);color:#375c50;border-radius:12px;padding:12px 14px;font-size:13px;margin-top:6px}
   .paper svg{width:17px;height:17px;stroke:var(--accent);fill:none;stroke-width:1.8;flex-shrink:0;margin-top:1px}
@@ -32,6 +38,7 @@
   <div class="stat"><b>{{ stats.orders }}</b><span>orders ingepland</span></div>
   <div class="stat g"><b>{{ stats.klaar }}</b><span>klaargezet</span></div>
   <div class="stat"><b>{{ stats.bezig }}</b><span>bezig met picken</span></div>
+  <div class="stat {{ 'r' if stats.manco }}"><b>{{ stats.manco }}</b><span>manco — overleg nodig</span></div>
   <div class="stat"><b>{{ stats.vm_open }}</b><span>voormonteren open</span></div>
 </div>
 
@@ -50,11 +57,16 @@
         <thead><tr><th>Order</th><th>Klant</th><th>Picken</th><th>Klaargezet</th><th>Gepickt door</th><th>Gecontroleerd</th></tr></thead>
         <tbody>
           {% for o in d.orders %}
-          <tr>
+          <tr class="{{ 'mancorow' if o.manco }}">
             <td>#{{ o.onum }}</td>
-            <td>{{ o.client or '—' }}{% if o.picker_note %}<div class="pnote">{{ o.picker_note }}</div>{% endif %}</td>
+            <td>{{ o.client or '—' }}{% if o.picker_note %}<div class="pnote">{{ o.picker_note }}</div>{% endif %}
+              {% if o.manco %}<div class="mancobox"><b>Manco gemeld{% if o.manco_by %} door {{ o.manco_by }}{% endif %}</b>{{ o.manco_note or 'Reden niet opgegeven' }}
+                {% if can_resolve %}<form method="post" action="{{ url_for('planning.magazijn_manco_resolve') }}"><input type="hidden" name="order_id" value="{{ o.oid }}"><button class="vrijgeef" type="submit" onclick="return confirm('Manco vrijgeven? De picker kan de order daarna klaarzetten.')">Vrijgeven</button></form>{% endif %}
+              </div>{% endif %}
+            </td>
             <td>
-              {% if o.pick=='klaar' %}<span class="b klaar">Klaar</span>
+              {% if o.manco %}<span class="b manco">Manco</span>
+              {% elif o.pick=='klaar' %}<span class="b klaar">Klaar</span>
               {% elif o.pick=='gepickt' %}<span class="b gepickt">Gepickt</span>
               {% elif o.pick=='bezig' %}<span class="b bezig">Bezig ({{ o.n_picked }}/{{ o.n_items }})</span>
               {% else %}<span class="b todo">Nog niet</span>{% endif %}

@@ -563,7 +563,9 @@ def init_db():
         image_data BLOB, image_mime TEXT, image_name TEXT, author TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS order_magazijn(
         order_id INTEGER PRIMARY KEY, gepickt_door TEXT, gecontroleerd_door TEXT,
-        klaargezet INTEGER DEFAULT 0, klaargezet_at TEXT, picker_note TEXT, updated_at TEXT);
+        klaargezet INTEGER DEFAULT 0, klaargezet_at TEXT, picker_note TEXT, updated_at TEXT,
+        manco INTEGER DEFAULT 0, manco_note TEXT, manco_by TEXT, manco_at TEXT,
+        manco_resolved_by TEXT, manco_resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS voormontage_done(
         work_date TEXT, item_name TEXT, done INTEGER DEFAULT 0, done_by TEXT, done_at TEXT,
         PRIMARY KEY(work_date, item_name));
@@ -579,7 +581,13 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN delay_mailed INTEGER DEFAULT 0",
                  "ALTER TABLE monteurs ADD COLUMN standard INTEGER NOT NULL DEFAULT 1",
                  "ALTER TABLE orders ADD COLUMN customer_note TEXT",
-                 "ALTER TABLE order_items ADD COLUMN picked INTEGER DEFAULT 0"):
+                 "ALTER TABLE order_items ADD COLUMN picked INTEGER DEFAULT 0",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco INTEGER DEFAULT 0",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_note TEXT",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_by TEXT",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_at TEXT",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_by TEXT",
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_at TEXT"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -2692,7 +2700,8 @@ def _magazijn_overview(conn):
                (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items,
                (SELECT COUNT(*) FROM order_items WHERE order_id=o.id AND picked=1) AS n_picked,
                mg.gepickt_door AS gepickt_door, mg.gecontroleerd_door AS gecontroleerd_door,
-               mg.klaargezet AS klaargezet, mg.picker_note AS picker_note
+               mg.klaargezet AS klaargezet, mg.picker_note AS picker_note,
+               mg.manco AS manco, mg.manco_note AS manco_note, mg.manco_by AS manco_by
         FROM planning p JOIN orders o ON o.id=p.order_id
         LEFT JOIN clients c ON c.id=o.client_id
         LEFT JOIN order_magazijn mg ON mg.order_id=o.id
@@ -2710,7 +2719,7 @@ def _magazijn_overview(conn):
         d["total"] += 1
         if (r["date"], r["name"]) in done:
             d["done"] += 1
-    days, stat_klaar, stat_bezig, stat_vm_open = {}, 0, 0, 0
+    days, stat_klaar, stat_bezig, stat_vm_open, stat_manco = {}, 0, 0, 0, 0
     for r in rows:
         n_items, n_picked = (r["n_items"] or 0), (r["n_picked"] or 0)
         if r["klaargezet"]:
@@ -2725,6 +2734,8 @@ def _magazijn_overview(conn):
             stat_klaar += 1
         elif pick in ("bezig", "gepickt"):
             stat_bezig += 1
+        if r["manco"]:
+            stat_manco += 1
         d = days.setdefault(r["date"], {"date": r["date"], "label": _nl_date(r["date"]), "orders": []})
         d["orders"].append({**dict(r), "pick": pick})
     day_list = []
@@ -2732,7 +2743,8 @@ def _magazijn_overview(conn):
         vmd = vm_by_day.get(d, {"total": 0, "done": 0})
         stat_vm_open += max(0, vmd["total"] - vmd["done"])
         day_list.append({**days[d], "vm_total": vmd["total"], "vm_done": vmd["done"]})
-    stats = {"orders": len(rows), "klaar": stat_klaar, "bezig": stat_bezig, "vm_open": stat_vm_open}
+    stats = {"orders": len(rows), "klaar": stat_klaar, "bezig": stat_bezig,
+             "vm_open": stat_vm_open, "manco": stat_manco}
     return day_list, stats
 
 
@@ -2744,7 +2756,25 @@ def magazijn():
     conn = db()
     days, stats = _magazijn_overview(conn)
     conn.close()
-    return render_template("planning/magazijn_status.html", days=days, stats=stats, today=_today_iso())
+    return render_template("planning/magazijn_status.html", days=days, stats=stats, today=_today_iso(),
+                           can_resolve=has_perm("view_magazijn"))
+
+
+@bp.route("/magazijn/manco/vrijgeven", methods=["POST"])
+def magazijn_manco_resolve():
+    guard = login_required("view_magazijn")
+    if guard:
+        return guard
+    u = current_user()
+    oid = request.form.get("order_id")
+    if oid:
+        conn = db()
+        conn.execute("UPDATE order_magazijn SET manco=0, manco_resolved_by=?, manco_resolved_at=? WHERE order_id=?",
+                     ((u["name"] if u else ""), datetime.now().isoformat(timespec="minutes"), oid))
+        conn.commit()
+        conn.close()
+        flash("Manco vrijgegeven — de picker kan de order weer klaarzetten.")
+    return redirect(url_for("planning.magazijn"))
 
 
 _PICKER_DEFAULTS = [
