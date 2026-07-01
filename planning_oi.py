@@ -348,6 +348,7 @@ PERMISSIONS = [
     ("export",             "Exporteren",                 "Rapportage"),
     ("view_kpis",          "KPI's & omzet inzien",       "Rapportage"),
     ("view_personnel",     "Personeelsgegevens",         "Personeel"),
+    ("view_hours",         "Urenregister inzien",        "Personeel"),
     ("manage_users",       "Gebruikersbeheer",           "Beheer"),
     ("manage_roles",       "Rollen & rechten beheren",   "Beheer"),
     ("manage_integrations","Koppelingen beheren",        "Beheer"),
@@ -547,6 +548,11 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT, updated_by TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS notepad_log(
         id INTEGER PRIMARY KEY AUTOINCREMENT, person TEXT, ts TEXT, content TEXT);
+    CREATE TABLE IF NOT EXISTS work_hours(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, monteur_id INTEGER, user_id INTEGER,
+        user_email TEXT, user_name TEXT, work_date TEXT, start_time TEXT, end_time TEXT,
+        worked_min INTEGER DEFAULT 0, overtime_min INTEGER DEFAULT 0, note TEXT, submitted_at TEXT,
+        UNIQUE(monteur_id, work_date));
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -964,7 +970,8 @@ NAV = [
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents",
      "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
-    {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel"},
+    {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel",
+     "subs": [{"label": "Urenregister", "endpoint": "planning.urenregister", "icon": "clock", "perm": "view_personnel"}]},
     {"label": "Bussen", "endpoint": "planning.busses", "icon": "truck", "perm": "view_personnel",
      "subs": [{"label": "Bus-issues", "endpoint": "planning.bus_issues", "icon": "alert", "perm": "view_personnel"}]},
     {"label": "Rapportages", "icon": "chart", "perm": None, "children": [
@@ -2303,6 +2310,49 @@ def monteur_edit(mid):
     conn.close()
     flash("Monteur bijgewerkt.")
     return redirect(url_for("planning.monteurs"))
+
+
+# --------------------------------------------------------------------------- #
+#  Urenregister — uren die monteurs vanuit de app doorgeven (inhoud alleen met recht)
+# --------------------------------------------------------------------------- #
+@bp.route("/urenregister")
+def urenregister():
+    guard = login_required()          # inloggen volstaat om de tab te openen
+    if guard:
+        return guard
+    can_view = has_perm("view_hours")  # inhoud alleen voor wie het recht heeft (standaard beheerder)
+    rows, monteurs_list, week_total, week_ot = [], [], 0, 0
+    base = request.args.get("d") or _today_iso()
+    try:
+        bd = datetime.strptime(base, "%Y-%m-%d").date()
+    except Exception:
+        bd = datetime.now().date()
+    monday = bd - timedelta(days=bd.weekday())
+    week_end = monday + timedelta(days=6)
+    week_no = monday.isocalendar()[1]
+    week_label = "Week %d · %d %s – %d %s" % (week_no, monday.day, _NL_MONTHS[monday.month][:3],
+                                              week_end.day, _NL_MONTHS[week_end.month][:3])
+    prev_week = (monday - timedelta(days=7)).isoformat()
+    next_week = (monday + timedelta(days=7)).isoformat()
+    sel_monteur = request.args.get("monteur") or ""
+    if can_view:
+        conn = db()
+        monteurs_list = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
+        q = ("""SELECT w.*, COALESCE(m.name, w.user_name) AS monteur_name FROM work_hours w
+                LEFT JOIN monteurs m ON m.id=w.monteur_id
+                WHERE w.work_date>=? AND w.work_date<=?""")
+        params = [monday.isoformat(), week_end.isoformat()]
+        if sel_monteur:
+            q += " AND w.monteur_id=?"; params.append(int(sel_monteur))
+        q += " ORDER BY w.work_date, monteur_name"
+        rows = conn.execute(q, tuple(params)).fetchall()
+        conn.close()
+        week_total = sum((r["worked_min"] or 0) for r in rows)
+        week_ot = sum((r["overtime_min"] or 0) for r in rows)
+    return render_template("planning/urenregister.html", can_view=can_view, rows=rows,
+                           monteurs=monteurs_list, sel_monteur=sel_monteur, week_label=week_label,
+                           prev_week=prev_week, next_week=next_week, week_total=week_total,
+                           week_ot=week_ot, nl_date=_nl_date)
 
 
 # --------------------------------------------------------------------------- #

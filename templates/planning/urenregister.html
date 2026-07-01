@@ -1,0 +1,78 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Urenregister · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Urenregister</h1><p>Uren die de monteurs vanuit de app doorgeven — direct zichtbaar zodra ze indienen. Alles boven 8 uur telt als overuren; pauzes zijn niet meegerekend.</p>{% endblock %}
+{% block page_css %}
+  .locked{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:44px 20px;text-align:center;max-width:520px;margin:10px auto}
+  .locked .ic{width:60px;height:60px;border-radius:50%;background:#f4efe4;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+  .locked .ic svg{width:30px;height:30px;stroke:var(--gold);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .locked h2{margin:0 0 6px;color:var(--ink);font-size:19px}
+  .locked p{margin:0 auto;color:var(--muted);font-size:14px;max-width:360px;line-height:1.55}
+  .fbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .wknav{display:flex;align-items:center;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+  .wknav a{padding:9px 13px;color:var(--accent);font-weight:700;font-size:16px;line-height:1}
+  .wknav a:hover{background:var(--soft)}
+  .wknav .lbl{padding:9px 14px;font-size:13.5px;font-weight:600;color:var(--ink);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+  .fbar select{padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13.5px;background:var(--panel);color:var(--ink)}
+  .tblcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .tblwrap{overflow-x:auto}
+  table.ur{width:100%;border-collapse:collapse;font-size:13.5px;min-width:600px}
+  table.ur th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:11px 14px;border-bottom:2px solid var(--line);background:var(--soft)}
+  table.ur td{padding:11px 14px;border-bottom:1px solid var(--line);color:var(--ink)}
+  table.ur td.ov{color:var(--gold);font-weight:700}
+  .st{font-size:11px;padding:2px 9px;border-radius:20px;font-weight:700;background:#e6f2e0;color:#3b6d11}
+  table.ur tfoot td{font-weight:700;color:var(--ink);border-top:2px solid var(--line);background:var(--soft)}
+  .empty{padding:30px 16px;text-align:center;color:var(--muted);font-size:14px}
+{% endblock %}
+{% block content %}
+{% if not can_view %}
+  <div class="locked">
+    <div class="ic"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+    <h2>Alleen voor beheerders</h2>
+    <p>Je kunt deze tab zien, maar het urenregister is afgeschermd. Vraag een beheerder (Aleks of Caspar) om toegang.</p>
+  </div>
+{% else %}
+  <div class="fbar">
+    <div class="wknav">
+      <a href="{{ url_for('planning.urenregister', d=prev_week, monteur=sel_monteur) }}" title="Vorige week">‹</a>
+      <span class="lbl">{{ week_label }}</span>
+      <a href="{{ url_for('planning.urenregister', d=next_week, monteur=sel_monteur) }}" title="Volgende week">›</a>
+    </div>
+    <form method="get" style="margin:0">
+      <select name="monteur" onchange="this.form.submit()">
+        <option value="">Alle monteurs</option>
+        {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if sel_monteur==m.id|string }}>{{ m.name }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="tblcard">
+    <div class="tblwrap">
+      <table class="ur">
+        <thead><tr><th>Datum</th><th>Monteur</th><th>Start</th><th>Eind</th><th>Gewerkt</th><th>Overuren</th><th>Opmerking</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>{{ nl_date(r.work_date) }}</td>
+            <td>{{ r.monteur_name or '—' }}</td>
+            <td>{{ r.start_time }}</td>
+            <td>{{ r.end_time }}</td>
+            <td>{{ r.worked_min//60 }}u {{ '%02d'|format(r.worked_min%60) }}m</td>
+            <td class="ov">{% if r.overtime_min %}+{{ r.overtime_min//60 }}u {{ '%02d'|format(r.overtime_min%60) }}m{% else %}—{% endif %}</td>
+            <td>{{ r.note or '' }}</td>
+            <td><span class="st">Doorgegeven</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% if rows %}
+        <tfoot><tr>
+          <td colspan="4">Totaal · {{ week_label }}</td>
+          <td>{{ week_total//60 }}u {{ '%02d'|format(week_total%60) }}m</td>
+          <td class="ov">{% if week_ot %}+{{ week_ot//60 }}u {{ '%02d'|format(week_ot%60) }}m{% else %}—{% endif %}</td>
+          <td colspan="2"></td>
+        </tr></tfoot>
+        {% endif %}
+      </table>
+      {% if not rows %}<div class="empty">Geen uren doorgegeven in deze week{% if sel_monteur %} voor deze monteur{% endif %}.</div>{% endif %}
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
