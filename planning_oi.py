@@ -1109,9 +1109,18 @@ def compute_arrivals(stops, monteur, live, is_today):
     return arrivals, eta_back
 
 
+LIVE_MAX_MIN = 30   # locatie geldt als 'live' zolang de laatste update < 30 min oud is
+
+
+def _live_cutoff():
+    return (datetime.now() - timedelta(minutes=LIVE_MAX_MIN)).isoformat(timespec="minutes")
+
+
 def _live_loc(conn, mid):
-    r = conn.execute("SELECT lat,lng,live FROM monteur_location WHERE monteur_id=?", (mid,)).fetchone()
-    return (r["lat"], r["lng"]) if (r and r["live"]) else None
+    r = conn.execute("SELECT lat,lng,live,updated_at FROM monteur_location WHERE monteur_id=?", (mid,)).fetchone()
+    if r and r["live"] and (r["updated_at"] or "") >= _live_cutoff():
+        return (r["lat"], r["lng"])
+    return None
 
 
 def route_alerts(monteur_id, has_stops):
@@ -1564,7 +1573,7 @@ def dashboard():
     rows = conn.execute("""
         SELECT m.id, m.name, m.color, m.speed, l.lat, l.lng, l.updated_at
         FROM monteurs m JOIN monteur_location l ON l.monteur_id=m.id
-        WHERE m.active=1 AND l.live=1""").fetchall()
+        WHERE m.active=1 AND l.live=1 AND l.updated_at >= ?""", (_live_cutoff(),)).fetchall()
     for r in rows:
         remaining = conn.execute("""SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'""",
                                  (r["id"], today)).fetchone()[0]
@@ -1617,7 +1626,7 @@ def api_locations():
     conn = db()
     rows = conn.execute("""SELECT m.id, m.name, m.color, m.speed, l.lat, l.lng, l.updated_at
                            FROM monteurs m JOIN monteur_location l ON l.monteur_id=m.id
-                           WHERE m.active=1 AND l.live=1""").fetchall()
+                           WHERE m.active=1 AND l.live=1 AND l.updated_at >= ?""", (_live_cutoff(),)).fetchall()
     out = []
     for r in rows:
         remaining = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'",
