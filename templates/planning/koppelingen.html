@@ -99,9 +99,9 @@
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app=='pin' -%}
-        <svg class="appimg" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="205" r="96" fill="none" stroke="#cda35a" stroke-width="44"/><rect x="234" y="250" width="44" height="166" rx="22" fill="#cda35a"/></svg>
+        <svg class="appimg" width="56" height="56" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="205" r="96" fill="none" stroke="#cda35a" stroke-width="44"/><rect x="234" y="250" width="44" height="166" rx="22" fill="#cda35a"/></svg>
       {%- elif n.app=='m' -%}
-        <svg class="appimg" viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M158 430 158 300 256 384 354 300 354 430" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg class="appimg" width="56" height="56" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M158 430 158 300 256 384 354 300 354 430" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
