@@ -1,14 +1,40 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Bussen · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Bussen</h1><p>Capaciteit, onderhoud en APK · gegevens zijn aanpasbaar · overbelading wordt voorkomen</p>{% endblock %}
+{% block pagehead %}<h1>Bussen</h1><p>Capaciteit, onderhoud en APK · voeg opmerkingen of foto's toe · overbelading wordt voorkomen</p>{% endblock %}
 {% block page_css %}
-  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+  .bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
   .bcard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow-sm)}
   .bcard .nm{font-weight:700;font-size:16px;color:var(--accent)}
-  .bcard .plate{display:inline-block;background:#1c1a16;color:#ffd24a;font-weight:700;border-radius:6px;padding:2px 9px;font-size:12.5px;letter-spacing:1px;margin:6px 0 12px}
+  /* Officieel Nederlands kenteken (geel, blauwe EU-strook met sterren + NL) */
+  .plate{display:inline-flex;align-items:stretch;height:34px;border:2px solid #0a0a0a;border-radius:6px;overflow:hidden;
+         background:#f3cd00;box-shadow:0 1px 3px rgba(0,0,0,.4);font-family:Arial,'Helvetica Neue',sans-serif;margin:8px 0 12px}
+  .plate .eu{background:#003399;display:flex;flex-direction:column;align-items:center;justify-content:center;width:20px;padding-top:2px}
+  .plate .eu .st{font-size:7px;line-height:1;color:#ffcc00}
+  .plate .eu .nl{font-size:9px;font-weight:700;line-height:1;color:#fff;margin-top:1px;letter-spacing:.02em}
+  .plate .pl{display:flex;align-items:center;padding:0 10px;color:#0a0a0a;font-weight:800;font-size:19px;letter-spacing:.13em}
   .bcard .kv{font-size:13.5px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px}
   .bcard .kv .k{color:var(--muted)}
   .apk-warn{color:#a23d2a;font-weight:600}
+  /* Opmerkingen / foto's */
+  .notes{margin-top:13px;display:flex;flex-direction:column;gap:8px}
+  .note{background:var(--soft);border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+  .note.imp{background:#fdf3e6;border-color:#f0cf9a}
+  .note .ntop{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+  .note .ntop svg{width:14px;height:14px}
+  .note.imp .ntop{color:#b06d0e}
+  .note .ntext{margin-top:4px;color:var(--ink);font-size:13.5px;line-height:1.45}
+  .note.imp .ntext{font-weight:600;color:#7a4e0e}
+  .note .nphoto{margin-top:8px;max-width:100%;max-height:160px;border-radius:8px;border:1px solid var(--line);display:block}
+  .note .ndel{background:none;border:0;color:var(--muted);cursor:pointer;padding:2px;line-height:1}
+  .note .ndel:hover{color:#a23d2a}
+  .addnote{margin-top:11px}
+  .addnote summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;list-style:none}
+  .addnote summary::-webkit-details-marker{display:none}
+  .nf{margin-top:9px;display:flex;flex-direction:column;gap:9px}
+  .nf textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13.5px;resize:vertical;box-sizing:border-box}
+  .nf .imp-check{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .nf .imp-check input{width:auto}
+  .nf .filelbl{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--accent);cursor:pointer}
   details.edit{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
   details.edit summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13px;list-style:none}
   details.edit summary::-webkit-details-marker{display:none}
@@ -20,7 +46,7 @@
   {% for b in busses %}
   <div class="bcard">
     <div class="nm">{{ b.name }}</div>
-    <div class="plate">{{ b.plate }}</div>
+    {% if b.plate %}<span class="plate"><span class="eu"><span class="st">★</span><span class="nl">NL</span></span><span class="pl">{{ b.plate }}</span></span>{% endif %}
     <div class="kv">
       <span class="k">Chauffeur</span><span>{{ b.driver }}</span>
       <span class="k">Laadvolume</span><span>{{ '%.0f'|format(b.max_volume) }} m³</span>
@@ -29,9 +55,37 @@
       <span class="k">APK</span><span class="{{ 'apk-warn' if b.apk_date and b.apk_date < today }}">{{ b.apk_date }}{% if b.apk_date and b.apk_date < today %} (verlopen){% endif %}</span>
       {% if b.maintenance %}<span class="k">Onderhoud</span><span>{{ b.maintenance }}</span>{% endif %}
     </div>
+
+    {% set notes = notes_by_bus.get(b.id, []) %}
+    {% if notes %}
+    <div class="notes">
+      {% for n in notes %}
+      <div class="note {{ 'imp' if n.important }}">
+        <div class="ntop">
+          {% if n.important %}<svg class="ico"><use href="#ic-alert"/></svg><b>Let op</b>{% endif %}
+          <span>{{ n.author }} · {{ n.created_at }}</span>
+          <form method="post" action="{{ url_for('planning.bus_note_delete', nid=n.id) }}" onsubmit="return confirm('Opmerking verwijderen?')" style="margin-left:auto"><button class="ndel" type="submit" title="Verwijderen"><svg class="ico"><use href="#ic-trash"/></svg></button></form>
+        </div>
+        {% if n.note %}<div class="ntext">{{ n.note }}</div>{% endif %}
+        {% if n.image_mime %}<a href="{{ url_for('planning.bus_note_photo', nid=n.id) }}" target="_blank"><img class="nphoto" src="{{ url_for('planning.bus_note_photo', nid=n.id) }}" alt="foto bij bus"></a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <details class="addnote">
+      <summary><svg class="ico"><use href="#ic-pencil"/></svg> Opmerking / foto toevoegen</summary>
+      <form method="post" action="{{ url_for('planning.bus_note_add', bid=b.id) }}" enctype="multipart/form-data" class="nf">
+        <textarea name="note" rows="2" placeholder="Bijv. 'Let op met deze bus inplannen — mag niet in de binnenstad komen.'"></textarea>
+        <label class="imp-check"><input type="checkbox" name="important"> Markeer als belangrijk (let op)</label>
+        <label class="filelbl"><svg class="ico"><use href="#ic-upload"/></svg> Foto toevoegen<input type="file" name="photo" accept="image/*" style="margin-left:6px"></label>
+        <button class="btn primary sm" type="submit">Plaatsen</button>
+      </form>
+    </details>
+
     {% if can_edit %}
     <details class="edit">
-      <summary><svg class="ico"><use href="#ic-pencil"/></svg> Bewerken</summary>
+      <summary><svg class="ico"><use href="#ic-pencil"/></svg> Gegevens bewerken</summary>
       <form class="ef" method="post" action="{{ url_for('planning.bus_edit', bid=b.id) }}">
         <div class="row">
           <div><label>Naam</label><input name="name" value="{{ b.name }}"></div>

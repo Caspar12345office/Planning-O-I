@@ -555,6 +555,9 @@ def init_db():
         UNIQUE(monteur_id, work_date));
     CREATE TABLE IF NOT EXISTS monteur_day_gps(
         monteur_id INTEGER, date TEXT, home_since TEXT, PRIMARY KEY(monteur_id, date));
+    CREATE TABLE IF NOT EXISTS bus_notes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, bus_id INTEGER, note TEXT, important INTEGER DEFAULT 0,
+        image_data BLOB, image_mime TEXT, image_name TEXT, author TEXT, created_at TEXT);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -2387,10 +2390,76 @@ def urenregister():
                             "note": r["note"] or "", "warn": warn, "warn_text": warn_text})
         week_total = sum(e["worked_min"] for e in entries)
         week_ot = sum(e["overtime_min"] for e in entries)
+    u = current_user()
     return render_template("planning/urenregister.html", can_view=can_view, entries=entries,
                            monteurs=monteurs_list, sel_monteur=sel_monteur, week_label=week_label,
                            prev_week=prev_week, next_week=next_week, week_total=week_total,
-                           week_ot=week_ot, warn_count=warn_count, nl_date=_nl_date)
+                           week_ot=week_ot, warn_count=warn_count, nl_date=_nl_date,
+                           is_admin=bool(u and u["role"] == "beheerder"))
+
+
+@bp.route("/urenregister/demo", methods=["POST"])
+def urenregister_demo():
+    """Vul het urenregister met testdata (beheerder) — incl. één verdachte regel."""
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    conn = db()
+    monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY id LIMIT 4").fetchall()
+    if not monteurs:
+        conn.close()
+        flash("Geen actieve monteurs om testdata voor te maken.")
+        return redirect(url_for("planning.urenregister"))
+    monday = datetime.now().date() - timedelta(days=datetime.now().date().weekday())
+
+    def ins(mid, name, offset, start, end):
+        d = (monday + timedelta(days=offset)).isoformat()
+        sm = int(start[:2]) * 60 + int(start[3:])
+        em = int(end[:2]) * 60 + int(end[3:])
+        worked = max(0, em - sm)
+        ot = max(0, worked - 480)
+        conn.execute("""INSERT INTO work_hours(monteur_id,user_id,user_email,user_name,work_date,start_time,
+                        end_time,worked_min,overtime_min,note,submitted_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(monteur_id,work_date) DO UPDATE SET user_id=0,start_time=excluded.start_time,
+                        end_time=excluded.end_time,worked_min=excluded.worked_min,overtime_min=excluded.overtime_min,
+                        submitted_at=excluded.submitted_at""",
+                     (mid, 0, "demo", name, d, start, end, worked, ot, "", datetime.now().isoformat(timespec="minutes")))
+
+    m0 = monteurs[0]
+    ins(m0["id"], m0["name"], 0, "08:00", "16:30")
+    ins(m0["id"], m0["name"], 1, "07:00", "17:00")
+    ins(m0["id"], m0["name"], 2, "08:00", "17:30")   # verdacht: GPS thuis 17:00
+    d_wed = (monday + timedelta(days=2)).isoformat()
+    conn.execute("""INSERT INTO monteur_day_gps(monteur_id,date,home_since) VALUES(?,?,?)
+                    ON CONFLICT(monteur_id,date) DO UPDATE SET home_since=excluded.home_since""",
+                 (m0["id"], d_wed, d_wed + "T17:00"))
+    if len(monteurs) > 1:
+        m1 = monteurs[1]
+        ins(m1["id"], m1["name"], 0, "07:30", "18:00")
+        ins(m1["id"], m1["name"], 1, "08:00", "16:00")
+    conn.commit()
+    conn.close()
+    flash("Testdata toegevoegd — inclusief één verdachte regel (GPS thuis 17:00, uren tot 17:30).")
+    return redirect(url_for("planning.urenregister", d=monday.isoformat()))
+
+
+@bp.route("/urenregister/demo-clear", methods=["POST"])
+def urenregister_demo_clear():
+    u = current_user()
+    if not u or u["role"] != "beheerder":
+        abort(403)
+    conn = db()
+    conn.execute("DELETE FROM work_hours WHERE user_id=0")
+    m0 = conn.execute("SELECT id FROM monteurs WHERE active=1 ORDER BY id LIMIT 1").fetchone()
+    if m0:
+        monday = datetime.now().date() - timedelta(days=datetime.now().date().weekday())
+        friday = (monday + timedelta(days=4)).isoformat()
+        conn.execute("DELETE FROM monteur_day_gps WHERE monteur_id=? AND date>=? AND date<=?",
+                     (m0["id"], monday.isoformat(), friday))
+    conn.commit()
+    conn.close()
+    flash("Testdata gewist.")
+    return redirect(url_for("planning.urenregister"))
 
 
 # --------------------------------------------------------------------------- #
@@ -2403,9 +2472,71 @@ def busses():
         return guard
     conn = db()
     rows = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
+    notes_by_bus = {}
+    for n in conn.execute("""SELECT id, bus_id, note, important, image_mime, image_name, author, created_at
+                             FROM bus_notes ORDER BY important DESC, id DESC""").fetchall():
+        notes_by_bus.setdefault(n["bus_id"], []).append(n)
     conn.close()
     return render_template("planning/busses.html", busses=rows, today=_today_iso(),
-                           can_edit=has_perm("manage_users"))
+                           can_edit=has_perm("manage_users"), notes_by_bus=notes_by_bus)
+
+
+@bp.route("/busses/<int:bid>/note", methods=["POST"])
+def bus_note_add(bid):
+    if not has_perm("view_personnel"):
+        abort(403)
+    note = (request.form.get("note") or "").strip()
+    important = 1 if request.form.get("important") else 0
+    f = request.files.get("photo")
+    img_data = img_mime = img_name = None
+    if f and f.filename:
+        data = f.read()
+        if len(data) > MAX_DOC_BYTES:
+            flash("Foto is te groot (max 15 MB).")
+            return redirect(url_for("planning.busses"))
+        img_data = data
+        img_mime = f.mimetype or "image/jpeg"
+        img_name = secure_filename(f.filename) or "foto"
+    if not note and img_data is None:
+        flash("Voeg een opmerking of foto toe.")
+        return redirect(url_for("planning.busses"))
+    u = current_user()
+    conn = db()
+    conn.execute("""INSERT INTO bus_notes(bus_id,note,important,image_data,image_mime,image_name,author,created_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                 (bid, note, important, img_data, img_mime, img_name,
+                  (u["name"] if u else ""), datetime.now().isoformat(timespec="minutes")))
+    conn.commit()
+    conn.close()
+    flash("Opmerking toegevoegd.")
+    return redirect(url_for("planning.busses"))
+
+
+@bp.route("/busses/note/<int:nid>/foto")
+def bus_note_photo(nid):
+    guard = login_required("view_personnel")
+    if guard:
+        return guard
+    conn = db()
+    row = conn.execute("SELECT image_data, image_mime, image_name FROM bus_notes WHERE id=?", (nid,)).fetchone()
+    conn.close()
+    if not row or row["image_data"] is None:
+        abort(404)
+    fname = (row["image_name"] or "foto").replace('"', "")
+    return Response(bytes(row["image_data"]), mimetype=(row["image_mime"] or "image/jpeg"),
+                    headers={"Content-Disposition": 'inline; filename="%s"' % fname})
+
+
+@bp.route("/busses/note/<int:nid>/verwijderen", methods=["POST"])
+def bus_note_delete(nid):
+    if not has_perm("view_personnel"):
+        abort(403)
+    conn = db()
+    conn.execute("DELETE FROM bus_notes WHERE id=?", (nid,))
+    conn.commit()
+    conn.close()
+    flash("Opmerking verwijderd.")
+    return redirect(url_for("planning.busses"))
 
 
 @bp.route("/busses/<int:bid>/edit", methods=["POST"])

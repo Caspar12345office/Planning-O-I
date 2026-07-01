@@ -47,6 +47,12 @@
         {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if sel_monteur==m.id|string }}>{{ m.name }}</option>{% endfor %}
       </select>
     </form>
+    {% if is_admin %}
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <form method="post" action="{{ url_for('planning.urenregister_demo') }}" style="margin:0"><button class="btn gold sm" type="submit">Testdata invullen</button></form>
+      <form method="post" action="{{ url_for('planning.urenregister_demo_clear') }}" style="margin:0"><button class="btn ghost sm" type="submit">Wissen</button></form>
+    </div>
+    {% endif %}
   </div>
   {% if warn_count %}
   <div class="notice">
