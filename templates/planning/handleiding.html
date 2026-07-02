@@ -1,0 +1,258 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Handleiding · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Handleiding</h1><p>Uitleg van de tool en de koppelingen met de monteur- en magazijn-app</p>{% endblock %}
+{% block page_css %}
+  .hl{--teal:#0f3d3e;--gold:#b88a44;--gold2:#cda35a;--hbg:#f5f7f3;--hpanel:#fff;--hink:#16302d;--hmuted:#6b7a74;--hline:#e2e8e0;--hsoft:#eef3ec;--amber:#b8762a;--amberbg:#fdf6e9;
+    color:var(--hink);line-height:1.66;font-size:16px}
+  .hl *{box-sizing:border-box}
+  .hl h1,.hl h2,.hl h3{color:var(--teal);text-wrap:balance;line-height:1.2}
+  .hl .bar{display:flex;align-items:center;gap:14px;padding:20px 28px;background:var(--teal);color:#fff;border-radius:16px}
+  .hl .bar .mk{width:46px;height:46px;flex-shrink:0}
+  .hl .bar .tt{flex:1;min-width:0}
+  .hl .bar .tt b{font-size:20px;font-weight:700;letter-spacing:.01em;display:block;line-height:1.1}
+  .hl .bar .tt small{font-size:12px;color:#9fc2b9;letter-spacing:.06em;text-transform:uppercase}
+  .hl .ver{font-size:11.5px;color:#bcd3ce;border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:4px 11px;white-space:nowrap}
+  .hl .printbtn{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(135deg,var(--gold),var(--gold2));color:#241c0a;border:0;border-radius:11px;padding:10px 16px;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .hl .printbtn:hover{filter:brightness(1.05)}
+  .hl .wrap{display:grid;grid-template-columns:246px 1fr;gap:30px;margin-top:22px;align-items:start}
+  .hl .toc{position:sticky;top:78px;background:var(--hpanel);border:1px solid var(--hline);border-radius:14px;padding:16px 14px;font-size:13.5px}
+  .hl .toc .th{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--hmuted);font-weight:700;margin:0 8px 8px}
+  .hl .toc a{display:block;color:var(--hink);text-decoration:none;padding:6px 10px;border-radius:8px;line-height:1.35}
+  .hl .toc a:hover{background:var(--hsoft);color:var(--teal)}
+  .hl .toc a .n{color:var(--gold);font-weight:700;font-variant-numeric:tabular-nums;margin-right:7px}
+  .hl article{max-width:74ch}
+  .hl .intro{font-size:17px;color:#33443f}
+  .hl section{background:var(--hpanel);border:1px solid var(--hline);border-radius:16px;padding:26px 30px;margin-bottom:18px;scroll-margin-top:80px}
+  .hl h2{font-size:15px;margin:0 0 4px}
+  .hl .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--hline)}
+  .hl .eyebrow .num{font-variant-numeric:tabular-nums;font-size:13px;font-weight:800;color:#fff;background:var(--teal);border-radius:8px;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+  .hl .eyebrow h2{font-size:19px}
+  .hl h3{font-size:14.5px;margin:20px 0 6px;letter-spacing:.01em}
+  .hl p{margin:0 0 12px}
+  .hl ul{margin:6px 0 14px;padding-left:20px}
+  .hl li{margin:5px 0}
+  .hl b,.hl strong{color:var(--teal)}
+  .hl .note{display:flex;gap:12px;background:var(--amberbg);border:1px solid #f0d9ac;border-radius:12px;padding:13px 15px;margin:14px 0;font-size:14.5px}
+  .hl .note .ic{color:var(--amber);font-weight:800;flex-shrink:0}
+  .hl .note b{color:var(--amber)}
+  .hl .chip{display:inline-block;font-size:12px;font-weight:700;border-radius:6px;padding:2px 8px;vertical-align:middle}
+  .hl .cM{background:#e4efe9;color:#0f6e56}
+  .hl .cL{background:#e7eef7;color:#265a9a}
+  .hl .cO{background:#f4ece0;color:#8a6a24}
+  .hl .warn{background:#fbe6e2;color:#b23b28}
+  .hl .apps{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:10px 0 4px}
+  .hl .appc{border:1px solid var(--hline);border-radius:12px;padding:16px 18px;background:var(--hsoft)}
+  .hl .appc h3{margin:0 0 6px}
+  .hl footer{color:var(--hmuted);font-size:12.5px;text-align:center;padding:18px 0 6px}
+  @media(max-width:900px){.hl .apps{grid-template-columns:1fr}.hl .wrap{grid-template-columns:1fr}.hl .toc{position:static}}
+  @media print{
+    .app{display:block!important}
+    .rail,.topbar{display:none!important}
+    .content{padding:0!important;max-width:none!important}
+    .main{background:none!important}
+    .hl .bar{background:#fff;color:var(--teal);padding:0 0 8px}
+    .hl .bar .tt small{color:var(--hmuted)}
+    .hl .ver{color:var(--hmuted);border-color:var(--hline)}
+    .hl .printbtn,.hl .toc{display:none}
+    .hl .wrap{display:block}
+    .hl section{border:0;border-top:1.5px solid var(--hline);border-radius:0;padding:14px 0;margin:0;break-inside:avoid}
+    .hl article{max-width:none}
+    .hl a{color:inherit;text-decoration:none}
+  }
+{% endblock %}
+{% block content %}
+<div class="hl">
+  <div class="bar">
+    <svg class="mk" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M178 432 L178 300 L272 300 Q340 300 340 338 Q340 376 272 376 L178 376 M244 380 L332 434" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="tt"><b>OfficeRoute Gebruikershandleiding</b><small>Bezorging &amp; montage · planning</small></div>
+    <span class="ver">versie 2026.07</span>
+    <button class="printbtn" onclick="window.print()">🖨 Printen / PDF</button>
+  </div>
+
+  <div class="wrap">
+    <nav class="toc" aria-label="Inhoud">
+      <div class="th">Inhoud</div>
+      <a href="#s1"><span class="n">1</span>Wat is OfficeRoute</a>
+      <a href="#s2"><span class="n">2</span>Inloggen &amp; rollen</a>
+      <a href="#s3"><span class="n">3</span>Het dashboard</a>
+      <a href="#s4"><span class="n">4</span>Orders</a>
+      <a href="#s5"><span class="n">5</span>Planning &amp; routes</a>
+      <a href="#s6"><span class="n">6</span>Klanten</a>
+      <a href="#s7"><span class="n">7</span>Magazijn &amp; de magazijn-app</a>
+      <a href="#s8"><span class="n">8</span>Monteurs &amp; de monteur-app</a>
+      <a href="#s9"><span class="n">9</span>Bussen</a>
+      <a href="#s10"><span class="n">10</span>Communicatie &amp; klantmails</a>
+      <a href="#s11"><span class="n">11</span>Documenten</a>
+      <a href="#s12"><span class="n">12</span>Rapportages</a>
+      <a href="#s13"><span class="n">13</span>Vrije dagen</a>
+      <a href="#s14"><span class="n">14</span>Instellingen</a>
+      <a href="#s15"><span class="n">15</span>Hoe alles samenwerkt</a>
+    </nav>
+
+    <article>
+      <p class="intro">OfficeRoute is het planningssysteem van Office-Interior voor de bezorging en montage van kantoorinrichting. Vanuit één centraal overzicht plan je orders in op monteurs en dagen, volg je de bussen live op de kaart, stuur je de klant automatisch op de hoogte, en werk je samen met de <b>monteur-app</b> (onderweg) en de <b>magazijn-app</b> (orderpicken). Deze handleiding loopt de tool scherm voor scherm door.</p>
+
+      <section id="s1">
+        <div class="eyebrow"><span class="num">1</span><h2>Wat is OfficeRoute</h2></div>
+        <p>OfficeRoute bestaat uit drie onderdelen die met dezelfde, live gegevens werken:</p>
+        <ul>
+          <li><b>De kantoorsoftware</b> (dit systeem): hier komen orders binnen, plan je routes en stuur je alles aan.</li>
+          <li><b>De monteur-app</b>: de telefoon-app waarmee de monteur zijn dagroute ziet en zijn locatie deelt.</li>
+          <li><b>De magazijn-app</b>: de app waarmee de orderpickers de orders klaarmaken.</li>
+        </ul>
+        <p>Nieuwe webshop-bestellingen komen automatisch binnen via <b>Shopify</b>. Je hoeft ze dus niet over te typen. Ze verschijnen vanzelf bij de nog in te plannen orders.</p>
+      </section>
+
+      <section id="s2">
+        <div class="eyebrow"><span class="num">2</span><h2>Inloggen &amp; rollen</h2></div>
+        <p>Je logt in met je e-mailadres en wachtwoord (met tweestapsverificatie via e-mail). Links staat het menu; rechtsonder zie je wie je bent en kun je uitloggen.</p>
+        <h3>Rollen &amp; rechten</h3>
+        <p>Wat iemand ziet en mag hangt af van zijn rol (bijvoorbeeld beheerder, planner, administratie, monteur of orderpicker). De beheerder bepaalt per gebruiker de rechten onder <b>Instellingen → Gebruikers</b>. Zo ziet een monteur bijvoorbeeld alleen zijn eigen route, terwijl een planner de volledige planning beheert.</p>
+        <div class="note"><span class="ic">!</span><span>Kom je er niet in? Neem contact op met je interne beheerder. Die kan je account en rechten herstellen.</span></div>
+      </section>
+
+      <section id="s3">
+        <div class="eyebrow"><span class="num">3</span><h2>Het dashboard</h2></div>
+        <p>Het dashboard is je live overzicht van de dag. Bovenaan staan vier kerncijfers:</p>
+        <ul>
+          <li><b>Monteurs vandaag actief</b>: hoeveel monteurs vandaag ingepland staan, en hoeveel er onderweg zijn.</li>
+          <li><b>Nog in te plannen</b>: het aantal open orders dat nog een dag/monteur nodig heeft.</li>
+          <li><b>Belangrijke orders</b>: orders die extra aandacht vragen.</li>
+          <li><b>Leveringen morgen</b>: wat er de komende dag(en) klaarstaat.</li>
+        </ul>
+        <h3>Live op de kaart</h3>
+        <p>De kaart toont het depot in Breda en de live positie van de bussen die hun locatie delen. Zo zie je in één oogopslag waar iedereen rijdt.</p>
+        <h3>Monteurs onderweg · Nog in te plannen · Kantoorbezetting · Vragen aan jou</h3>
+        <p>Daaronder zie je wie er onderweg is (met de verwachte terugkomst in Breda), een korte lijst met nog in te plannen orders, de <b>kantoorbezetting</b> (per kantoormedewerker: op kantoor / thuis / afwezig, met een toelichting), en <b>Vragen aan jou</b>: vragen die een collega aan je heeft gesteld.</p>
+      </section>
+
+      <section id="s4">
+        <div class="eyebrow"><span class="num">4</span><h2>Orders</h2></div>
+        <p>Onder <b>Orders</b> vind je <b>Alle orders</b> en <b>Belangrijke orders</b>. Je kunt de lijst sorteren (bijvoorbeeld van oud naar nieuw) zodat de oudste bestellingen bovenaan komen.</p>
+        <h3>Waar komen orders vandaan?</h3>
+        <p>De meeste orders komen automatisch uit <b>Shopify</b>: zodra er in de webshop een bestelling wordt geplaatst, verschijnt die als order in OfficeRoute, met klant, adres, artikelen en bedrag. Je kunt daarnaast altijd <b>handmatig</b> een order/adres toevoegen (bijvoorbeeld voor ophalen of vervangen).</p>
+        <h3>Soort werk: M · L · O</h3>
+        <p>Bij elke order staat kort wat voor werk het is:</p>
+        <ul>
+          <li><span class="chip cM">M</span> <b>Montage</b>: de klant heeft in de webshop voor levering mét montage gekozen.</li>
+          <li><span class="chip cL">L</span> <b>Levering</b>: bezorgen zonder montage.</li>
+          <li><span class="chip cO">O</span> <b>Ophalen / vervangen</b>: een adres dat je handmatig toevoegt, bijvoorbeeld iets ophalen of omruilen.</li>
+        </ul>
+        <p>Orders met een hoog bedrag worden automatisch als <b>belangrijk</b> gemarkeerd (met een ster), zodat ze niet ondersneeuwen.</p>
+      </section>
+
+      <section id="s5">
+        <div class="eyebrow"><span class="num">5</span><h2>Planning &amp; routes</h2></div>
+        <p>Dit is het hart van de tool: hier verdeel je de orders over de monteurs en de dagen.</p>
+        <h3>De dag kiezen &amp; werkdagen toevoegen</h3>
+        <p>Boven kies je de dag. Met <b>+ werkdag</b> voeg je makkelijk een volgende werkdag toe (weekenden worden overgeslagen).</p>
+        <h3>Monteurs als vakken</h3>
+        <p>Elke ingeplande monteur heeft een eigen vak (twee naast elkaar), met daarin zijn stops op volgorde, de artikelen, de adressen en de tijden. Met het <b>vergroot-teken</b> open je een vak als grote close-up om alle orderinhoud goed te lezen.</p>
+        <h3>Orders inplannen</h3>
+        <ul>
+          <li>Sleep een open order naar de monteur waar hij bij moet, of</li>
+          <li>gebruik <b>Alle openstaande orders inplannen</b> om ze automatisch over de dagen/monteurs te verdelen (orders in dezelfde regio komen bij elkaar), of</li>
+          <li>voeg <b>handmatig</b> een adres toe.</li>
+        </ul>
+        <p>Per monteur zie je automatisch het aantal stops, de reistijd, de kilometers en de verwachte terugkomst in Breda. Je kunt de <b>route op de kaart</b> bekijken en de <b>stopvolgorde optimaliseren</b> (kortste route).</p>
+        <h3>Ingebouwde waarschuwingen</h3>
+        <div class="note"><span class="ic">!</span><span><b>3 provincies of meer:</b> staat één monteur op een dag in drie of meer verschillende provincies gepland, dan verschijnt een rode melding <span class="chip warn">3 provincies!</span> in zijn kop. Zo zie je meteen dat een route waarschijnlijk niet in één dag past.</span></div>
+        <div class="note"><span class="ic">!</span><span><b>Ingepland op vrije dag:</b> plan je per ongeluk een monteur in op een dag dat hij vrij is, dan krijg je daar direct een waarschuwing bij.</span></div>
+        <h3>De klant op de hoogte</h3>
+        <p>Zodra een order is ingepland kun je de klant een <b>bevestigingsmail</b> sturen. Op de dag zelf ontvangt de klant een mail met het verwachte tijdvak en een <b>persoonlijke volglink</b> waarmee hij de bus live kan volgen (Uber/Picnic-stijl). Bij vertraging gaat er automatisch een update uit.</p>
+      </section>
+
+      <section id="s6">
+        <div class="eyebrow"><span class="num">6</span><h2>Klanten</h2></div>
+        <p>Onder <b>Klanten</b> vind je per klant een dossier: hun gegevens, al hun orders, de volledige mailwisseling en interne notities. Handig om snel de historie van een klant terug te zien.</p>
+      </section>
+
+      <section id="s7">
+        <div class="eyebrow"><span class="num">7</span><h2>Magazijn &amp; de magazijn-app</h2></div>
+        <p>De orderpickers werken in een aparte <b>magazijn-app</b>. Wat zij daar doen, zie jij live terug onder <b>Magazijn → Live magazijnstatus</b>. Zo weet kantoor precies hoe ver een order klaarstaat.</p>
+        <h3>Zo werkt de picker</h3>
+        <ul>
+          <li><b>Voormonteren</b>: voor te monteren artikelen worden afgetikt.</li>
+          <li><b>Picken per monteur-route</b>: de picker kiest een route en doorloopt <b>Start → Pauze/Hervat → Picken klaar</b>, met een korte nacheck aan het eind.</li>
+          <li><b>Klaarzetten</b>: is alles gepickt, dan zet de picker de order klaar; kantoor krijgt daarvan een seintje.</li>
+        </ul>
+        <div class="note"><span class="ic">!</span><span><b>Manco (iets ontbreekt):</b> meldt de picker een manco, dan gaat de order <b>“in overleg”</b> en kan hij niet zomaar doorgaan met klaarzetten. Pas als kantoor de order <b>vrijgeeft</b>, kan hij verder. Zo voorkom je dat er incompleet wordt geleverd.</span></div>
+        <h3>Overige taken</h3>
+        <p>Je kunt pickers ook losse <b>taken</b> toewijzen. Vinkt de picker een taak af, dan krijgt degene die de taak gaf een melding; afgeronde taken verdwijnen automatisch na 24 uur.</p>
+        <p>De papieren pakbon blijft mogelijk als achtervang (onder <b>Magazijn → Pakbonnen</b>).</p>
+      </section>
+
+      <section id="s8">
+        <div class="eyebrow"><span class="num">8</span><h2>Monteurs &amp; de monteur-app</h2></div>
+        <p>De monteurs werken onderweg met de <b>monteur-app</b> op hun telefoon. Wat jij in de planning klaarzet, ziet de monteur direct in zijn app.</p>
+        <h3>Wat de monteur ziet en doet</h3>
+        <ul>
+          <li><b>Zijn dagroute</b>: de stops op volgorde, met per stop de klant, het adres, de artikelen en eventuele opmerkingen die jij hebt meegegeven.</li>
+          <li><b>Bus kiezen</b>: aan het begin van de dag kiest de monteur met welke bus hij rijdt.</li>
+          <li><b>Live locatie delen</b>: de app deelt zijn positie, zodat jij hem op de kaart ziet en de klant een actuele aankomsttijd krijgt.</li>
+          <li><b>Onderweg &amp; afronden</b>: de monteur kan een stop starten, de klant laten weten dat hij onderweg is, en de stop/route afronden.</li>
+          <li><b>Bus-issue melden</b>: een probleem met de bus meldt de monteur in de app; die melding komt bij kantoor binnen (zie hoofdstuk 9).</li>
+        </ul>
+        <p>Onder <b>Monteurs</b> in de kantoorsoftware beheer je de monteurs zelf (gegevens, thuisbasis, standaard bus).</p>
+      </section>
+
+      <section id="s9">
+        <div class="eyebrow"><span class="num">9</span><h2>Bussen</h2></div>
+        <p>Onder <b>Bussen</b> staan alle bussen met hun kentekenplaat. Per bus kun je <b>notities en foto's</b> toevoegen, bijvoorbeeld “let op: mag niet de binnenstad in” of een foto van een schade.</p>
+        <p>Bij <b>Bus-issues</b> zie je de problemen die monteurs via hun app hebben gemeld, en kun je ze afhandelen.</p>
+      </section>
+
+      <section id="s10">
+        <div class="eyebrow"><span class="num">10</span><h2>Communicatie &amp; klantmails</h2></div>
+        <ul>
+          <li><b>Teamchat</b>: een gezamenlijke chat; bovenin zie je wie er live in de tool zit.</li>
+          <li><b>Vragen aan jou</b>: tag een collega met een vraag; hij ziet die terug op zijn dashboard.</li>
+          <li><b>Klantmails</b>: vanuit het klantdossier mail je de klant; alles wordt bewaard in het dossier.</li>
+          <li><b>Automatische mails</b>: bevestiging, aankomst-tijdvak en vertraging-updates gaan automatisch, telkens met de persoonlijke volglink.</li>
+        </ul>
+      </section>
+
+      <section id="s11">
+        <div class="eyebrow"><span class="num">11</span><h2>Documenten</h2></div>
+        <p>Onder <b>Documenten</b> bewaar je gedeelde bestanden. Het <b>Openbaar kladblok</b> is een gezamenlijk notitieblok voor het hele team. Deze <b>handleiding</b> vind je hier ook terug en kun je met de printknop bovenaan als PDF opslaan of uitprinten.</p>
+      </section>
+
+      <section id="s12">
+        <div class="eyebrow"><span class="num">12</span><h2>Rapportages</h2></div>
+        <ul>
+          <li><b>Monteursprestaties</b>: hoe de routes lopen ten opzichte van de planning.</li>
+          <li><b>Kilometers</b>: de gereden kilometers per bus/monteur.</li>
+          <li><b>Handtekeningen</b>: de door klanten afgegeven handtekeningen bij oplevering.</li>
+        </ul>
+      </section>
+
+      <section id="s13">
+        <div class="eyebrow"><span class="num">13</span><h2>Vrije dagen</h2></div>
+        <p>Hier beheer je vrije dagen en verlof. Verlofaanvragen (ook van monteurs en pickers) kun je hier goedkeuren. Ingeplande monteurs die tóch vrij blijken, worden in de planning gemarkeerd (zie hoofdstuk 5).</p>
+      </section>
+
+      <section id="s14">
+        <div class="eyebrow"><span class="num">14</span><h2>Instellingen</h2></div>
+        <ul>
+          <li><b>Gebruikers</b>: accounts en rechten beheren (wie ziet en mag wat). Ook de magazijn-accounts van de orderpickers staan hier.</li>
+          <li><b>Artikelen</b>: per product stel je in hoeveel montagetijd het kost (per 1, 2, 3, 4 en 5 stuks). Deze tijden voeden de werklast in de planning, zodat routes realistisch gevuld worden.</li>
+          <li><b>Automatische e-mails</b>: de teksten van de klantmails aanpassen.</li>
+        </ul>
+      </section>
+
+      <section id="s15">
+        <div class="eyebrow"><span class="num">15</span><h2>Hoe alles samenwerkt</h2></div>
+        <p>Kort samengevat werken de webshop en de drie onderdelen naadloos samen:</p>
+        <div class="apps">
+          <div class="appc"><h3>Shopify → OfficeRoute</h3><p style="margin:0;font-size:14.5px">Elke nieuwe webshop-bestelling komt automatisch als order binnen, inclusief of de klant montage heeft gekozen.</p></div>
+          <div class="appc"><h3>Kantoor ↔ monteur-app</h3><p style="margin:0;font-size:14.5px">Wat kantoor inplant, ziet de monteur in zijn app; zijn live locatie komt terug op de kaart en in de klant-volglink.</p></div>
+          <div class="appc"><h3>Kantoor ↔ magazijn-app</h3><p style="margin:0;font-size:14.5px">De picker maakt de orders per route klaar; kantoor ziet de voortgang live en krijgt een seintje zodra iets klaarstaat.</p></div>
+          <div class="appc"><h3>OfficeRoute → klant</h3><p style="margin:0;font-size:14.5px">De klant volgt zijn levering via een persoonlijke link en ontvangt automatisch bevestiging, tijdvak en updates.</p></div>
+        </div>
+      </section>
+
+      <footer>OfficeRoute · Office-Interior · Gebruikershandleiding versie 2026.07</footer>
+    </article>
+  </div>
+</div>
+{% endblock %}

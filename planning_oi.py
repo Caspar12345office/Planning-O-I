@@ -1028,7 +1028,8 @@ NAV = [
         {"label": "Pakbonnen", "endpoint": "planning.picklijst", "icon": "clipboard", "perm": "view_preassembly"}]},
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents",
-     "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"}]},
+     "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"},
+              {"label": "Handleiding", "endpoint": "planning.handleiding", "icon": "doc", "perm": "view_documents"}]},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel",
      "subs": [{"label": "Urenregister", "endpoint": "planning.urenregister", "icon": "clock", "perm": "view_personnel"}]},
@@ -3276,6 +3277,14 @@ def documenten_delete(did):
 # --------------------------------------------------------------------------- #
 #  Openbaar kladblok: gedeelde, real-time aantekeningen (iedereen ziet/bewerkt)
 # --------------------------------------------------------------------------- #
+@bp.route("/handleiding")
+def handleiding():
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    return render_template("planning/handleiding.html")
+
+
 @bp.route("/kladblok")
 def kladblok():
     guard = login_required("view_documents")
