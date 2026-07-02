@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inloggen · OfficeRoute</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
 <style>
   @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:swap;src:url("{{ url_for('static', filename='fonts/jost-latin.woff2') }}") format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
   :root{--accent:#0f3d3e;--accent2:#15595a;--gold:#b88a44;--gold2:#cda35a;--bg:#f3efe8;--ink:#1c1a16;--muted:#74705f;--line:#e7e1d6;--panel:#fff}
@@ -15,7 +17,7 @@
   .brandside:before{content:"";position:absolute;right:-150px;top:-130px;width:480px;height:480px;border-radius:50%;border:60px solid rgba(255,255,255,.05)}
   .brandside:after{content:"";position:absolute;left:-120px;bottom:-170px;width:420px;height:420px;border-radius:50%;background:rgba(184,138,68,.12)}
   .logo{position:relative;z-index:1;font-weight:700;letter-spacing:.2em;text-transform:uppercase;font-size:20px;display:flex;align-items:center;gap:11px}
-  .logo .oi{display:inline-flex;width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--gold),var(--gold2));align-items:center;justify-content:center;font-size:14px;color:#1c1a16;letter-spacing:0}
+  .logo .oi{display:inline-flex;width:38px;height:38px;border-radius:11px;border:1px solid rgba(255,255,255,.14);box-shadow:0 4px 12px rgba(0,0,0,.28)}
   .logo small{display:block;font-size:10px;letter-spacing:.16em;color:#9fc2b9;font-weight:500;text-transform:none}
   .pitch{position:relative;z-index:1;max-width:430px}
   .pitch h1{font-size:38px;line-height:1.14;letter-spacing:-.02em;margin:0 0 16px}
@@ -46,7 +48,7 @@
 <body>
 <div class="split">
   <div class="brandside">
-    <div class="logo"><span class="oi">O-I</span><div>OfficeRoute<small>Bezorging &amp; montage</small></div></div>
+    <div class="logo"><svg class="oi" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M178 432 L178 300 L272 300 Q340 300 340 338 Q340 376 272 376 L178 376 M244 380 L332 434" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg><div>OfficeRoute<small>Bezorging &amp; montage</small></div></div>
     <div class="pitch">
       <h1>De hele bezorging en montage in <span class="hl">één realtime overzicht.</span></h1>
       <p>Van Shopify-order tot afgetekende levering. Plan met drag &amp; drop, optimaliseer routes vanuit Breda en houd klant en monteur automatisch op de hoogte.</p>

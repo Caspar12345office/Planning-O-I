@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}OfficeRoute{% endblock %}</title>
+<link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
 <style>
   @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:swap;src:url("{{ url_for('static', filename='fonts/jost-latin.woff2') }}") format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
   :root{
@@ -183,7 +185,7 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-logo">
-        <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="186" r="84" fill="none" stroke="#cda35a" stroke-width="34"/><rect x="239" y="264" width="34" height="150" rx="17" fill="#cda35a"/></svg>
+        <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M178 432 L178 300 L272 300 Q340 300 340 338 Q340 376 272 376 L178 376 M244 380 L332 434" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="txt"><span class="wm">OfficeRoute</span><small>Real-time planning optimalisatie</small></span>
       </div>
     </div>
