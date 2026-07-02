@@ -16,11 +16,7 @@
   .node.act{cursor:pointer}.node.act .ic{transition:transform .15s,box-shadow .15s}.node.act:hover .ic{transform:translateY(-3px);box-shadow:0 10px 22px rgba(15,61,62,.18)}
   .ic{position:relative;width:54px;height:54px;border-radius:15px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.10)}
   .node.appn .ic{background:transparent;border:0;box-shadow:none}
-  .applogo{width:52px;height:52px;border-radius:14px;background:#0f3d3e;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(15,61,62,.22)}
-  .applogo .ring{width:22px;height:22px;border:5px solid #cda35a;border-radius:50%;box-sizing:border-box}
-  .applogo .stem{width:5px;height:15px;background:#cda35a;border-radius:3px;margin-top:2px}
-  .applogo .mm{color:#cda35a;font-weight:800;font-size:30px;line-height:1;font-family:Arial,Helvetica,sans-serif}
-  .appimg{width:56px;height:56px;filter:drop-shadow(0 6px 16px rgba(15,61,62,.24))}
+  .appimg{width:52px;height:52px;border-radius:14px;display:block;box-shadow:0 6px 16px rgba(15,61,62,.22)}
   .lg{background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
   .gi{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   .st{position:absolute;right:-4px;top:-4px;width:15px;height:15px;border-radius:50%;border:2.5px solid var(--bg);background:var(--green)}
@@ -63,11 +59,11 @@
   {'id':'oauth','x':12.0,'y':92.0,'nm':'Google OAuth','icon':'ic-shield','c':'#c0453a'}
 ] %}
 {% set LINES = [
-  [400,52,400,278,'shopify'],[208,75,400,278,'transip'],[592,75,400,278,'resend'],
-  [80,261,400,278,'app'],[720,261,400,278,'magazijn'],
-  [200,487,400,278,'render'],[400,534,400,278,'db'],[600,487,400,278,'backend'],
-  [136,423,80,261,'gps1'],[104,145,80,261,'maps'],
-  [720,139,400,278,'velocity'],[704,429,400,278,'traffic'],[96,534,400,278,'oauth']
+  [400,52,400,278,'shopify','in'],[208,75,400,278,'transip','in'],[592,75,400,278,'resend','out'],
+  [80,261,400,278,'app','both'],[720,261,400,278,'magazijn','both'],
+  [200,487,400,278,'render','both'],[400,534,400,278,'db','both'],[600,487,400,278,'backend','both'],
+  [136,423,80,261,'gps1','in'],[104,145,80,261,'maps','out'],
+  [720,139,400,278,'velocity','in'],[704,429,400,278,'traffic','in'],[96,534,400,278,'oauth','both']
 ] %}
 
 <div class="ccbar">
@@ -86,12 +82,10 @@
       {% endfor %}
     </g>
     <g>
-      {% for l in LINES %}{% set s = health.get(l[4],{}).get('status','ok') %}
-      {% if s=='ok' %}
-      <circle r="4" fill="#2e9e6b"><animateMotion dur="2.3s" begin="{{ loop.index0 * 0.2 }}s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>
-      <circle r="4" fill="#2e9e6b"><animateMotion dur="2.3s" begin="{{ loop.index0 * 0.2 + 1.15 }}s" repeatCount="indefinite" path="M{{l[2]}} {{l[3]}} L{{l[0]}} {{l[1]}}"/></circle>
-      {% elif s=='warn' %}
-      <circle r="3.6" fill="#e0a021"><animateMotion dur="3s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>
+      {% for l in LINES %}{% set s = health.get(l[4],{}).get('status','ok') %}{% set d = l[5] if l|length>5 else 'both' %}
+      {% if s=='ok' or s=='warn' %}{% set col = '#e0a021' if s=='warn' else '#2e9e6b' %}{% set rr = 3.6 if s=='warn' else 4 %}
+      {% if d in ['in','both'] %}<circle r="{{rr}}" fill="{{col}}"><animateMotion dur="2.4s" begin="{{ loop.index0 * 0.2 }}s" repeatCount="indefinite" path="M{{l[0]}} {{l[1]}} L{{l[2]}} {{l[3]}}"/></circle>{% endif %}
+      {% if d in ['out','both'] %}<circle r="{{rr}}" fill="{{col}}"><animateMotion dur="2.4s" begin="{{ loop.index0 * 0.2 + 1.2 }}s" repeatCount="indefinite" path="M{{l[2]}} {{l[3]}} L{{l[0]}} {{l[1]}}"/></circle>{% endif %}
       {% endif %}
       {% endfor %}
     </g>
@@ -102,10 +96,8 @@
   {% for n in NODES %}{% set s = health.get(n.id,{}).get('status','ok') %}
   <div class="node {{ 'appn ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
-      {%- if n.app=='magazijn' -%}
-        <span class="applogo"><span class="mm">M</span></span>
-      {%- elif n.app -%}
-        <span class="applogo"><span class="ring"></span><span class="stem"></span></span>
+      {%- if n.app -%}
+        <img class="appimg" src="{{ url_for('static', filename='logos/' + n.app + '.svg') }}" alt="{{ n.nm }}">
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
@@ -116,7 +108,6 @@
       <span class="st"></span>
     </div>
     <div class="nm">{{ n.nm }}</div>
-    {% if n.sub %}<div class="sub">{{ n.sub }}</div>{% endif %}
   </div>
   {% endfor %}
 </div>
@@ -125,7 +116,7 @@
   <span><span class="d" style="background:var(--green)"></span>Live &amp; werkend</span>
   <span><span class="d" style="background:var(--amber)"></span>In te stellen</span>
   <span><span class="d" style="background:#9aa3ad"></span>Navigatie-link</span>
-  <span><span class="d" style="background:var(--red)"></span>Nog niet gekoppeld</span>
+  <span><span class="d" style="background:var(--red)"></span>Offline</span>
 </div>
 
 <div class="advice" id="ccadvice">
@@ -158,7 +149,7 @@
       else if(h.status==='link'){n.classList.add('link');}
     });
     document.getElementById('ccres').innerHTML='<span class="d" style="background:'+(bad?'#d64545':(warn?'#d9962b':'#2e9e6b'))+'"></span>'+
-      (bad? bad+' nog te koppelen':(warn? warn+' in te stellen':'Kern volledig verbonden'));
+      (bad? bad+' offline':(warn? warn+' in te stellen':'Kern volledig verbonden'));
   }
   document.querySelectorAll('.node').forEach(function(n){ n.addEventListener('click',function(){ showAdvice(n.dataset.k); }); });
   paint();
