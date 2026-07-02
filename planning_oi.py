@@ -463,6 +463,11 @@ INTEGRATION_BY_KEY = {i["key"]: i for i in INTEGRATIONS}
 # --------------------------------------------------------------------------- #
 #  Schema + seed
 # --------------------------------------------------------------------------- #
+def _new_track_token():
+    # Niet-raadbare, URL-veilige tracking-token (voorkomt enumeratie van ordernummers).
+    return secrets.token_urlsafe(16)
+
+
 def init_db():
     conn = db()
     c = conn.cursor()
@@ -502,7 +507,7 @@ def init_db():
         desired_date TEXT, notes TEXT, instructions TEXT, customer_note TEXT,
         amount REAL DEFAULT 0, volume REAL DEFAULT 0, weight REAL DEFAULT 0,
         montage_min INTEGER DEFAULT 30, service_type TEXT DEFAULT 'montage',
-        pakbon TEXT, shopify_id TEXT, created_at TEXT);
+        pakbon TEXT, shopify_id TEXT, track_token TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS order_items(
         id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, name TEXT, qty INTEGER DEFAULT 1);
     CREATE TABLE IF NOT EXISTS monteurs(
@@ -604,11 +609,19 @@ def init_db():
                  "ALTER TABLE order_magazijn ADD COLUMN manco_by TEXT",
                  "ALTER TABLE order_magazijn ADD COLUMN manco_at TEXT",
                  "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_by TEXT",
-                 "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_at TEXT"):
+                 "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_at TEXT",
+                 "ALTER TABLE orders ADD COLUMN track_token TEXT"):
         try:
             conn.execute(stmt)
         except Exception:
             pass
+    # Backfill: geef bestaande orders zonder tracking-token er alsnog een (idempotent).
+    try:
+        for r in conn.execute("SELECT id FROM orders WHERE track_token IS NULL OR track_token=''").fetchall():
+            conn.execute("UPDATE orders SET track_token=? WHERE id=?", (_new_track_token(), r["id"]))
+        conn.commit()
+    except Exception:
+        pass
     # Eenmalige opschoning bestaande orderregels: merk 'Renab' weghalen (idempotent).
     try:
         conn.execute("UPDATE order_items SET name=TRIM(SUBSTR(name,7)) WHERE name LIKE 'Renab %'")
@@ -729,11 +742,11 @@ def _seed(conn):
          dft, amount, vol, weight, montage, items) = o
         full_addr = f"{addr}, {postal} {city}"
         c.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
-                     invoice_address,phone,email,desired_date,amount,volume,weight,montage_min,shopify_id,created_at,notes)
-                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                     invoice_address,phone,email,desired_date,amount,volume,weight,montage_min,shopify_id,track_token,created_at,notes)
+                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (num, cid, source, draft, status, full_addr, city, postal, full_addr, phone, email,
                    iso(today + timedelta(days=dft)), amount, vol, weight, montage,
-                   (f"gid://shopify/Order/{1000+int(num)}" if source == "shopify" else None), iso(today), ""))
+                   (f"gid://shopify/Order/{1000+int(num)}" if source == "shopify" else None), _new_track_token(), iso(today), ""))
         oid = c.lastrowid
         order_ids[num] = oid
         for nm, q in items:
@@ -2051,9 +2064,9 @@ def api_manual_order():
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     onum = "H" + datetime.now().strftime("%y%m%d%H%M%S")[-6:]
     conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
-                    invoice_address,email,desired_date,amount,montage_min,service_type,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                 (onum, cid, "manual", 0, "gepland", full, city, postal, full, email, day, amount, montage, service, _today_iso()))
+                    invoice_address,email,desired_date,amount,montage_min,service_type,track_token,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (onum, cid, "manual", 0, "gepland", full, city, postal, full, email, day, amount, montage, service, _new_track_token(), _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     if items:
         conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,1)", (oid, items))
@@ -2149,17 +2162,18 @@ def api_order_contact(oid):
     return jsonify(ok=True, **dict(o))
 
 
-@bp.route("/track/<order_number>")
-def track(order_number):
-    """Publieke volgpagina voor de klant (geen login). Toont status + tijdvak + live ETA."""
+@bp.route("/track/<token>")
+def track(token):
+    """Publieke volgpagina voor de klant (geen login). Toont status + tijdvak + live ETA.
+    Werkt op een niet-raadbaar token i.p.v. het ordernummer (voorkomt enumeratie)."""
     conn = db()
     _purge_old_customer_notes(conn)
     o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, o.customer_note, c.name AS client
-                        FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.order_number=?""",
-                     (order_number,)).fetchone()
+                        FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.track_token=?""",
+                     (token,)).fetchone()
     if not o:
         conn.close()
-        return render_template("planning/track.html", found=False, onum=order_number)
+        return render_template("planning/track.html", found=False, onum=None)
     p = conn.execute("""SELECT p.*, m.name AS monteur, m.id AS mid FROM planning p
                         LEFT JOIN monteurs m ON m.id=p.monteur_id WHERE p.order_id=?""", (o["id"],)).fetchone()
     status = (p["status"] if p else None) or o["ostatus"] or "in_te_plannen"
@@ -2189,7 +2203,7 @@ def track(order_number):
             except Exception:
                 eta = None
     conn.close()
-    return render_template("planning/track.html", found=True, onum=o["order_number"],
+    return render_template("planning/track.html", found=True, onum=o["order_number"], token=token,
                            client=o["client"], status=status,
                            tijdvak=tijdvak, the_date=_nl_date(the_date) if the_date else None,
                            eta=eta, monteur=monteur, note=o["customer_note"],
@@ -2197,15 +2211,15 @@ def track(order_number):
                            m_lat=m_lat, m_lng=m_lng, d_lat=dcoord[0], d_lng=dcoord[1])
 
 
-@bp.route("/track/<order_number>/note", methods=["POST"])
-def track_note(order_number):
-    """Klant geeft (max 100 tekens) iets door aan de chauffeur — publiek."""
+@bp.route("/track/<token>/note", methods=["POST"])
+def track_note(token):
+    """Klant geeft (max 100 tekens) iets door aan de chauffeur — publiek, via het niet-raadbare token."""
     note = (request.form.get("note") or "").strip()[:100]
     conn = db()
-    conn.execute("UPDATE orders SET customer_note=? WHERE order_number=?", (note, order_number))
+    conn.execute("UPDATE orders SET customer_note=? WHERE track_token=?", (note, token))
     conn.commit()
     conn.close()
-    return redirect(url_for("planning.track", order_number=order_number, saved=1))
+    return redirect(url_for("planning.track", token=token, saved=1))
 
 
 @bp.route("/api/correspondence/<int:oid>")
@@ -3797,10 +3811,10 @@ def _shopify_import_order(o):
                      (client_name, email, phone, address1, postal, city, _today_iso()))
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.execute("""INSERT INTO orders(order_number,client_id,source,is_draft,status,delivery_address,city,postal,
-                    invoice_address,phone,email,amount,notes,service_type,shopify_id,created_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    invoice_address,phone,email,amount,notes,service_type,shopify_id,track_token,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                  (onum, cid, "shopify", 0, "in_te_plannen", full, city, postal, full, phone, email,
-                  amount, note, service, gid, _today_iso()))
+                  amount, note, service, gid, _new_track_token(), _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     for li in (o.get("line_items") or []):
         qty = int(li.get("quantity") or 1)
@@ -4531,13 +4545,13 @@ def auto_send_daily_mails():
     tpl_d = s.get("tpl_delay", "Beste {klant}, door vertraging is de nieuwe verwachte tijd {eta}.")
     sent = 0
     # 1) aankomst-/tijdvakmails
-    rows = conn.execute("""SELECT p.id pid, p.slot_start, p.slot_end, o.order_number, o.client_id,
+    rows = conn.execute("""SELECT p.id pid, p.slot_start, p.slot_end, o.order_number, o.client_id, o.track_token,
                            o.email AS oemail, c.name AS client, c.email AS cemail
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.date=? AND p.arrival_mailed=0 AND p.status!='afgerond'""", (today,)).fetchall()
     for r in rows:
         tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
-        link = "https://planning-o-i.onrender.com/track/%s" % r["order_number"]
+        link = "https://planning-o-i.onrender.com/track/%s" % r["track_token"]
         greet = "Beste %s," % (r["client"] or "klant")
         intro = _mailtxt("mailtxt_today_b")
         body = greet + "\n\n" + intro
@@ -4558,7 +4572,7 @@ def auto_send_daily_mails():
         if not live:
             continue
         stops = conn.execute("""SELECT p.id pid, p.slot_start, p.delay_mailed, o.city, o.montage_min, o.status AS ostatus,
-                                o.order_number, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail, p.status
+                                o.order_number, o.track_token, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail, p.status
                                 FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                                 WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (m["id"], today)).fetchall()
         arrivals, _ = compute_arrivals(stops, m, live, True)
@@ -4571,7 +4585,7 @@ def auto_send_daily_mails():
                 html = _brand_email(_mailtxt("mailtxt_delay_h"), _paras(greet, intro),
                                     info=[("Nieuwe verwachte tijd", a["at"]), ("Ordernummer", "#" + st["order_number"])],
                                     button=("Volg uw levering",
-                                            "https://planning-o-i.onrender.com/track/%s" % st["order_number"]))
+                                            "https://planning-o-i.onrender.com/track/%s" % st["track_token"]))
                 _send_mail((st["oemail"] or st["cemail"]), subject, body, html)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                              (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))

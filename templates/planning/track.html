@@ -48,7 +48,7 @@
   {% if not found %}
   <div class="body"><div class="nf"><div style="font-size:38px">🔍</div>
     <h1 style="color:#0f3d3e;font-size:19px">Niet gevonden</h1>
-    <p>We konden order <b>#{{ onum }}</b> niet vinden. Controleer de link uit uw e-mail.</p></div></div>
+    <p>We konden deze bestelling niet vinden. Controleer de link uit uw e-mail.</p></div></div>
   {% else %}
   {% set step = {'gepland':1,'onderweg':2,'afgerond':3}.get(status, 0) %}
   <div class="body">
@@ -80,7 +80,7 @@
       <div style="font-size:13px;font-weight:bold;color:#0f3d3e;margin-bottom:6px">Iets doorgeven aan de chauffeur?</div>
       {% if saved %}<div style="background:#e3f3da;color:#3c7a2c;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:8px">Bedankt! Uw bericht is doorgegeven aan de monteur.</div>{% endif %}
       {% if note and not saved %}<div style="font-size:13px;color:#3a4a45;margin-bottom:8px">Eerder doorgegeven: <b>“{{ note }}”</b></div>{% endif %}
-      <form method="post" action="{{ url_for('planning.track_note', order_number=onum) }}">
+      <form method="post" action="{{ url_for('planning.track_note', token=token) }}">
         <input name="note" maxlength="100" value="{{ note or '' }}" placeholder="bijv. bel doet het niet, graag aanbellen bij de buren"
                style="width:100%;padding:11px;border:1px solid #cfe0d7;border-radius:9px;font:inherit;font-size:14px;box-sizing:border-box">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
