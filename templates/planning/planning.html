@@ -70,7 +70,7 @@
   .rhead .exp{cursor:pointer;font-size:13px;background:rgba(255,255,255,.2);border-radius:6px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
   .rhead .exp:hover{background:rgba(255,255,255,.32)}
   #focusBackdrop{position:fixed;inset:0;background:rgba(15,30,28,.5);z-index:85;display:none}
-  .route.focus{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,92vw);max-height:88vh;overflow:auto;z-index:90;box-shadow:0 30px 80px rgba(0,0,0,.4)}
+  .route.focus{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(1000px,94vw);max-height:92vh;overflow:auto;z-index:90;box-shadow:0 30px 80px rgba(0,0,0,.4)}
   .rtbl tr.done td{background:#eaf4e4}
   .rtbl tr.done .nm b{color:#3b6d11}
   .rtbl tr.done .seq{background:#cfe8c2;color:#2c5410;border-radius:50%}
@@ -125,7 +125,7 @@
     {% for o in unplanned %}
     <div class="ocard {{ 'imp' if (o.amount or 0) >= 2000 }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ o.id }}">
       <div style="display:flex;justify-content:space-between;align-items:center"><span class="num">#{{ o.order_number }}</span>{% if (o.amount or 0)>=2000 %}<span class="ml" style="background:#fbeccd;color:#9a6a17">€{{ o.amount|int }}</span>{% endif %}</div>
-      <div class="cl">{{ o.client }}</div>
+      <div class="cl">{{ (o.client or '').split()[:2] | join(' ') }}</div>
       <div class="it">{{ items.get(o.id, '—') }}</div>
     </div>
     {% else %}<p class="hint">Alles is ingepland.</p>{% endfor %}
@@ -170,7 +170,7 @@
           {% elif j.at_status=='none' %}<span class="at-none">—</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm"><b>{{ j.client }}</b> <span>· {{ j.arts or '—' }}</span></td>
+        <td class="nm"><b>{{ (j.client or '').split()[:2] | join(' ') }}</b> <span>· {{ j.arts or '—' }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
