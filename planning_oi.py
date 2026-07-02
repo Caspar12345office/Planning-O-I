@@ -1862,15 +1862,22 @@ def planning():
             coords.append(BREDA)
             km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
             alerts = route_alerts(m["id"], True)
+            provs = []
+            for j in rj:
+                p = PROVINCE.get(j["city"])
+                if p and p not in provs:
+                    provs.append(p)
             totals[m["id"]] = {"stops": len(rj), "km": round(km),
                                "time": fmt_duration(montage + km / 45 * 60),
-                               "region": region_for([j["city"] for j in rj]),
+                               "region": " · ".join(provs) if provs else "—",
+                               "prov_count": len(provs),
                                "eta_back": eta_back, "live": bool(live),
                                "alerts": alerts, "delay": sum(a["min"] for a in alerts),
                                "on_leave": bool(frees.get(m["id"]))}
         else:
             # Geen stops → geen reistijd/km tonen (voorkomt 'spook'-reistijd)
             totals[m["id"]] = {"stops": 0, "km": 0, "time": "—", "region": "—",
+                               "prov_count": 0,
                                "eta_back": None, "live": bool(live), "alerts": [], "delay": 0,
                                "on_leave": bool(frees.get(m["id"]))}
     conn.close()
