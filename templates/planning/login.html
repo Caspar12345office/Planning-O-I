@@ -86,13 +86,6 @@
         <input type="password" name="password" placeholder="••••••••" required>
         <button class="btn" type="submit">Volgende →</button>
       </form>
-      <div class="demo">
-        <div style="margin-bottom:7px"><b>Demo-accounts</b> · wachtwoord <code>PlanningOI2025!</code></div>
-        {% for a in office_accounts %}
-        <div class="row"><span>{{ a.role }}</span><code>{{ a.email }}</code></div>
-        {% endfor %}
-        <div style="margin-top:7px;color:var(--muted);font-size:12px">Monteurs loggen niet hier in — zij gebruiken de OfficeRoute-app.</div>
-      </div>
       {% endif %}
     </div>
   </div>
