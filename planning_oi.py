@@ -1490,15 +1490,12 @@ def login():
                 code = "%06d" % secrets.randbelow(1000000)
                 show_2fa = True
                 twofa_email = u["email"]
-                # E-mail op de ACHTERGROND versturen zodat de login niet wacht op
-                # het (trage) Resend-verzoek. Of mail werkt, weten we uit de config
-                # (geen netwerkcall nodig) -> code_sent direct bepaald.
+                # Code alleen als 'verstuurd' beschouwen als de mail ECHT gelukt is
+                # (synchroon; Resend faalt snel bij een niet-gekoppeld domein). Zo raakt
+                # niemand buitengesloten: mislukt de mail, dan verschijnt de code als
+                # terugval op het scherm (alleen zichtbaar NA een juist wachtwoord).
                 if _mail_live():
-                    code_sent = True
-                    threading.Thread(target=_send_2fa_email, args=(u["email"], code, u["name"]),
-                                     daemon=True).start()
-                # Alleen als terugval tonen wanneer mail NIET live is; zodra mail werkt
-                # is de 2FA-code niet meer zichtbaar (veiligheid).
+                    code_sent = _send_2fa_email(u["email"], code, u["name"])
                 if not code_sent:
                     demo_code = code
                 session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
