@@ -12,7 +12,7 @@ om met echte API-logica te worden "ingeplugd".
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session,
-    flash, jsonify, Response, abort, send_from_directory, got_request_exception,
+    flash, jsonify, Response, abort, send_from_directory, got_request_exception, g,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -639,7 +639,10 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_orders_desired ON orders(desired_date)",
                 "CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_messages(ts)",
                 "CREATE INDEX IF NOT EXISTS idx_email_log_client ON email_log(client_id)",
-                "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)"):
+                "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)",
+                "CREATE INDEX IF NOT EXISTS idx_deliveries_monteur_ts ON deliveries(monteur_id, ts)",
+                "CREATE INDEX IF NOT EXISTS idx_orders_track_token ON orders(track_token)",
+                "CREATE INDEX IF NOT EXISTS idx_planning_status ON planning(status)"):
         try:
             conn.execute(idx)
         except Exception:
@@ -867,12 +870,18 @@ def _seed(conn):
 #  Auth & helpers
 # --------------------------------------------------------------------------- #
 def current_user():
+    # Cache per request (Flask g): _inject, login_required en has_perm vragen anders
+    # meermaals dezelfde user op bij elke pagina/API-call.
+    if getattr(g, "_cur_user_set", False):
+        return g._cur_user
     uid = session.get("p_user_id")
-    if not uid:
-        return None
-    conn = db()
-    u = conn.execute("SELECT * FROM users WHERE id=? AND active=1", (uid,)).fetchone()
-    conn.close()
+    u = None
+    if uid:
+        conn = db()
+        u = conn.execute("SELECT * FROM users WHERE id=? AND active=1", (uid,)).fetchone()
+        conn.close()
+    g._cur_user = u
+    g._cur_user_set = True
     return u
 
 
@@ -1488,9 +1497,10 @@ def login():
                     code_sent = True
                     threading.Thread(target=_send_2fa_email, args=(u["email"], code, u["name"]),
                                      daemon=True).start()
-                # Code ALTIJD ook op het scherm tonen als terugval — zo lukt inloggen
-                # ook als de e-mail (nog) niet aankomt. Verbergen zodra mail bewezen werkt.
-                demo_code = code
+                # Alleen als terugval tonen wanneer mail NIET live is; zodra mail werkt
+                # is de 2FA-code niet meer zichtbaar (veiligheid).
+                if not code_sent:
+                    demo_code = code
                 session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
                                     "next": request.args.get("next"), "email": u["email"], "sent": code_sent}
             else:
@@ -1669,10 +1679,13 @@ def api_locations():
 def api_location():
     """De monteur-app pusht hier de live GPS-positie van de telefoon naartoe."""
     u = current_user()
-    if not u or not u["monteur_id"]:
+    if not u or not u["monteur_id"] or not has_perm("monteur_app"):
         return jsonify(ok=False, error="Geen monteur"), 403
-    data = request.get_json(force=True)
-    lat, lng = float(data["lat"]), float(data["lng"])
+    data = request.get_json(silent=True) or {}
+    try:
+        lat, lng = float(data["lat"]), float(data["lng"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify(ok=False, error="Ongeldige locatie."), 400
     live = 1 if data.get("live", True) else 0
     conn = db()
     conn.execute("""INSERT INTO monteur_location(monteur_id,lat,lng,updated_at,live) VALUES(?,?,?,?,?)
@@ -1727,7 +1740,7 @@ def api_question_resolve(qid):
     if not u:
         return jsonify(ok=False), 403
     conn = db()
-    conn.execute("UPDATE team_questions SET resolved=1 WHERE id=?", (qid,))
+    conn.execute("UPDATE team_questions SET resolved=1 WHERE id=? AND to_user_id=?", (qid, u["id"]))
     conn.commit()
     conn.close()
     return redirect(request.referrer or url_for("planning.dashboard"))
@@ -1799,7 +1812,11 @@ def planning():
     if guard:
         return guard
     day = request.args.get("day", _today_iso())
-    d = datetime.strptime(day, "%Y-%m-%d").date()
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        day = _today_iso()
+        d = datetime.strptime(day, "%Y-%m-%d").date()
     conn = db()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     jobs = conn.execute("""
@@ -2006,6 +2023,16 @@ def api_autoplan():
         return any(f["monteur_id"] == mid and f["date_from"] <= diso <= f["date_to"] for f in frees)
 
     orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
+    # Bestaande stops per (monteur, dag) één keer inladen; tijdens deze run in geheugen
+    # bijwerken. Voorkomt N+1 (voorheen een query per order x dag x monteur).
+    routes_state = {}
+    if days:
+        ph = ",".join(["?"] * len(days))
+        for r in conn.execute("SELECT p.monteur_id AS mid, p.date AS date, o2.city AS city "
+                              "FROM planning p JOIN orders o2 ON o2.id=p.order_id "
+                              "WHERE p.date IN (%s)" % ph, days).fetchall():
+            routes_state.setdefault((r["mid"], r["date"]), []).append(r["city"])
+    busmap = {m["id"]: m["bus_id"] for m in monteurs}
     planned = 0
     for o in orders:
         oprov = PROVINCE.get(o["city"])
@@ -2014,13 +2041,11 @@ def api_autoplan():
             for m in monteurs:
                 if is_free(m["id"], diso):
                     continue
-                stops = conn.execute("""SELECT o2.city FROM planning p JOIN orders o2 ON o2.id=p.order_id
-                                        WHERE p.monteur_id=? AND p.date=?""", (m["id"], diso)).fetchall()
-                cnt = len(stops)
-                cap = 8
-                if cnt >= cap:
+                cities = routes_state.get((m["id"], diso), [])
+                cnt = len(cities)
+                if cnt >= 8:
                     continue
-                provs = [PROVINCE.get(s["city"]) for s in stops]
+                provs = [PROVINCE.get(c) for c in cities]
                 score = 0.0
                 if oprov and oprov in provs:
                     score += 120          # zelfde regio als bestaande route die dag
@@ -2032,10 +2057,10 @@ def api_autoplan():
                     best_score, best = score, (m["id"], diso, cnt)
         if best:
             mid, diso, seq = best
-            mb = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
             conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
-                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, (mb["bus_id"] if mb else None), diso, seq))
+                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, busmap.get(mid), diso, seq))
             conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
+            routes_state.setdefault((mid, diso), []).append(o["city"])
             # GEEN automatische mail: de planner verstuurt de leveringsmail later met "Mail iedereen".
             planned += 1
     conn.commit()
@@ -2057,8 +2082,11 @@ def api_manual_order():
     full = ", ".join([p for p in [address, (postal + " " + city).strip()] if p])
     mid = f.get("monteur_id") or None
     day = f.get("date") or _today_iso()
-    montage = int(f.get("montage_min") or 30)
-    amount = float(f.get("amount") or 0)
+    montage = _int(f.get("montage_min"), 30)
+    try:
+        amount = float(f.get("amount") or 0)
+    except (ValueError, TypeError):
+        amount = 0.0
     service = f.get("service_type") or "montage"
     items = (f.get("items") or "").strip()
     email = (f.get("email") or "").strip()
@@ -2490,7 +2518,7 @@ def monteur_edit(mid):
     f = request.form
     conn = db()
     conn.execute("""UPDATE monteurs SET name=?, phone=?, email=?, speed=?, bus_id=?, home_address=?, active=? WHERE id=?""",
-                 (f.get("name"), f.get("phone"), f.get("email"), int(f.get("speed", 3)),
+                 (f.get("name"), f.get("phone"), f.get("email"), _int(f.get("speed"), 3),
                   (f.get("bus_id") or None), f.get("home_address"),
                   1 if f.get("active") else 0, mid))
     conn.commit()
@@ -2749,7 +2777,7 @@ def bus_edit(bid):
                     max_stops=?, apk_date=?, maintenance=?, active=? WHERE id=?""",
                  (f.get("name"), f.get("plate"), f.get("driver"),
                   float(f.get("max_volume") or 0), float(f.get("max_weight") or 0),
-                  int(f.get("max_stops") or 0), f.get("apk_date"), f.get("maintenance"),
+                  _int(f.get("max_stops"), 0), f.get("apk_date"), f.get("maintenance"),
                   1 if f.get("active") else 0, bid))
     conn.commit()
     conn.close()
@@ -3515,7 +3543,7 @@ def koppelingen_check():
 
 # Demodata opnieuw vullen met de datum van vandaag (beheerder-only, met bevestiging).
 # Leegt de demo-inhoud (NIET de koppelingen/instellingen) en draait _seed opnieuw.
-_RESEED_TABLES = ["bus_issues", "bus_choices", "deliveries", "planning", "order_items", "orders",
+_RESEED_TABLES = ["bus_issues", "deliveries", "planning", "order_items", "orders",
                   "clients", "route_closed", "free_days", "email_log", "monteur_location",
                   "office_days", "vehicle_km", "team_questions", "chat_messages", "leave_requests",
                   "busses", "monteurs", "users"]
