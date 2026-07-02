@@ -15,7 +15,7 @@
   .node{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;width:106px;z-index:2}
   .node.act{cursor:pointer}.node.act .ic{transition:transform .15s,box-shadow .15s}.node.act:hover .ic{transform:translateY(-3px);box-shadow:0 10px 22px rgba(15,61,62,.18)}
   .ic{position:relative;width:54px;height:54px;border-radius:15px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.10)}
-  .node.app .ic{background:transparent;border:0;box-shadow:none}
+  .node.appn .ic{background:transparent;border:0;box-shadow:none}
   .applogo{width:52px;height:52px;border-radius:14px;background:#0f3d3e;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(15,61,62,.22)}
   .applogo .ring{width:22px;height:22px;border:5px solid #cda35a;border-radius:50%;box-sizing:border-box}
   .applogo .stem{width:5px;height:15px;background:#cda35a;border-radius:3px;margin-top:2px}
@@ -100,7 +100,7 @@
   <div class="hub"><div class="ring"></div><div class="box"><svg viewBox="0 0 512 512"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="205" r="96" fill="none" stroke="#cda35a" stroke-width="44"/><rect x="234" y="250" width="44" height="166" rx="22" fill="#cda35a"/></svg></div></div>
 
   {% for n in NODES %}{% set s = health.get(n.id,{}).get('status','ok') %}
-  <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
+  <div class="node {{ 'appn ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
       {%- if n.app=='magazijn' -%}
         <span class="applogo"><span class="mm">M</span></span>
