@@ -16,6 +16,10 @@
   .node.act{cursor:pointer}.node.act .ic{transition:transform .15s,box-shadow .15s}.node.act:hover .ic{transform:translateY(-3px);box-shadow:0 10px 22px rgba(15,61,62,.18)}
   .ic{position:relative;width:54px;height:54px;border-radius:15px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 5px 14px rgba(15,61,62,.10)}
   .node.app .ic{background:transparent;border:0;box-shadow:none}
+  .applogo{width:52px;height:52px;border-radius:14px;background:#0f3d3e;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(15,61,62,.22)}
+  .applogo .ring{width:22px;height:22px;border:5px solid #cda35a;border-radius:50%;box-sizing:border-box}
+  .applogo .stem{width:5px;height:15px;background:#cda35a;border-radius:3px;margin-top:2px}
+  .applogo .mm{color:#cda35a;font-weight:800;font-size:30px;line-height:1;font-family:Arial,Helvetica,sans-serif}
   .appimg{width:56px;height:56px;filter:drop-shadow(0 6px 16px rgba(15,61,62,.24))}
   .lg{background:var(--c,#0f3d3e);-webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
   .gi{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
@@ -98,8 +102,10 @@
   {% for n in NODES %}{% set s = health.get(n.id,{}).get('status','ok') %}
   <div class="node {{ 'app ' if n.app }}{{ s if s!='ok' }}{{ ' act' if can_act }}" data-k="{{ n.id }}" style="left:{{ n.x }}%;top:{{ n.y }}%">
     <div class="ic">
-      {%- if n.app -%}
-        <img src="{{ url_for('static', filename='logos/' + n.app + '.svg') }}" alt="{{ n.nm }}" style="width:52px;height:auto;max-height:52px;border-radius:14px;display:block">
+      {%- if n.app=='magazijn' -%}
+        <span class="applogo"><span class="mm">M</span></span>
+      {%- elif n.app -%}
+        <span class="applogo"><span class="ring"></span><span class="stem"></span></span>
       {%- elif n.img -%}
         <img src="{{ url_for('static', filename='logos/' + n.img + '.svg') }}" alt="{{ n.nm }}" style="width:{{ n.lw }}px;height:auto;max-height:40px;border-radius:8px">
       {%- elif n.logo -%}
