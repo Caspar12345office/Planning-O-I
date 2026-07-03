@@ -508,7 +508,7 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape') clearFocus
 function autoPlan(btn){
   btn.disabled=true; var t=btn.textContent; btn.textContent='Bezig…';
   fetch('{{ url_for("planning.api_autoplan") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){
-    if(res.ok){ alert(res.planned+' order(s) automatisch ingepland op de best passende dag/route.'); location.reload(); }
+    if(res.ok){ alert(res.planned+' order(s) automatisch ingepland (max 7 werkuren p/dag, reistijd + montage).'+(res.notfit? '\n'+res.notfit+' order(s) pasten niet binnen de werkdag en blijven bij “Nog in te plannen”.':'')); location.reload(); }
     else { alert(res.error||'Mislukt'); btn.disabled=false; btn.textContent=t; }
   });
 }

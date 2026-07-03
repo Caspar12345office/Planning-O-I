@@ -2038,50 +2038,90 @@ def api_autoplan():
     def is_free(mid, diso):
         return any(f["monteur_id"] == mid and f["date_from"] <= diso <= f["date_to"] for f in frees)
 
+    prods = _load_products(conn)
+    WORKDAY_MIN = 420          # 7 uur werk: Breda -> alle stops -> terug Breda (pauzes niet meegerekend)
+    SPEED_KMH = 45.0
+
+    def _coord(city):
+        return CITY_COORDS.get(city, BREDA)
+
+    def _route_min(stop_coords, montage_sum):
+        # Reistijd Breda(Nikkelstraat) -> stops (in volgorde) -> terug Breda + totale montagetijd.
+        pts = [BREDA] + stop_coords + [BREDA]
+        km = sum(haversine(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
+        return km / SPEED_KMH * 60 + montage_sum
+
+    def _montage_map(oids):
+        oids = [x for x in oids if x]
+        if not oids:
+            return {}
+        ph = ",".join(["?"] * len(oids))
+        rows = conn.execute("SELECT oi.order_id AS oid, oi.name AS name, oi.qty AS qty, oi.montage_custom AS mc, "
+                            "o.service_type AS svc FROM order_items oi JOIN orders o ON o.id=oi.order_id "
+                            "WHERE oi.order_id IN (%s)" % ph, tuple(oids)).fetchall()
+        items, svc = {}, {}
+        for r in rows:
+            items.setdefault(r["oid"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["mc"]})
+            svc[r["oid"]] = r["svc"]
+        return {oid: _order_montage(items.get(oid, []), prods, fallback=0, service_type=svc.get(oid, "montage"))
+                for oid in oids}
+
     orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
-    # Bestaande stops per (monteur, dag) één keer inladen; tijdens deze run in geheugen
-    # bijwerken. Voorkomt N+1 (voorheen een query per order x dag x monteur).
+
+    # Bestaande stops per (monteur, dag): coord + provincie + montagetijd (1x inladen).
     routes_state = {}
     if days:
         ph = ",".join(["?"] * len(days))
-        for r in conn.execute("SELECT p.monteur_id AS mid, p.date AS date, o2.city AS city "
-                              "FROM planning p JOIN orders o2 ON o2.id=p.order_id "
-                              "WHERE p.date IN (%s)" % ph, days).fetchall():
-            routes_state.setdefault((r["mid"], r["date"]), []).append(r["city"])
+        exist = conn.execute("SELECT p.monteur_id AS mid, p.date AS date, p.order_id AS oid, o2.city AS city "
+                             "FROM planning p JOIN orders o2 ON o2.id=p.order_id WHERE p.date IN (%s)" % ph,
+                             days).fetchall()
+        exist_m = _montage_map([r["oid"] for r in exist])
+        for r in exist:
+            routes_state.setdefault((r["mid"], r["date"]), []).append(
+                {"coord": _coord(r["city"]), "prov": PROVINCE.get(r["city"]), "montage": exist_m.get(r["oid"]) or 30})
+
+    cand_m = _montage_map([o["id"] for o in orders])
     busmap = {m["id"]: m["bus_id"] for m in monteurs}
-    planned = 0
+    home_prov = {m["id"]: PROVINCE.get(_home_city(m)) for m in monteurs}
+    planned = notfit = 0
     for o in orders:
         oprov = PROVINCE.get(o["city"])
+        omont = cand_m.get(o["id"]) or (o["montage_min"] or 30)
+        ocoord = _coord(o["city"])
         best, best_score = None, -1e9
         for di, diso in enumerate(days):
             for m in monteurs:
                 if is_free(m["id"], diso):
                     continue
-                cities = routes_state.get((m["id"], diso), [])
-                cnt = len(cities)
-                if cnt >= 8:
-                    continue
-                provs = [PROVINCE.get(c) for c in cities]
+                cur = routes_state.get((m["id"], diso), [])
+                rt = _route_min([s["coord"] for s in cur] + [ocoord],
+                                sum(s["montage"] for s in cur) + omont)
+                if rt > WORKDAY_MIN:
+                    continue                       # past niet binnen de werkdag van 7 uur
+                provs_after = set(p for p in ([s["prov"] for s in cur] + [oprov]) if p)
                 score = 0.0
-                if oprov and oprov in provs:
-                    score += 120          # zelfde regio als bestaande route die dag
-                if oprov and PROVINCE.get(_home_city(m)) == oprov:
-                    score += 30           # monteur woont in die regio
-                score -= cnt * 7          # spreid de belasting
-                score -= di * 3           # liever eerder
+                if oprov and oprov in set(s["prov"] for s in cur):
+                    score += 120                   # clustert bij dezelfde provincie die dag
+                if oprov and home_prov.get(m["id"]) == oprov:
+                    score += 30                    # monteur woont in die regio
+                if len(provs_after) >= 3:
+                    score -= 500                   # vermijd 3+ provincies (zoals de waarschuwing)
+                score -= di * 10                   # liever eerder in de week
+                score -= rt * 0.03                 # lichtere dag licht voorkeur
                 if score > best_score:
-                    best_score, best = score, (m["id"], diso, cnt)
+                    best_score, best = score, (m["id"], diso, len(cur))
         if best:
             mid, diso, seq = best
             conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
                             VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, busmap.get(mid), diso, seq))
             conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
-            routes_state.setdefault((mid, diso), []).append(o["city"])
-            # GEEN automatische mail: de planner verstuurt de leveringsmail later met "Mail iedereen".
+            routes_state.setdefault((mid, diso), []).append({"coord": ocoord, "prov": oprov, "montage": omont})
             planned += 1
+        else:
+            notfit += 1               # paste bij geen enkele monteur/dag binnen de werkdag
     conn.commit()
     conn.close()
-    return jsonify(ok=True, planned=planned)
+    return jsonify(ok=True, planned=planned, notfit=notfit)
 
 
 @bp.route("/api/manual-order", methods=["POST"])
