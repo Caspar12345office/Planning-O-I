@@ -1,0 +1,49 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Leveringsdocument #{{ d.onum }} · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Leveringsdocument</h1><p>Order #{{ d.onum }}{% if d.client %} · {{ d.client }}{% endif %}</p>{% endblock %}
+{% block page_css %}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:16px;max-width:640px}
+  .card h3{margin:0 0 12px;font-size:15px;color:var(--accent)}
+  .qa{border-bottom:1px solid var(--line);padding:10px 0}
+  .qa:last-child{border-bottom:0}
+  .qa .q{font-size:12px;color:var(--muted)}
+  .qa .a{font-size:15px;margin-top:2px}
+  .meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:6px 14px}
+  .sig{max-width:320px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:6px}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#d9f0e1;color:#1f6b3e}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ url_for('planning.leveringsdocumenten') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle leveringsdocumenten</a>
+
+<div class="card">
+  <h3>Status</h3>
+  <div class="meta">
+    <span>Order</span><span><a href="{{ url_for('planning.order_detail', oid=d.order_id) }}">#{{ d.onum }}</a></span>
+    <span>Reden</span><span>{{ d.reason }}</span>
+    <span>Verstuurd</span><span>{{ d.sent_at }}{% if d.sent_by %} door {{ d.sent_by }}{% endif %}</span>
+    <span>Status</span><span>{% if d.status=='received' %}<span class="badge">Ontvangen op {{ d.received_at }}</span>{% else %}Nog niet terug{% endif %}</span>
+  </div>
+</div>
+
+{% if d.status=='received' %}
+<div class="card">
+  <h3>Antwoorden</h3>
+  {% for qa in answers %}
+  <div class="qa"><div class="q">{{ qa.q }}</div><div class="a">{{ qa.a or '—' }}</div></div>
+  {% else %}
+  <p class="muted">Geen vragen ingevuld.</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h3>Ondertekening</h3>
+  <div class="meta"><span>Naam</span><span><b>{{ d.signer_name or '—' }}</b></span></div>
+  {% if d.signature %}<img class="sig" src="{{ d.signature }}" alt="handtekening">{% endif %}
+</div>
+{% else %}
+<div class="card">
+  <p class="muted" style="margin:0">Dit document is nog niet ingevuld/teruggestuurd door de klant.</p>
+  <p style="margin:10px 0 0;font-size:13px">Retourlink: <code style="user-select:all">{{ link }}</code></p>
+</div>
+{% endif %}
+{% endblock %}

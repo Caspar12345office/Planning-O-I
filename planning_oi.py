@@ -594,6 +594,14 @@ def init_db():
         date TEXT, monteur_id INTEGER, PRIMARY KEY(date, monteur_id));
     CREATE TABLE IF NOT EXISTS route_crew(
         date TEXT, lead_id INTEGER, monteur_id INTEGER, PRIMARY KEY(date, lead_id, monteur_id));
+    CREATE TABLE IF NOT EXISTS leverdoc_template(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, intro TEXT, questions TEXT,
+        active INTEGER DEFAULT 1, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS leverdoc(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, template_id INTEGER,
+        token TEXT, reason TEXT, status TEXT DEFAULT 'open',
+        sent_at TEXT, sent_by TEXT, to_email TEXT,
+        answers TEXT, signer_name TEXT, signature TEXT, received_at TEXT, created_at TEXT);
     CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
         m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
@@ -659,6 +667,8 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)",
                 "CREATE INDEX IF NOT EXISTS idx_deliveries_monteur_ts ON deliveries(monteur_id, ts)",
                 "CREATE INDEX IF NOT EXISTS idx_orders_track_token ON orders(track_token)",
+                "CREATE INDEX IF NOT EXISTS idx_leverdoc_token ON leverdoc(token)",
+                "CREATE INDEX IF NOT EXISTS idx_leverdoc_order ON leverdoc(order_id)",
                 "CREATE INDEX IF NOT EXISTS idx_planning_status ON planning(status)"):
         try:
             conn.execute(idx)
@@ -1055,6 +1065,7 @@ NAV = [
     {"label": "Klanten", "endpoint": "planning.clients", "icon": "users", "perm": "view_orders"},
     {"label": "Documenten", "endpoint": "planning.documenten", "icon": "doc", "perm": "view_documents",
      "subs": [{"label": "Openbaar kladblok", "endpoint": "planning.kladblok", "icon": "pencil", "perm": "view_documents"},
+              {"label": "Leveringsdocumenten", "endpoint": "planning.leveringsdocumenten", "icon": "doc", "perm": "view_documents"},
               {"label": "Handleiding", "endpoint": "planning.handleiding", "icon": "doc", "perm": "view_documents"}]},
     {"label": "Teamchat", "endpoint": "planning.chat", "icon": "chat", "perm": "view_orders"},
     {"label": "Monteurs", "endpoint": "planning.monteurs", "icon": "idcard", "perm": "view_personnel",
@@ -1895,6 +1906,7 @@ def planning():
     addable = [m for m in monteurs if m["id"] not in shown_ids]
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
+    leverdoc_map = _leverdoc_status_map(conn, [j["order_id"] for j in jobs]) if jobs else {}
     # Montagetijd (workload) per order uit de artikelcatalogus (val terug op order.montage_min).
     _prods = _load_products(conn)
     montage_map, weight_map = {}, {}
@@ -1932,6 +1944,7 @@ def planning():
             st = s["service_type"]
             d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
             d2["arts"] = items_map.get(s["order_id"], "")
+            d2["leverdoc"] = leverdoc_map.get(s["order_id"])
             enriched.append(d2)
         routes_by_m[m["id"]] = enriched
         if rj:
@@ -2532,9 +2545,15 @@ def order_detail(oid):
     n_open = sum(1 for it in items if it["montage_custom"] is None and not _match_product(it["name"], prods))
     workload = _order_montage([{"name": it["name"], "qty": it["qty"], "montage_custom": it["montage_custom"]} for it in items],
                               prods, fallback=(o["montage_min"] or 0), service_type=o["service_type"])
+    leverdoc_reasons = _leverdoc_reasons(items)
+    leverdocs = conn.execute("""SELECT id, status, reason, sent_at, received_at, token
+                                FROM leverdoc WHERE order_id=? ORDER BY id DESC""", (oid,)).fetchall()
+    has_template = bool(_leverdoc_active_template(conn))
     conn.close()
     return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
-                           needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload)
+                           needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload,
+                           leverdoc_reasons=leverdoc_reasons, leverdocs=leverdocs,
+                           leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE)
 
 
 # --------------------------------------------------------------------------- #
@@ -3437,6 +3456,202 @@ def documenten_delete(did):
 
 
 # --------------------------------------------------------------------------- #
+#  Leveringsdocumenten: sjablonen beheren, versturen (beveiligde link),
+#  automatische ontvangst-detectie + doorzoekbare lijst.
+# --------------------------------------------------------------------------- #
+LEVERDOC_BASE = "https://planning-o-i.onrender.com"
+
+
+@bp.route("/leveringsdocumenten", methods=["GET", "POST"])
+def leveringsdocumenten():
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    conn = db()
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "save_triggers":
+            for k, dflt in (("leverdoc_keywords", "Belcel"), ("leverdoc_min_bureau", "10"),
+                            ("leverdoc_min_kast", "3"), ("leverdoc_min_stoel", "10")):
+                conn.execute("INSERT INTO settings(skey,value) VALUES(?,?) "
+                             "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
+                             (k, (request.form.get(k) or dflt).strip()))
+            conn.commit()
+            flash("Trigger-instellingen opgeslagen.")
+        elif action == "add_template":
+            title = (request.form.get("title") or "").strip() or "Leveringsdocument"
+            intro = (request.form.get("intro") or "").strip()
+            questions = (request.form.get("questions") or "").strip()
+            active = 1 if request.form.get("active") else 0
+            # Slechts één actief sjabloon tegelijk (dat wordt automatisch verstuurd).
+            if active:
+                conn.execute("UPDATE leverdoc_template SET active=0")
+            conn.execute("""INSERT INTO leverdoc_template(title,intro,questions,active,created_at)
+                            VALUES(?,?,?,?,?)""",
+                         (title, intro, questions, active, datetime.now().isoformat(timespec="minutes")))
+            conn.commit()
+            flash("Sjabloon toegevoegd.")
+        conn.close()
+        return redirect(url_for("planning.leveringsdocumenten"))
+
+    templates = conn.execute("SELECT * FROM leverdoc_template ORDER BY id DESC").fetchall()
+    q = (request.args.get("q") or "").strip()
+    if q:
+        rows = conn.execute("""SELECT l.*, o.order_number AS onum, c.name AS client
+                               FROM leverdoc l JOIN orders o ON o.id=l.order_id
+                               LEFT JOIN clients c ON c.id=o.client_id
+                               WHERE o.order_number LIKE ? OR c.name LIKE ?
+                               ORDER BY l.id DESC""", ("%" + q + "%", "%" + q + "%")).fetchall()
+    else:
+        rows = conn.execute("""SELECT l.*, o.order_number AS onum, c.name AS client
+                               FROM leverdoc l JOIN orders o ON o.id=l.order_id
+                               LEFT JOIN clients c ON c.id=o.client_id
+                               ORDER BY l.id DESC LIMIT 200""").fetchall()
+    conn.close()
+    trig = {"keywords": setting("leverdoc_keywords", "Belcel"),
+            "min_bureau": setting("leverdoc_min_bureau", "10"),
+            "min_kast": setting("leverdoc_min_kast", "3"),
+            "min_stoel": setting("leverdoc_min_stoel", "10")}
+    return render_template("planning/leveringsdocumenten.html", templates=templates, docs=rows,
+                           trig=trig, q=q, base=LEVERDOC_BASE)
+
+
+@bp.route("/leveringsdocumenten/template/<int:tid>", methods=["POST"])
+def leverdoc_template_edit(tid):
+    if not has_perm("view_documents"):
+        abort(403)
+    conn = db()
+    active = 1 if request.form.get("active") else 0
+    if active:
+        conn.execute("UPDATE leverdoc_template SET active=0")
+    conn.execute("""UPDATE leverdoc_template SET title=?, intro=?, questions=?, active=? WHERE id=?""",
+                 ((request.form.get("title") or "").strip() or "Leveringsdocument",
+                  (request.form.get("intro") or "").strip(),
+                  (request.form.get("questions") or "").strip(), active, tid))
+    conn.commit()
+    conn.close()
+    flash("Sjabloon opgeslagen.")
+    return redirect(url_for("planning.leveringsdocumenten"))
+
+
+@bp.route("/leveringsdocumenten/template/<int:tid>/verwijderen", methods=["POST"])
+def leverdoc_template_delete(tid):
+    if not has_perm("view_documents"):
+        abort(403)
+    conn = db()
+    conn.execute("DELETE FROM leverdoc_template WHERE id=?", (tid,))
+    conn.commit()
+    conn.close()
+    flash("Sjabloon verwijderd.")
+    return redirect(url_for("planning.leveringsdocumenten"))
+
+
+@bp.route("/leveringsdocumenten/order/<int:oid>/versturen", methods=["POST"])
+def leverdoc_send(oid):
+    """Verstuur (of genereer) een leveringsdocument voor een order: maakt een
+    beveiligde retourlink aan en mailt die naar de klant (als mail live is)."""
+    if not has_perm("view_documents"):
+        abort(403)
+    conn = db()
+    o = conn.execute("""SELECT o.*, c.name AS client FROM orders o
+                        LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
+    if not o:
+        conn.close(); abort(404)
+    tpl = _leverdoc_active_template(conn)
+    if not tpl:
+        conn.close()
+        flash("Maak eerst een leveringsdocument-sjabloon aan (en zet het op actief).")
+        return redirect(url_for("planning.leveringsdocumenten"))
+    items = conn.execute("SELECT name, qty FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    reasons = _leverdoc_reasons(items)
+    reason = " · ".join(reasons) if reasons else "handmatig verstuurd"
+    token = _new_track_token()
+    u = current_user()
+    to_email = (o["email"] or "").strip()
+    conn.execute("""INSERT INTO leverdoc(order_id,template_id,token,reason,status,sent_at,sent_by,to_email,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                 (oid, tpl["id"], token, reason, "open",
+                  datetime.now().isoformat(timespec="minutes"),
+                  (u["name"] if u else ""), to_email,
+                  datetime.now().isoformat(timespec="minutes")))
+    conn.commit()
+    conn.close()
+    link = "%s/leverdoc/%s" % (LEVERDOC_BASE, token)
+    mailed = False
+    if to_email and _mail_live():
+        greet = "Beste %s," % (o["client"] or "klant")
+        intro = ("Voor uw levering (order #%s) hebben wij nog enkele gegevens over de "
+                 "leverlocatie nodig. Wilt u het onderstaande document invullen en digitaal "
+                 "ondertekenen? Dat kost slechts een minuut." % o["order_number"])
+        html = _brand_email("Leveringsdocument invullen", _paras(greet, intro),
+                            info=[("Ordernummer", "#" + o["order_number"])],
+                            button=("Document invullen &amp; ondertekenen", link))
+        try:
+            mailed = bool(_send_mail(to_email, "Leveringsdocument voor uw order #" + o["order_number"],
+                                     greet + "\n\n" + intro + "\n\n" + link, html))
+        except Exception:
+            mailed = False
+    if mailed:
+        flash("Leveringsdocument verstuurd naar %s." % to_email)
+    else:
+        flash("Leveringsdocument aangemaakt. Kopieer en verstuur deze link handmatig: " + link)
+    return redirect(request.referrer or url_for("planning.order_detail", oid=oid))
+
+
+@bp.route("/leveringsdocumenten/<int:lid>")
+def leverdoc_view(lid):
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    conn = db()
+    d = conn.execute("""SELECT l.*, o.order_number AS onum, c.name AS client
+                        FROM leverdoc l JOIN orders o ON o.id=l.order_id
+                        LEFT JOIN clients c ON c.id=o.client_id WHERE l.id=?""", (lid,)).fetchone()
+    tpl = conn.execute("SELECT * FROM leverdoc_template WHERE id=?", (d["template_id"],)).fetchone() if d else None
+    conn.close()
+    if not d:
+        abort(404)
+    answers = []
+    try:
+        parsed = json.loads(d["answers"] or "[]")
+        answers = parsed if isinstance(parsed, list) else [{"q": k, "a": v} for k, v in parsed.items()]
+    except Exception:
+        answers = []
+    link = "%s/leverdoc/%s" % (LEVERDOC_BASE, d["token"])
+    return render_template("planning/leverdoc_view.html", d=d, tpl=tpl, answers=answers, link=link)
+
+
+@bp.route("/leverdoc/<token>", methods=["GET", "POST"])
+def leverdoc_public(token):
+    """Publieke, beveiligde invulpagina voor de klant (geen login, niet-raadbaar token).
+    Bij verzenden wordt het document automatisch als 'ontvangen' gemarkeerd."""
+    conn = db()
+    d = conn.execute("""SELECT l.*, o.order_number AS onum, o.delivery_address, c.name AS client
+                        FROM leverdoc l JOIN orders o ON o.id=l.order_id
+                        LEFT JOIN clients c ON c.id=o.client_id WHERE l.token=?""", (token,)).fetchone()
+    if not d:
+        conn.close()
+        return render_template("planning/leverdoc_public.html", found=False)
+    tpl = conn.execute("SELECT * FROM leverdoc_template WHERE id=?", (d["template_id"],)).fetchone()
+    questions = _leverdoc_questions(tpl)
+    if request.method == "POST" and d["status"] != "received":
+        answers = [{"q": q, "a": (request.form.get("q%d" % i) or "").strip()} for i, q in enumerate(questions)]
+        signer = (request.form.get("signer_name") or "").strip()
+        signature = (request.form.get("signature") or "").strip()[:200000]
+        conn.execute("""UPDATE leverdoc SET status='received', answers=?, signer_name=?, signature=?,
+                        received_at=? WHERE token=?""",
+                     (json.dumps(answers, ensure_ascii=False), signer, signature,
+                      datetime.now().isoformat(timespec="minutes"), token))
+        conn.commit()
+        conn.close()
+        return redirect(url_for("planning.leverdoc_public", token=token, done=1))
+    conn.close()
+    return render_template("planning/leverdoc_public.html", found=True, d=d, tpl=tpl,
+                           questions=questions, done=request.args.get("done"),
+                           already=(d["status"] == "received"))
+
+
+# --------------------------------------------------------------------------- #
 #  Openbaar kladblok: gedeelde, real-time aantekeningen (iedereen ziet/bewerkt)
 # --------------------------------------------------------------------------- #
 @bp.route("/handleiding")
@@ -4013,6 +4228,68 @@ def _orders_needing_custom():
         return out
     finally:
         conn.close()
+
+
+# --------------------------------------------------------------------------- #
+#  Leveringsdocumenten: sjablonen + trigger-detectie + status per order
+# --------------------------------------------------------------------------- #
+def _leverdoc_reasons(items):
+    """Bepaalt of een order een leveringsdocument vereist én waarom.
+    Retourneert een lijst redenen (leeg = niet vereist). Trigger op trefwoorden
+    (bv. 'Belcel') plus aantallen: bureaus, kasten en bureaustoelen."""
+    kws = [k.strip().lower() for k in (setting("leverdoc_keywords", "Belcel") or "").split(",") if k.strip()]
+    min_bur = _int(setting("leverdoc_min_bureau", "10"), 10)
+    min_kast = _int(setting("leverdoc_min_kast", "3"), 3)
+    min_stoel = _int(setting("leverdoc_min_stoel", "10"), 10)
+    n_bur = n_kast = n_stoel = 0
+    kw_hit = []
+    for it in items:
+        nm = (it["name"] or "").lower()
+        qty = int(it["qty"] or 1)
+        for kw in kws:
+            if kw and kw in nm and kw not in kw_hit:
+                kw_hit.append(kw)
+        # 'bureaustoel' bevat óók 'bureau' → stoel eerst tellen (elif).
+        if "stoel" in nm:
+            n_stoel += qty
+        elif "kast" in nm:
+            n_kast += qty
+        elif "bureau" in nm:
+            n_bur += qty
+    reasons = ["%s in de order" % kw.capitalize() for kw in kw_hit]
+    if min_bur and n_bur >= min_bur:
+        reasons.append("%d+ bureaus (%d)" % (min_bur, n_bur))
+    if min_kast and n_kast >= min_kast:
+        reasons.append("%d+ kasten (%d)" % (min_kast, n_kast))
+    if min_stoel and n_stoel >= min_stoel:
+        reasons.append("%d+ bureaustoelen (%d)" % (min_stoel, n_stoel))
+    return reasons
+
+
+def _leverdoc_active_template(conn):
+    """Het (eerste) actieve leveringsdocument-sjabloon, of None."""
+    return conn.execute("SELECT * FROM leverdoc_template WHERE active=1 ORDER BY id LIMIT 1").fetchone()
+
+
+def _leverdoc_questions(tpl):
+    """Vragenlijst van een sjabloon als lijst (één vraag per regel)."""
+    if not tpl:
+        return []
+    return [q.strip() for q in (tpl["questions"] or "").splitlines() if q.strip()]
+
+
+def _leverdoc_status_map(conn, order_ids):
+    """{order_id: 'received'|'open'} voor orders met een verstuurd leveringsdocument.
+    'received' wint van 'open' als er meerdere zijn."""
+    if not order_ids:
+        return {}
+    rows = conn.execute("SELECT order_id, status FROM leverdoc WHERE order_id IN (%s) ORDER BY id"
+                        % ",".join("?" * len(order_ids)), tuple(order_ids)).fetchall()
+    out = {}
+    for r in rows:
+        if out.get(r["order_id"]) != "received":
+            out[r["order_id"]] = r["status"]
+    return out
 
 
 @bp.route("/products", methods=["GET", "POST"])

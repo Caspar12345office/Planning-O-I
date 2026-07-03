@@ -1,0 +1,127 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Leveringsdocumenten · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Leveringsdocumenten</h1><p>Stuur klanten met één klik een document met vragen over de leverlocatie. Zodra de klant het online invult en ondertekent, wordt het automatisch als ontvangen gemarkeerd.</p>{% endblock %}
+{% block page_css %}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+  .panel h3{margin:0 0 4px;font-size:15px;color:var(--accent)}
+  .panel .sub{color:var(--muted);font-size:12.5px;margin-bottom:12px}
+  .frow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+  .frow .f{display:flex;flex-direction:column;gap:4px}
+  .frow .f>label{font-size:11px;color:var(--muted)}
+  .frow .f input,.frow .f textarea{padding:9px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;box-sizing:border-box}
+  .frow .f input[type=number]{width:80px;text-align:center}
+  textarea.q{width:100%;min-height:96px;padding:10px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13.5px;box-sizing:border-box;resize:vertical}
+  .tpl{border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:12px;background:var(--soft)}
+  .tpl.act{border-color:#9fc5b0;background:#eef8f1}
+  .tpl .tname{font-weight:700;color:var(--accent)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .badge.on{background:#d9f0e1;color:#1f6b3e}.badge.off{background:#eee;color:#888}
+  .badge.rec{background:#d9f0e1;color:#1f6b3e}.badge.open{background:#eef2f6;color:#4a6785}
+  table.lst{width:100%;border-collapse:collapse;font-size:13px}
+  table.lst th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:2px solid var(--line)}
+  table.lst td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .searchbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+  .searchbar input{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit}
+  .muted{color:var(--muted)}
+  code.lnk{font-size:11.5px;background:var(--soft);padding:2px 6px;border-radius:6px;user-select:all}
+{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <h3>Wanneer moet er een leveringsdocument mee?</h3>
+  <div class="sub">De knop <b>“Stuur leveringsdocument”</b> verschijnt automatisch bij een order zodra aan één van deze voorwaarden is voldaan.</div>
+  <form method="post" class="frow">
+    <input type="hidden" name="action" value="save_triggers">
+    <div class="f" style="flex:1;min-width:220px"><label>Trefwoorden (komma-gescheiden, bv. Belcel)</label>
+      <input type="text" name="leverdoc_keywords" value="{{ trig.keywords }}"></div>
+    <div class="f"><label>Vanaf … bureaus</label><input type="number" min="0" name="leverdoc_min_bureau" value="{{ trig.min_bureau }}"></div>
+    <div class="f"><label>Vanaf … kasten</label><input type="number" min="0" name="leverdoc_min_kast" value="{{ trig.min_kast }}"></div>
+    <div class="f"><label>Vanaf … bureaustoelen</label><input type="number" min="0" name="leverdoc_min_stoel" value="{{ trig.min_stoel }}"></div>
+    <div class="f"><button class="btn primary" type="submit">Opslaan</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h3>Documentsjablonen</h3>
+  <div class="sub">Het <b>actieve</b> sjabloon wordt verstuurd. De klant beantwoordt de vragen hieronder online en ondertekent digitaal. Eén vraag per regel.</div>
+
+  {% for t in templates %}
+  <div class="tpl {{ 'act' if t.active }}">
+    <details>
+      <summary style="cursor:pointer;display:flex;align-items:center;gap:10px;list-style:none">
+        <span class="tname">{{ t.title }}</span>
+        {% if t.active %}<span class="badge on">Actief</span>{% else %}<span class="badge off">Inactief</span>{% endif %}
+        <span class="muted" style="margin-left:auto;font-size:12px">{{ (t.questions or '').splitlines()|length }} vragen · bewerken ›</span>
+      </summary>
+      <form method="post" action="{{ url_for('planning.leverdoc_template_edit', tid=t.id) }}" style="margin-top:12px">
+        <div class="frow" style="margin-bottom:10px">
+          <div class="f" style="flex:1;min-width:220px"><label>Titel</label><input type="text" name="title" value="{{ t.title }}"></div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="active" {{ 'checked' if t.active }}> Actief (dit sjabloon versturen)</label>
+        </div>
+        <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
+        <textarea class="q" name="intro" style="min-height:56px">{{ t.intro or '' }}</textarea>
+        <label style="font-size:11px;color:var(--muted)">Vragen — één per regel</label>
+        <textarea class="q" name="questions">{{ t.questions or '' }}</textarea>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn primary sm" type="submit">Opslaan</button>
+        </div>
+      </form>
+      <form method="post" action="{{ url_for('planning.leverdoc_template_delete', tid=t.id) }}" onsubmit="return confirm('Sjabloon “{{ t.title }}” verwijderen?')" style="margin-top:6px">
+        <button class="btn ghost sm" type="submit" style="color:#b23a1e;border-color:#e6b8ac">Verwijderen</button>
+      </form>
+    </details>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0 0 12px">Nog geen sjabloon. Maak er hieronder één aan.</p>
+  {% endfor %}
+
+  <details style="margin-top:8px">
+    <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13.5px">+ Nieuw sjabloon</summary>
+    <form method="post" style="margin-top:12px">
+      <input type="hidden" name="action" value="add_template">
+      <div class="frow" style="margin-bottom:10px">
+        <div class="f" style="flex:1;min-width:220px"><label>Titel</label><input type="text" name="title" placeholder="bv. Vragenlijst leverlocatie" required></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="active" checked> Actief</label>
+      </div>
+      <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
+      <textarea class="q" name="intro" style="min-height:56px" placeholder="bv. Om uw levering vlot te laten verlopen hebben wij enkele gegevens nodig."></textarea>
+      <label style="font-size:11px;color:var(--muted)">Vragen — één per regel</label>
+      <textarea class="q" name="questions" placeholder="Op welke verdieping moet er geleverd worden?&#10;Is er een lift aanwezig?&#10;Zijn er parkeerbeperkingen?&#10;Naam contactpersoon op locatie&#10;Telefoonnummer contactpersoon"></textarea>
+      <button class="btn primary sm" type="submit" style="margin-top:10px">Sjabloon aanmaken</button>
+    </form>
+  </details>
+</div>
+
+<div class="panel">
+  <h3>Ingevulde &amp; verstuurde documenten</h3>
+  <div class="sub">Nieuwste eerst. Zoek op ordernummer of klantnaam.</div>
+  <form method="get" class="searchbar">
+    <input type="text" name="q" value="{{ q }}" placeholder="Zoek op order of klant…">
+    <button class="btn primary sm" type="submit"><svg class="ico"><use href="#ic-search"/></svg> Zoeken</button>
+    {% if q %}<a class="btn ghost sm" href="{{ url_for('planning.leveringsdocumenten') }}">Wissen</a>{% endif %}
+  </form>
+  <div style="overflow-x:auto">
+  <table class="lst">
+    <thead><tr><th>Order</th><th>Klant</th><th>Reden</th><th>Status</th><th>Verstuurd</th><th>Retour</th><th></th></tr></thead>
+    <tbody>
+      {% for d in docs %}
+      <tr>
+        <td><a href="{{ url_for('planning.order_detail', oid=d.order_id) }}">#{{ d.onum }}</a></td>
+        <td>{{ d.client or '—' }}</td>
+        <td class="muted" style="font-size:12px">{{ d.reason }}</td>
+        <td>{% if d.status=='received' %}<span class="badge rec">Ontvangen</span>{% else %}<span class="badge open">Open</span>{% endif %}</td>
+        <td class="muted" style="font-size:12px">{{ d.sent_at }}</td>
+        <td class="muted" style="font-size:12px">{{ d.received_at or '—' }}</td>
+        <td style="text-align:right">
+          {% if d.status=='received' %}<a class="btn ghost sm" href="{{ url_for('planning.leverdoc_view', lid=d.id) }}">Bekijk</a>
+          {% else %}<code class="lnk">{{ base }}/leverdoc/{{ d.token }}</code>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Nog geen leveringsdocumenten verstuurd.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

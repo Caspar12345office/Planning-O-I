@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f3d3e">
+<title>Leveringsdocument · OFFICE-INTERIOR</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f1ede5;color:#16302d;min-height:100vh;
+       display:flex;align-items:flex-start;justify-content:center;padding:24px 14px}
+  .card{width:100%;max-width:560px;background:#fff;border:1px solid #e6ebe4;border-radius:16px;overflow:hidden;box-shadow:0 16px 44px rgba(15,61,62,.12)}
+  .hd{background:#0f3d3e;padding:18px 26px}
+  .hd .nm{color:#fff;font-size:18px;font-weight:bold;letter-spacing:2px}
+  .gold{height:3px;background:#cda35a}
+  .body{padding:24px}
+  .hero{margin-bottom:16px}
+  .hero h1{font-size:21px;color:#0f3d3e;margin:0 0 4px}
+  .hero p{font-size:14px;color:#3a4a45;margin:0;line-height:1.5}
+  label.q{display:block;margin:16px 0 5px;font-size:14px;font-weight:bold;color:#16302d}
+  input[type=text],textarea{width:100%;padding:11px 12px;border:1px solid #cfe0d7;border-radius:10px;font:inherit;font-size:15px;background:#fbfdfb}
+  textarea{min-height:64px;resize:vertical}
+  .sig-wrap{margin-top:6px}
+  canvas.sig{width:100%;height:150px;border:1px dashed #9db8ad;border-radius:10px;background:#fbfdfb;touch-action:none;display:block}
+  .sig-actions{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12.5px;color:#6b7a74}
+  .sig-actions button{background:none;border:0;color:#0f6e56;font-weight:bold;cursor:pointer;font-size:13px}
+  .btn{display:block;width:100%;margin-top:22px;padding:14px;border:0;border-radius:12px;background:#0f6e56;color:#fff;font-size:16px;font-weight:bold;cursor:pointer}
+  .btn:disabled{background:#9db8ad;cursor:not-allowed}
+  .foot{padding:15px 26px 20px;border-top:1px solid #eef0ec;color:#8a948f;font-size:12px;line-height:1.6}
+  .nf{text-align:center;padding:30px 10px;color:#6b7a74}
+  .ok{text-align:center;padding:20px 10px}
+  .ok .ic{font-size:44px}
+  .ok h1{color:#0f3d3e;font-size:21px;margin:12px 0 4px}
+  .meta{font-size:12.5px;color:#6b7a74;margin-bottom:2px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="hd"><span class="nm">OFFICE-INTERIOR</span></div>
+  <div class="gold"></div>
+
+  {% if not found %}
+  <div class="body"><div class="nf"><div style="font-size:38px">🔍</div>
+    <h1 style="color:#0f3d3e;font-size:19px">Niet gevonden</h1>
+    <p>We konden dit document niet vinden. Controleer de link uit uw e-mail.</p></div></div>
+
+  {% elif done or already %}
+  <div class="body"><div class="ok"><div class="ic">✅</div>
+    <h1>Bedankt!</h1>
+    <p style="color:#3a4a45">Uw leveringsdocument is bij ons binnengekomen. Wij nemen de gegevens mee bij uw levering.</p>
+  </div></div>
+
+  {% else %}
+  <div class="body">
+    <div class="hero">
+      <div class="meta">Order #{{ d.onum }}{% if d.client %} · {{ d.client }}{% endif %}</div>
+      <h1>{{ tpl.title if tpl else 'Leveringsdocument' }}</h1>
+      {% if tpl and tpl.intro %}<p>{{ tpl.intro }}</p>{% endif %}
+    </div>
+    <form method="post" id="ldform">
+      {% for q in questions %}
+      <label class="q">{{ q }}</label>
+      <input type="text" name="q{{ loop.index0 }}" autocomplete="off">
+      {% endfor %}
+
+      <label class="q">Naam ondertekenaar</label>
+      <input type="text" name="signer_name" id="signer" required autocomplete="name">
+
+      <label class="q">Handtekening</label>
+      <div class="sig-wrap">
+        <canvas class="sig" id="sig"></canvas>
+        <input type="hidden" name="signature" id="sigdata">
+        <div class="sig-actions"><span>Teken hierboven met uw muis of vinger</span><button type="button" id="sigclear">Wissen</button></div>
+      </div>
+
+      <button class="btn" type="submit">Versturen &amp; ondertekenen</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="foot">OFFICE-INTERIOR · Nikkelstraat 28, Breda · Uw gegevens worden uitsluitend gebruikt voor deze levering.</div>
+</div>
+
+{% if found and not (done or already) %}
+<script>
+(function(){
+  var c=document.getElementById('sig'), ctx=c.getContext('2d'), drawing=false, dirty=false;
+  function resize(){ var r=c.getBoundingClientRect(); c.width=r.width; c.height=r.height; ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.strokeStyle='#16302d'; }
+  resize(); window.addEventListener('resize',resize);
+  function pos(e){ var r=c.getBoundingClientRect(), t=e.touches?e.touches[0]:e; return {x:t.clientX-r.left, y:t.clientY-r.top}; }
+  function start(e){ drawing=true; dirty=true; var p=pos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); e.preventDefault(); }
+  function move(e){ if(!drawing)return; var p=pos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); e.preventDefault(); }
+  function end(){ drawing=false; }
+  c.addEventListener('mousedown',start); c.addEventListener('mousemove',move); document.addEventListener('mouseup',end);
+  c.addEventListener('touchstart',start,{passive:false}); c.addEventListener('touchmove',move,{passive:false}); c.addEventListener('touchend',end);
+  document.getElementById('sigclear').addEventListener('click',function(){ ctx.clearRect(0,0,c.width,c.height); dirty=false; });
+  document.getElementById('ldform').addEventListener('submit',function(e){
+    if(!dirty){ e.preventDefault(); alert('Zet alstublieft uw handtekening.'); return; }
+    document.getElementById('sigdata').value = c.toDataURL('image/png');
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

@@ -203,7 +203,10 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
         <td style="text-align:center"><input type="checkbox" class="akk" {{ 'checked' if j.confirmed }} {{ 'disabled' if not can_edit }} onchange="confirmRow({{ j.order_id }}, this.checked)"></td>
         <td style="text-align:center"><span class="ic-btn" onclick="showAddr(event,'{{ j.client|e }}','{{ j.delivery_address|e }}')"><svg class="ico"><use href="#ic-pin"/></svg> adres</span></td>{# adres-popup met kopiëren + Street View #}
-        <td style="text-align:center"><span class="ic-btn" onclick="openMail({{ j.order_id }},'{{ j.client|e }}','{{ j.o_email|e }}','{{ j.order_number }}')"><svg class="ico"><use href="#ic-mail"/></svg></span></td>
+        <td style="text-align:center">
+          <span class="ic-btn" onclick="openMail({{ j.order_id }},'{{ j.client|e }}','{{ j.o_email|e }}','{{ j.order_number }}')"><svg class="ico"><use href="#ic-mail"/></svg></span>
+          {% if j.leverdoc %}<div style="margin-top:2px"><span class="ic-btn" title="Leveringsdocument {{ 'ONTVANGEN + ondertekend' if j.leverdoc=='received' else 'verstuurd — nog niet terug' }}" style="color:{{ '#2f9e54' if j.leverdoc=='received' else '#b6b6b6' }};cursor:default"><svg class="ico"><use href="#ic-doc"/></svg></span></div>{% endif %}
+        </td>
       </tr>
       {% else %}
       <tr class="empty"><td colspan="10">Nog geen stops — sleep hier een order naartoe.</td></tr>

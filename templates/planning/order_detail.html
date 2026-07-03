@@ -19,6 +19,40 @@
   {% if p_has_perm('edit_planning') %}<a class="btn primary sm" href="{{ url_for('planning.order_maatwerk', oid=o.id, next=url_for('planning.order_detail', oid=o.id)) }}">Vul maatwerk-tijd in</a>{% endif %}
 </div>
 {% endif %}
+
+{% set ld_last = leverdocs[0] if leverdocs else None %}
+{% if leverdoc_reasons or leverdocs %}
+<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  {% if ld_last and ld_last.status=='received' %}background:#e7f6ec;border-color:#b7e3c4;color:#215c37
+  {% elif ld_last %}background:#eef2f6;border-color:#cdd8e2;color:#34506b
+  {% else %}background:#fef3e2;border-color:#f3d199;color:#7a5713{% endif %}">
+  <svg class="ico"><use href="#ic-doc"/></svg>
+  <div style="flex:1;min-width:240px">
+    {% if ld_last and ld_last.status=='received' %}
+      <b>Leveringsdocument ontvangen &amp; ondertekend.</b>
+      <span style="opacity:.85">Retour op {{ ld_last.received_at }}.</span>
+      <a href="{{ url_for('planning.leverdoc_view', lid=ld_last.id) }}" style="color:var(--accent2)">bekijk ingevuld document</a>
+    {% elif ld_last %}
+      <b>Leveringsdocument verstuurd — nog niet terug.</b>
+      <span style="opacity:.85">Verstuurd op {{ ld_last.sent_at }}{% if ld_last.to_email %} naar {{ ld_last.to_email }}{% endif %}.</span>
+      <div style="font-size:12px;margin-top:3px">Retourlink: <code style="user-select:all">{{ leverdoc_base }}/leverdoc/{{ ld_last.token }}</code></div>
+    {% else %}
+      <b>Deze order vereist een leveringsdocument.</b>
+      <span style="opacity:.85">Reden: {{ leverdoc_reasons|join(' · ') }}.</span>
+    {% endif %}
+  </div>
+  {% if p_has_perm('view_documents') %}
+    {% if not leverdoc_has_template %}
+      <a class="btn ghost sm" href="{{ url_for('planning.leveringsdocumenten') }}">Eerst sjabloon maken</a>
+    {% else %}
+    <form method="post" action="{{ url_for('planning.leverdoc_send', oid=o.id) }}" style="margin:0">
+      <button class="btn primary sm" type="submit">{{ 'Opnieuw versturen' if leverdocs else 'Stuur leveringsdocument' }}</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="cols">
   <div class="grid" style="align-content:start">
     <div class="card">
