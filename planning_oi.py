@@ -59,6 +59,7 @@ BRAND = "OfficeRoute"
 # Vaste laad-/loslocatie: alle routes eindigen hier zodat de bus opnieuw geladen wordt.
 HOME_BASE = "Breda"
 BREDA = (51.5719, 4.7683)
+LOAD_MARGIN_KG = 500   # het is normaal om iets over de max te zitten; pas boven deze marge een waarschuwing
 # Grens waarboven een order als "belangrijke order" geldt (euro).
 IMPORTANT_THRESHOLD = 3000
 # File/werkzaamheden pas tonen/notificeren vanaf deze extra vertraging (minuten).
@@ -621,7 +622,9 @@ def init_db():
                  "ALTER TABLE products ADD COLUMN l3 INTEGER DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN l4 INTEGER DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0",
-                 "ALTER TABLE order_items ADD COLUMN montage_custom INTEGER"):
+                 "ALTER TABLE order_items ADD COLUMN montage_custom INTEGER",
+                 "ALTER TABLE busses ADD COLUMN empty_weight REAL DEFAULT 0",
+                 "ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -1833,9 +1836,10 @@ def planning():
         d = datetime.strptime(day, "%Y-%m-%d").date()
     conn = db()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
+    busmap = {b["id"]: b for b in conn.execute("SELECT id,max_weight,empty_weight FROM busses").fetchall()}
     jobs = conn.execute("""
         SELECT p.*, o.order_number, o.delivery_address, o.city, o.postal, o.email AS o_email,
-               o.phone, o.notes, o.instructions, o.volume, o.montage_min, o.amount, o.source, o.service_type,
+               o.phone, o.notes, o.instructions, o.volume, o.weight, o.montage_min, o.amount, o.source, o.service_type,
                o.client_id, c.name AS client
         FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
         WHERE p.date=? ORDER BY p.monteur_id, p.sequence""", (day,)).fetchall()
@@ -1852,7 +1856,7 @@ def planning():
     items_map = _items_by_order(conn, all_order_ids)
     # Montagetijd (workload) per order uit de artikelcatalogus (val terug op order.montage_min).
     _prods = _load_products(conn)
-    montage_map = {}
+    montage_map, weight_map = {}, {}
     if jobs:
         _oids = [j["order_id"] for j in jobs]
         _by_o = {}
@@ -1863,6 +1867,8 @@ def planning():
             montage_map[j["order_id"]] = _order_montage(_by_o.get(j["order_id"], []), _prods,
                                                         fallback=(j["montage_min"] or 0),
                                                         service_type=j["service_type"])
+            weight_map[j["order_id"]] = _order_weight(_by_o.get(j["order_id"], []), _prods,
+                                                      fallback=(j["weight"] or 0))
 
     is_today = (day == _today_iso())
     raw, totals = {}, {}
@@ -1900,17 +1906,26 @@ def planning():
                 p = PROVINCE.get(j["city"])
                 if p and p not in provs:
                     provs.append(p)
+            load = round(sum(weight_map.get(j["order_id"], j["weight"] or 0) for j in rj))
+            bus = busmap.get(m["bus_id"])
+            cap = round((bus["max_weight"] or 0) - (bus["empty_weight"] or 0)) if bus else 0
+            over = (load - (cap + LOAD_MARGIN_KG)) if cap else 0
             totals[m["id"]] = {"stops": len(rj), "km": round(km),
                                "time": fmt_duration(montage + km / 45 * 60),
                                "region": " · ".join(provs) if provs else "—",
                                "prov_count": len(provs),
+                               "load_kg": load, "cap_kg": cap,
+                               "overladen": bool(cap and over > 0), "over_kg": max(0, round(over)),
                                "eta_back": eta_back, "live": bool(live),
                                "alerts": alerts, "delay": sum(a["min"] for a in alerts),
                                "on_leave": bool(frees.get(m["id"]))}
         else:
             # Geen stops → geen reistijd/km tonen (voorkomt 'spook'-reistijd)
+            _bus = busmap.get(m["bus_id"])
             totals[m["id"]] = {"stops": 0, "km": 0, "time": "—", "region": "—",
                                "prov_count": 0,
+                               "load_kg": 0, "cap_kg": (round((_bus["max_weight"] or 0) - (_bus["empty_weight"] or 0)) if _bus else 0),
+                               "overladen": False, "over_kg": 0,
                                "eta_back": None, "live": bool(live), "alerts": [], "delay": 0,
                                "on_leave": bool(frees.get(m["id"]))}
     conn.close()
@@ -2051,19 +2066,21 @@ def api_autoplan():
         km = sum(haversine(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
         return km / SPEED_KMH * 60 + montage_sum
 
-    def _montage_map(oids):
+    def _mw_map(oids):
+        # {order_id: (montagetijd_min, gewicht_kg)}
         oids = [x for x in oids if x]
         if not oids:
             return {}
         ph = ",".join(["?"] * len(oids))
         rows = conn.execute("SELECT oi.order_id AS oid, oi.name AS name, oi.qty AS qty, oi.montage_custom AS mc, "
-                            "o.service_type AS svc FROM order_items oi JOIN orders o ON o.id=oi.order_id "
+                            "o.service_type AS svc, o.weight AS ow FROM order_items oi JOIN orders o ON o.id=oi.order_id "
                             "WHERE oi.order_id IN (%s)" % ph, tuple(oids)).fetchall()
-        items, svc = {}, {}
+        items, svc, ow = {}, {}, {}
         for r in rows:
             items.setdefault(r["oid"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["mc"]})
-            svc[r["oid"]] = r["svc"]
-        return {oid: _order_montage(items.get(oid, []), prods, fallback=0, service_type=svc.get(oid, "montage"))
+            svc[r["oid"]] = r["svc"]; ow[r["oid"]] = r["ow"]
+        return {oid: (_order_montage(items.get(oid, []), prods, fallback=0, service_type=svc.get(oid, "montage")),
+                      _order_weight(items.get(oid, []), prods, fallback=(ow.get(oid) or 0)))
                 for oid in oids}
 
     orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
@@ -2075,18 +2092,24 @@ def api_autoplan():
         exist = conn.execute("SELECT p.monteur_id AS mid, p.date AS date, p.order_id AS oid, o2.city AS city "
                              "FROM planning p JOIN orders o2 ON o2.id=p.order_id WHERE p.date IN (%s)" % ph,
                              days).fetchall()
-        exist_m = _montage_map([r["oid"] for r in exist])
+        exist_mw = _mw_map([r["oid"] for r in exist])
         for r in exist:
+            mw = exist_mw.get(r["oid"], (30, 0))
             routes_state.setdefault((r["mid"], r["date"]), []).append(
-                {"coord": _coord(r["city"]), "prov": PROVINCE.get(r["city"]), "montage": exist_m.get(r["oid"]) or 30})
+                {"coord": _coord(r["city"]), "prov": PROVINCE.get(r["city"]),
+                 "montage": mw[0] or 30, "weight": mw[1] or 0})
 
-    cand_m = _montage_map([o["id"] for o in orders])
+    cand_mw = _mw_map([o["id"] for o in orders])
     busmap = {m["id"]: m["bus_id"] for m in monteurs}
+    busweights = {b["id"]: ((b["max_weight"] or 0) - (b["empty_weight"] or 0))
+                  for b in conn.execute("SELECT id,max_weight,empty_weight FROM busses").fetchall()}
     home_prov = {m["id"]: PROVINCE.get(_home_city(m)) for m in monteurs}
     planned = notfit = 0
     for o in orders:
         oprov = PROVINCE.get(o["city"])
-        omont = cand_m.get(o["id"]) or (o["montage_min"] or 30)
+        mw = cand_mw.get(o["id"], (0, 0))
+        omont = mw[0] or (o["montage_min"] or 30)
+        oweight = mw[1] or 0
         ocoord = _coord(o["city"])
         best, best_score = None, -1e9
         for di, diso in enumerate(days):
@@ -2098,6 +2121,9 @@ def api_autoplan():
                                 sum(s["montage"] for s in cur) + omont)
                 if rt > WORKDAY_MIN:
                     continue                       # past niet binnen de werkdag van 7 uur
+                cap = busweights.get(busmap.get(m["id"]) or 0, 0)
+                if cap > 0 and (sum(s["weight"] for s in cur) + oweight) > cap + LOAD_MARGIN_KG:
+                    continue                       # past niet qua laadgewicht (incl. marge)
                 provs_after = set(p for p in ([s["prov"] for s in cur] + [oprov]) if p)
                 score = 0.0
                 if oprov and oprov in set(s["prov"] for s in cur):
@@ -2115,10 +2141,10 @@ def api_autoplan():
             conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
                             VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, busmap.get(mid), diso, seq))
             conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
-            routes_state.setdefault((mid, diso), []).append({"coord": ocoord, "prov": oprov, "montage": omont})
+            routes_state.setdefault((mid, diso), []).append({"coord": ocoord, "prov": oprov, "montage": omont, "weight": oweight})
             planned += 1
         else:
-            notfit += 1               # paste bij geen enkele monteur/dag binnen de werkdag
+            notfit += 1               # paste nergens binnen de werkdag én het laadgewicht
     conn.commit()
     conn.close()
     return jsonify(ok=True, planned=planned, notfit=notfit)
@@ -2767,7 +2793,8 @@ def busses():
         notes_by_bus.setdefault(n["bus_id"], []).append(n)
     conn.close()
     return render_template("planning/busses.html", busses=rows, today=_today_iso(),
-                           can_edit=has_perm("manage_users"), notes_by_bus=notes_by_bus)
+                           can_edit=has_perm("manage_users"), notes_by_bus=notes_by_bus,
+                           margin_kg=LOAD_MARGIN_KG)
 
 
 @bp.route("/busses/<int:bid>/note", methods=["POST"])
@@ -2834,10 +2861,15 @@ def bus_edit(bid):
         abort(403)
     f = request.form
     conn = db()
-    conn.execute("""UPDATE busses SET name=?, plate=?, driver=?, max_volume=?, max_weight=?,
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (ValueError, TypeError):
+            return 0.0
+    conn.execute("""UPDATE busses SET name=?, plate=?, driver=?, max_volume=?, max_weight=?, empty_weight=?,
                     max_stops=?, apk_date=?, maintenance=?, active=? WHERE id=?""",
                  (f.get("name"), f.get("plate"), f.get("driver"),
-                  float(f.get("max_volume") or 0), float(f.get("max_weight") or 0),
+                  _f(f.get("max_volume")), _f(f.get("max_weight")), _f(f.get("empty_weight")),
                   _int(f.get("max_stops"), 0), f.get("apk_date"), f.get("maintenance"),
                   1 if f.get("active") else 0, bid))
     conn.commit()
@@ -3754,6 +3786,13 @@ def _int(v, d=0):
         return d
 
 
+def _flt(v, d=0.0):
+    try:
+        return float(str(v).replace(",", "."))
+    except Exception:
+        return d
+
+
 def _parse_next_link(link_header):
     """Haal de 'next'-URL uit een Shopify Link-header (cursor-paginatie)."""
     if not link_header:
@@ -3797,8 +3836,14 @@ def _shopify_products_import(conn, shop, token):
                     skipped += 1
                     continue
                 rec = (title.split()[0] if title.split() else title).lower()
-                conn.execute("INSERT INTO products(name,display_name,active,created_at) VALUES(?,?,1,?)",
-                             (rec, title, _today_iso()))
+                grams = 0
+                for v in (p.get("variants") or []):
+                    if v.get("grams"):
+                        grams = v["grams"]
+                        break
+                wkg = round(grams / 1000.0, 1) if grams else 0
+                conn.execute("INSERT INTO products(name,display_name,weight_kg,active,created_at) VALUES(?,?,?,1,?)",
+                             (rec, title, wkg, _today_iso()))
                 existing.add(title.lower())
                 added += 1
             nxt = _parse_next_link(resp.headers.get("Link") or resp.headers.get("link"))
@@ -3819,7 +3864,7 @@ def _shopify_products_import(conn, shop, token):
 
 def _load_products(conn):
     try:
-        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5 FROM products WHERE active=1").fetchall()
+        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,weight_kg FROM products WHERE active=1").fetchall()
     except Exception:
         return []
     out = []
@@ -3827,7 +3872,8 @@ def _load_products(conn):
         out.append({"name": (r["name"] or "").strip().lower(),
                     "display": (r["display_name"] or "").strip(),
                     "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0],
-                    "tiers_lev": [r["l1"] or 0, r["l2"] or 0, r["l3"] or 0, r["l4"] or 0, r["l5"] or 0]})
+                    "tiers_lev": [r["l1"] or 0, r["l2"] or 0, r["l3"] or 0, r["l4"] or 0, r["l5"] or 0],
+                    "weight": r["weight_kg"] or 0})
     return out
 
 
@@ -3880,6 +3926,18 @@ def _order_montage(items, products, fallback=0, service_type="montage"):
     return total if counted else fallback
 
 
+def _order_weight(items, products, fallback=0):
+    """Totaalgewicht (kg) van een order uit de artikelgewichten (qty x kg/stuk).
+    Valt terug op het meegegeven fallback-gewicht als geen enkel artikel matcht."""
+    total, matched = 0.0, False
+    for it in items:
+        p = _match_product(it["name"], products)
+        if p and (p.get("weight") or 0):
+            total += float(p["weight"]) * int(it["qty"] or 1)
+            matched = True
+    return total if matched else fallback
+
+
 def _maatwerk_alerts_on():
     # Waarschuwingen pas tonen zodra de artikelen + tijden zijn ingericht (anders is
     # ELKE order 'maatwerk'). Aan/uit op de Artikelen-pagina. Standaard UIT.
@@ -3927,9 +3985,10 @@ def products():
         if act == "add":
             name = (request.form.get("name") or "").strip()
             if name:
-                conn.execute("""INSERT INTO products(name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,active,created_at)
-                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?)""",
+                conn.execute("""INSERT INTO products(name,display_name,weight_kg,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,active,created_at)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)""",
                              (name, (request.form.get("display_name") or "").strip(),
+                              _flt(request.form.get("weight_kg")),
                               _int(request.form.get("m1")), _int(request.form.get("m2")), _int(request.form.get("m3")),
                               _int(request.form.get("m4")), _int(request.form.get("m5")),
                               _int(request.form.get("l1")), _int(request.form.get("l2")), _int(request.form.get("l3")),
@@ -3974,9 +4033,9 @@ def product_edit(pid):
         return guard
     f = request.form
     conn = db()
-    conn.execute("""UPDATE products SET name=?,display_name=?,m1=?,m2=?,m3=?,m4=?,m5=?,
+    conn.execute("""UPDATE products SET name=?,display_name=?,weight_kg=?,m1=?,m2=?,m3=?,m4=?,m5=?,
                     l1=?,l2=?,l3=?,l4=?,l5=?,active=? WHERE id=?""",
-                 ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(),
+                 ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(), _flt(f.get("weight_kg")),
                   _int(f.get("m1")), _int(f.get("m2")), _int(f.get("m3")), _int(f.get("m4")), _int(f.get("m5")),
                   _int(f.get("l1")), _int(f.get("l2")), _int(f.get("l3")), _int(f.get("l4")), _int(f.get("l5")),
                   1 if f.get("active") else 0, pid))

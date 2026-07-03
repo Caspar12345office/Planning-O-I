@@ -64,6 +64,7 @@
     <input type="hidden" name="action" value="add">
     <div class="f"><label>Herkenningsnaam</label><input type="text" name="name" placeholder="bv. Fuse of Japandi" required></div>
     <div class="f"><label>Weergavenaam (optioneel)</label><input type="text" name="display_name" placeholder="leeg = automatisch"></div>
+    <div class="f"><label>Gewicht (kg/st)</label><input type="number" step="0.1" min="0" name="weight_kg" value="0"></div>
     <div class="grp">
       <span class="glbl mont">Gemonteerd — min per aantal</span>
       <div class="ins">
@@ -94,6 +95,7 @@
       <thead>
         <tr>
           <th rowspan="2">Herkenningsnaam</th><th rowspan="2">Weergavenaam</th>
+          <th class="mt" rowspan="2">kg/st</th>
           <th class="grp mont" colspan="5">Gemonteerd (min)</th>
           <th class="grp lev" colspan="5">Ongemonteerd (min)</th>
           <th class="mt" rowspan="2">Actief</th><th rowspan="2"></th>
@@ -108,6 +110,7 @@
         <tr>
           <td><input type="text" name="name" value="{{ p.name }}" form="ef-{{ p.id }}"></td>
           <td><input type="text" name="display_name" value="{{ p.display_name or '' }}" placeholder="automatisch" form="ef-{{ p.id }}"></td>
+          <td class="mtcell"><input type="number" step="0.1" name="weight_kg" min="0" value="{{ p.weight_kg or 0 }}" form="ef-{{ p.id }}"></td>
           <td class="mtcell divL"><input type="number" name="m1" min="0" value="{{ p.m1 }}" form="ef-{{ p.id }}"></td>
           <td class="mtcell"><input type="number" name="m2" min="0" value="{{ p.m2 }}" form="ef-{{ p.id }}"></td>
           <td class="mtcell"><input type="number" name="m3" min="0" value="{{ p.m3 }}" form="ef-{{ p.id }}"></td>
@@ -125,7 +128,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="14" class="muted" style="text-align:center;padding:26px">Nog geen artikelen. Voeg er hierboven één toe, of klik “Standaard bureaus toevoegen”.</td></tr>
+        <tr><td colspan="15" class="muted" style="text-align:center;padding:26px">Nog geen artikelen. Voeg er hierboven één toe, of klik “Standaard bureaus toevoegen”.</td></tr>
         {% endfor %}
       </tbody>
     </table>

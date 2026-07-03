@@ -167,6 +167,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     {% if not m.standard %}<span class="chip" style="background:rgba(255,255,255,.28)">incidenteel</span>{% endif %}
     <span class="chip"><svg class="ico"><use href="#ic-pin"/></svg> {{ t.region or '—' }}</span>
     {% if t.prov_count and t.prov_count >= 3 %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Let op: deze monteur staat in {{ t.prov_count }} verschillende provincies gepland ({{ t.region }}). Controleer of dit bewust is — dit past mogelijk niet in één dagroute."><svg class="ico"><use href="#ic-alert"/></svg> {{ t.prov_count }} provincies!</span>{% endif %}
+    {% if t.overladen %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Laadgewicht {{ t.load_kg }} kg is meer dan het laadvermogen ({{ t.cap_kg }} kg) + de marge. {{ t.over_kg }} kg te zwaar."><svg class="ico"><use href="#ic-alert"/></svg> Overladen +{{ t.over_kg }} kg</span>{% endif %}
     {% if t.stops %}{% if t.alerts %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="{% for a in t.alerts %}{{ a.desc }} (+{{ a.min }} min) {% endfor %}"><svg class="ico"><use href="#ic-alert"/></svg> +{{ t.delay }} min file/werk</span>{% else %}<span class="chip" style="background:rgba(115,191,82,.35)"><svg class="ico"><use href="#ic-check"/></svg> vrije route</span>{% endif %}{% endif %}
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     {% if frees.get(m.id) and t.stops %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Deze monteur heeft vrij op deze dag maar staat wél ingepland"><svg class="ico"><use href="#ic-alert"/></svg> Ingepland op vrije dag!</span>{% endif %}
@@ -176,7 +177,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer stopvolgorde (kortste route)" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
     <span class="exp" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
     {% if can_edit and not t.stops %}<form method="post" action="{{ url_for('planning.roster_remove') }}" style="margin:0;display:inline" onsubmit="return confirm('{{ m.name|e }} van deze dag halen?')"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="monteur_id" value="{{ m.id }}"><button class="exp" type="submit" title="Haal deze monteur van deze dag">✕</button></form>{% endif %}
-    <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
+    <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.cap_kg %}<span{% if t.overladen %} style="color:#c0533f;font-weight:700"{% endif %}>{{ t.load_kg or 0 }}/{{ t.cap_kg }} kg</span>{% endif %}{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
   <table class="rtbl">
     <colgroup><col style="width:16px"><col style="width:38px"><col style="width:44px"><col><col style="width:48px"><col style="width:22px"><col style="width:22px"><col style="width:20px"><col style="width:38px"><col style="width:20px"></colgroup>
@@ -508,7 +509,7 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape') clearFocus
 function autoPlan(btn){
   btn.disabled=true; var t=btn.textContent; btn.textContent='Bezig…';
   fetch('{{ url_for("planning.api_autoplan") }}',{method:'POST'}).then(function(r){return r.json();}).then(function(res){
-    if(res.ok){ alert(res.planned+' order(s) automatisch ingepland (max 7 werkuren p/dag, reistijd + montage).'+(res.notfit? '\n'+res.notfit+' order(s) pasten niet binnen de werkdag en blijven bij “Nog in te plannen”.':'')); location.reload(); }
+    if(res.ok){ alert(res.planned+' order(s) automatisch ingepland (max 7 werkuren + laadgewicht per dag, reistijd + montage).'+(res.notfit? '\n'+res.notfit+' order(s) pasten niet binnen de werkdag of het laadgewicht en blijven bij “Nog in te plannen”.':'')); location.reload(); }
     else { alert(res.error||'Mislukt'); btn.disabled=false; btn.textContent=t; }
   });
 }

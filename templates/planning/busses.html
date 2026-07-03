@@ -49,8 +49,9 @@
     {% if b.plate %}<span class="plate"><span class="eu"><span class="st">★</span><span class="nl">NL</span></span><span class="pl">{{ b.plate }}</span></span>{% endif %}
     <div class="kv">
       <span class="k">Chauffeur</span><span>{{ b.driver }}</span>
-      <span class="k">Laadvolume</span><span>{{ '%.0f'|format(b.max_volume) }} m³</span>
+      <span class="k">Leeggewicht</span><span>{{ '%.0f'|format(b.empty_weight or 0) }} kg</span>
       <span class="k">Max. gewicht</span><span>{{ '%.0f'|format(b.max_weight) }} kg</span>
+      <span class="k">Laadvermogen</span><span><b>{{ '%.0f'|format((b.max_weight or 0) - (b.empty_weight or 0)) }} kg</b> <span class="k">(+{{ margin_kg }} kg marge)</span></span>
       <span class="k">Max. stops</span><span>{{ b.max_stops }}</span>
       <span class="k">APK</span><span class="{{ 'apk-warn' if b.apk_date and b.apk_date < today }}">{{ b.apk_date }}{% if b.apk_date and b.apk_date < today %} (verlopen){% endif %}</span>
       {% if b.maintenance %}<span class="k">Onderhoud</span><span>{{ b.maintenance }}</span>{% endif %}
@@ -93,8 +94,12 @@
         </div>
         <label>Chauffeur</label><input name="driver" value="{{ b.driver or '' }}">
         <div class="row">
+          <div><label>Leeggewicht (kg)</label><input name="empty_weight" type="number" value="{{ b.empty_weight or 0 }}" placeholder="bv. 2532"></div>
+          <div><label>Max. toegestaan gewicht (kg)</label><input name="max_weight" type="number" value="{{ b.max_weight }}" placeholder="bv. 3500"></div>
+        </div>
+        <div class="row">
           <div><label>Laadvolume (m³)</label><input name="max_volume" type="number" step="0.5" value="{{ b.max_volume }}"></div>
-          <div><label>Max. gewicht (kg)</label><input name="max_weight" type="number" value="{{ b.max_weight }}"></div>
+          <div><label>Laadvermogen</label><input value="{{ '%.0f'|format((b.max_weight or 0) - (b.empty_weight or 0)) }} kg (+{{ margin_kg }} marge)" disabled style="background:var(--soft)"></div>
         </div>
         <div class="row">
           <div><label>Max. stops</label><input name="max_stops" type="number" value="{{ b.max_stops }}"></div>
