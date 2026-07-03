@@ -393,7 +393,8 @@ INTEGRATIONS = [
         {"key": "webhook_secret", "label": "Webhook-secret (verplicht voor de import)", "type": "password"},
         {"key": "api_key", "label": "API-sleutel (optioneel — alleen voor backfill)", "type": "password", "optional": True},
         {"key": "api_secret", "label": "API-secret (optioneel — alleen voor backfill)", "type": "password", "optional": True},
-        {"key": "access_token", "label": "Admin access token (optioneel — alleen voor backfill)", "type": "password", "optional": True},
+        {"key": "access_token", "label": "Admin API-token (voor backfill + artikelen importeren)", "type": "password", "optional": True,
+         "help": "Nodig om actieve artikelen te importeren onder Instellingen → Artikelen. Maak in Shopify een custom app met recht 'read_products' en kopieer de Admin API access token (shpat_…)."},
         {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
         {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"}]},
@@ -3705,6 +3706,69 @@ def _int(v, d=0):
         return d
 
 
+def _parse_next_link(link_header):
+    """Haal de 'next'-URL uit een Shopify Link-header (cursor-paginatie)."""
+    if not link_header:
+        return None
+    for part in link_header.split(","):
+        seg = part.split(";")
+        if len(seg) >= 2 and 'rel="next"' in seg[1]:
+            return seg[0].strip().strip("<>").strip()
+    return None
+
+
+def _shopify_products_import(conn, shop, token):
+    """Importeer alle ACTIEVE Shopify-producten als artikelen (titel = weergavenaam,
+    eerste woord = herkenningsnaam, montagetijden op 0). Dedupe op naam/weergavenaam.
+    Retourneert (toegevoegd, overgeslagen, foutmelding-of-None)."""
+    shop = (shop or "").strip().replace("https://", "").replace("http://", "").strip("/")
+    token = (token or "").strip()
+    if not shop or not token:
+        return (0, 0, "Vul eerst de Shop-URL én het Admin API-token in bij Koppelingen → Shopify.")
+    existing = set()
+    for r in conn.execute("SELECT name, display_name FROM products").fetchall():
+        if r["name"]:
+            existing.add(r["name"].strip().lower())
+        if r["display_name"]:
+            existing.add(r["display_name"].strip().lower())
+    url = "https://%s/admin/api/2024-04/products.json?status=active&limit=250" % shop
+    added = skipped = 0
+    try:
+        for _ in range(60):  # veiligheidscap
+            req = urllib.request.Request(url, headers={"X-Shopify-Access-Token": token,
+                                                       "Content-Type": "application/json"})
+            resp = urllib.request.urlopen(req, timeout=25)
+            payload = json.loads(resp.read().decode("utf-8"))
+            for p in payload.get("products", []):
+                if (p.get("status") or "active") != "active":
+                    continue
+                title = (p.get("title") or "").strip()
+                if not title:
+                    continue
+                if title.lower() in existing:
+                    skipped += 1
+                    continue
+                rec = (title.split()[0] if title.split() else title).lower()
+                conn.execute("INSERT INTO products(name,display_name,active,created_at) VALUES(?,?,1,?)",
+                             (rec, title, _today_iso()))
+                existing.add(title.lower())
+                added += 1
+            nxt = _parse_next_link(resp.headers.get("Link") or resp.headers.get("link"))
+            if not nxt:
+                break
+            url = nxt
+        conn.commit()
+        return (added, skipped, None)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode()[:200]
+        except Exception:
+            detail = e.reason
+        return (added, skipped, "Shopify weigerde (code %s): %s" % (e.code, detail))
+    except Exception as e:
+        return (added, skipped, "Import mislukt: %s" % e)
+
+
 def _load_products(conn):
     try:
         rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5 FROM products WHERE active=1").fetchall()
@@ -3793,6 +3857,13 @@ def products():
                     n += 1
             conn.commit()
             flash("%d standaard bureaus toegevoegd — vul de montagetijden nog aan." % n)
+        elif act == "import_shopify":
+            sc = _shopify_cfg()
+            added, skipped, err = _shopify_products_import(conn, sc.get("shop_url"), sc.get("access_token"))
+            if err:
+                flash("Shopify-import: " + err)
+            else:
+                flash("Shopify-import klaar: %d actieve artikelen toegevoegd, %d al aanwezig. Vul nu de tijden aan." % (added, skipped))
         conn.close()
         return redirect(url_for("planning.products"))
     rows = conn.execute("SELECT * FROM products ORDER BY active DESC, name").fetchall()

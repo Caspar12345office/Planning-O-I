@@ -45,8 +45,11 @@
 </div>
 
 <div class="panel">
-  <div style="display:flex;align-items:center;margin-bottom:10px"><h3 style="margin:0">Nieuw artikel</h3>
-    <form method="post" class="seed"><input type="hidden" name="action" value="seed_desks"><button class="btn ghost sm" type="submit" title="Voeg Fuse, Pinta, Duo, Now, Aero en Rosa toe">Standaard bureaus toevoegen</button></form>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><h3 style="margin:0">Nieuw artikel</h3>
+    <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+      <form method="post"><input type="hidden" name="action" value="import_shopify"><button class="btn primary sm" type="submit" title="Haalt alle actieve producten uit Shopify" onclick="return confirm('Alle ACTIEVE artikelen uit Shopify importeren? Bestaande worden overgeslagen; de tijden vul je daarna zelf aan.')"><svg class="ico"><use href="#ic-download"/></svg> Importeer uit Shopify</button></form>
+      <form method="post"><input type="hidden" name="action" value="seed_desks"><button class="btn ghost sm" type="submit" title="Voeg Fuse, Pinta, Duo, Now, Aero en Rosa toe">Standaard bureaus</button></form>
+    </div>
   </div>
   <form method="post" class="addf">
     <input type="hidden" name="action" value="add">
