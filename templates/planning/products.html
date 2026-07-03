@@ -44,6 +44,15 @@
   (bv. <i>Fuse</i> herkent “Fuse RobEik/Zwart/160”). Laat je de ongemonteerd-tijden op 0, dan gebruiken we de montagetijd.
 </div>
 
+<form method="post" class="panel" style="display:flex;align-items:center;gap:10px;font-size:13.5px;padding:12px 16px">
+  <input type="hidden" name="action" value="toggle_maatwerk">
+  <label style="display:flex;align-items:center;gap:8px;margin:0;cursor:pointer">
+    <input type="checkbox" name="maatwerk_alerts" {{ 'checked' if maatwerk_on }} onchange="this.form.submit()">
+    <b>Maatwerk-waarschuwingen tonen</b> op dashboard &amp; planning
+  </label>
+  <span class="muted">Zet dit pas AAN zodra alle artikelen + tijden staan (anders geldt elke order als maatwerk).</span>
+</form>
+
 <div class="panel">
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><h3 style="margin:0">Nieuw artikel</h3>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">

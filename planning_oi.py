@@ -2467,7 +2467,7 @@ def order_detail(oid):
                               prods, fallback=(o["montage_min"] or 0), service_type=o["service_type"])
     conn.close()
     return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
-                           needs_maatwerk=(n_open > 0), n_open=n_open, workload=workload)
+                           needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload)
 
 
 # --------------------------------------------------------------------------- #
@@ -3880,9 +3880,18 @@ def _order_montage(items, products, fallback=0, service_type="montage"):
     return total if counted else fallback
 
 
+def _maatwerk_alerts_on():
+    # Waarschuwingen pas tonen zodra de artikelen + tijden zijn ingericht (anders is
+    # ELKE order 'maatwerk'). Aan/uit op de Artikelen-pagina. Standaard UIT.
+    return setting("maatwerk_alerts", "0") == "1"
+
+
 def _orders_needing_custom():
     """Orders (niet-draft, niet afgerond) met één of meer MAATWERK-regels waarvoor de
-    montagetijd nog niet is ingevuld (regel matcht geen artikel én montage_custom IS NULL)."""
+    montagetijd nog niet is ingevuld (regel matcht geen artikel én montage_custom IS NULL).
+    Alleen actief als de maatwerk-waarschuwingen aan staan."""
+    if not _maatwerk_alerts_on():
+        return []
     conn = db()
     try:
         prods = _load_products(conn)
@@ -3937,6 +3946,12 @@ def products():
                     n += 1
             conn.commit()
             flash("%d standaard bureaus toegevoegd — vul de montagetijden nog aan." % n)
+        elif act == "toggle_maatwerk":
+            val = "1" if request.form.get("maatwerk_alerts") else "0"
+            conn.execute("INSERT INTO settings(skey,value) VALUES('maatwerk_alerts',?) "
+                         "ON CONFLICT(skey) DO UPDATE SET value=excluded.value", (val,))
+            conn.commit()
+            flash("Maatwerk-waarschuwingen " + ("aangezet." if val == "1" else "uitgezet."))
         elif act == "import_shopify":
             sc = _shopify_cfg()
             added, skipped, err = _shopify_products_import(conn, sc.get("shop_url"), sc.get("access_token"))
@@ -3948,7 +3963,8 @@ def products():
         return redirect(url_for("planning.products"))
     rows = conn.execute("SELECT * FROM products ORDER BY active DESC, name").fetchall()
     conn.close()
-    return render_template("planning/products.html", products=rows)
+    return render_template("planning/products.html", products=rows,
+                           maatwerk_on=(setting("maatwerk_alerts", "0") == "1"))
 
 
 @bp.route("/products/<int:pid>/edit", methods=["POST"])
