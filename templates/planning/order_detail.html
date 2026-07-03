@@ -12,6 +12,13 @@
 {% if o.is_draft %}
 <div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px"><svg class="ico"><use href="#ic-shield"/></svg> <b>Draft order.</b> Deze order is niet bevestigd/betaald en wordt daarom nooit automatisch ingepland.</div>
 {% endif %}
+{% if needs_maatwerk %}
+<div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <svg class="ico"><use href="#ic-alert"/></svg>
+  <div style="flex:1;min-width:220px"><b>Deze order bevat {{ n_open }} maatwerk-artikel(en) zonder montagetijd.</b> Vul de tijd in zodat de planning met de juiste werkdruk rekent.</div>
+  {% if p_has_perm('edit_planning') %}<a class="btn primary sm" href="{{ url_for('planning.order_maatwerk', oid=o.id, next=url_for('planning.order_detail', oid=o.id)) }}">Vul maatwerk-tijd in</a>{% endif %}
+</div>
+{% endif %}
 <div class="cols">
   <div class="grid" style="align-content:start">
     <div class="card">
@@ -23,7 +30,7 @@
       <div class="kv" style="margin-top:16px">
         <span class="k">Volume</span><span>{{ '%.1f'|format(o.volume) }} m³</span>
         <span class="k">Gewicht</span><span>{{ '%.0f'|format(o.weight) }} kg</span>
-        <span class="k">Montagetijd</span><span>{{ o.montage_min }} min</span>
+        <span class="k">Montagetijd</span><span>{{ workload }} min{% if needs_maatwerk %} <span style="color:#b23a1e">· maatwerk nog invullen</span>{% endif %}{% if p_has_perm('edit_planning') %} · <a href="{{ url_for('planning.order_maatwerk', oid=o.id, next=url_for('planning.order_detail', oid=o.id)) }}" style="color:var(--accent2)">aanpassen</a>{% endif %}</span>
       </div>
     </div>
   </div>

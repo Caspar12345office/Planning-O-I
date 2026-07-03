@@ -2421,8 +2421,13 @@ def order_detail(oid):
     items = conn.execute("SELECT * FROM order_items WHERE order_id=?", (oid,)).fetchall()
     plan = conn.execute("""SELECT p.*, m.name AS monteur FROM planning p
                            LEFT JOIN monteurs m ON m.id=p.monteur_id WHERE p.order_id=?""", (oid,)).fetchone()
+    prods = _load_products(conn)
+    n_open = sum(1 for it in items if it["montage_custom"] is None and not _match_product(it["name"], prods))
+    workload = _order_montage([{"name": it["name"], "qty": it["qty"], "montage_custom": it["montage_custom"]} for it in items],
+                              prods, fallback=(o["montage_min"] or 0), service_type=o["service_type"])
     conn.close()
-    return render_template("planning/order_detail.html", o=o, items=items, plan=plan)
+    return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
+                           needs_maatwerk=(n_open > 0), n_open=n_open, workload=workload)
 
 
 # --------------------------------------------------------------------------- #
