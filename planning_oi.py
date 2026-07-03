@@ -26,7 +26,7 @@ _PW_METHOD = "pbkdf2:sha256:30000"
 
 def _hash_pw(pw):
     return generate_password_hash(pw, method=_PW_METHOD)
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 from email.message import EmailMessage
 from datetime import datetime, timedelta, date
 
@@ -393,10 +393,14 @@ INTEGRATIONS = [
      "fields": [
         {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
         {"key": "webhook_secret", "label": "Webhook-secret (verplicht voor de import)", "type": "password"},
+        {"key": "client_id", "label": "Client ID (Dev Dashboard-app, voor artikelen importeren)", "type": "password", "optional": True,
+         "help": "Nieuw sinds 2026: maak in het Shopify Dev Dashboard een app met recht 'read_products', installeer die op je winkel, en kopieer onder Settings de Client ID hierheen."},
+        {"key": "client_secret", "label": "Client secret (Dev Dashboard-app)", "type": "password", "optional": True,
+         "help": "Hoort bij de Client ID. Wij wisselen die veilig om voor een tijdelijk lees-token (24 u) bij elke import; er wordt niets in je webshop gewijzigd."},
         {"key": "api_key", "label": "API-sleutel (optioneel — alleen voor backfill)", "type": "password", "optional": True},
         {"key": "api_secret", "label": "API-secret (optioneel — alleen voor backfill)", "type": "password", "optional": True},
-        {"key": "access_token", "label": "Admin API-token (voor backfill + artikelen importeren)", "type": "password", "optional": True,
-         "help": "Nodig om actieve artikelen te importeren onder Instellingen → Artikelen. Maak in Shopify een custom app met recht 'read_products' en kopieer de Admin API access token (shpat_…)."},
+        {"key": "access_token", "label": "Admin API-token (oud — alleen bestaande custom apps)", "type": "password", "optional": True,
+         "help": "Alleen nog voor oudere, in de winkel-admin gemaakte custom apps (shpat_…). Voor nieuwe apps gebruik je Client ID + Client secret hierboven."},
         {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
         {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"}]},
@@ -4060,6 +4064,48 @@ def _parse_next_link(link_header):
     return None
 
 
+def _shopify_norm_shop(shop):
+    return (shop or "").strip().replace("https://", "").replace("http://", "").strip("/")
+
+
+def _shopify_access_token(shop, sc):
+    """Bepaalt een bruikbaar Admin-API lees-token.
+    1) Bestaand vast token (oude custom app, shpat_…) → direct gebruiken.
+    2) Anders: Client ID + Client secret (Dev Dashboard-app) → via de client-
+       credentials grant omwisselen voor een tijdelijk token (24 u).
+    Retourneert (token, foutmelding-of-None). Read-only; wijzigt niets in de shop."""
+    tok = (sc.get("access_token") or "").strip()
+    if tok:
+        return (tok, None)
+    cid = (sc.get("client_id") or "").strip()
+    csec = (sc.get("client_secret") or "").strip()
+    shop = _shopify_norm_shop(shop)
+    if not shop:
+        return (None, "Vul eerst de Shop-URL in bij Koppelingen → Shopify.")
+    if not (cid and csec):
+        return (None, "Vul de Client ID + Client secret in (Shopify Dev Dashboard-app met recht 'read_products').")
+    data = urllib.parse.urlencode({"grant_type": "client_credentials",
+                                   "client_id": cid, "client_secret": csec}).encode()
+    url = "https://%s/admin/oauth/access_token" % shop
+    try:
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
+        resp = urllib.request.urlopen(req, timeout=15)
+        payload = json.loads(resp.read().decode("utf-8"))
+        tok = (payload.get("access_token") or "").strip()
+        if not tok:
+            return (None, "Shopify gaf geen token terug. Controleer Client ID/secret en of de app op de winkel is geïnstalleerd.")
+        return (tok, None)
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode()[:200]
+        except Exception:
+            detail = e.reason
+        return (None, "Shopify weigerde de inlog (code %s): %s" % (e.code, detail))
+    except Exception as e:
+        return (None, "Kon geen token ophalen: %s" % e)
+
+
 def _shopify_products_import(conn, shop, token):
     """Importeer alle ACTIEVE Shopify-producten als artikelen (titel = weergavenaam,
     eerste woord = herkenningsnaam, montagetijden op 0). Dedupe op naam/weergavenaam.
@@ -4331,7 +4377,12 @@ def products():
             flash("Maatwerk-waarschuwingen " + ("aangezet." if val == "1" else "uitgezet."))
         elif act == "import_shopify":
             sc = _shopify_cfg()
-            added, skipped, err = _shopify_products_import(conn, sc.get("shop_url"), sc.get("access_token"))
+            token, terr = _shopify_access_token(sc.get("shop_url"), sc)
+            if terr:
+                flash("Shopify-import: " + terr)
+                conn.close()
+                return redirect(url_for("planning.products"))
+            added, skipped, err = _shopify_products_import(conn, sc.get("shop_url"), token)
             if err:
                 flash("Shopify-import: " + err)
             else:
@@ -4777,6 +4828,23 @@ def integration_test(ikey):
             return jsonify(ok=False, message="Versturen mislukt: %s" % e)
     if ikey == "shopify":
         sh = _shopify_cfg()
+        # Als er import-credentials ingevuld zijn: live controleren of we producten mogen lézen.
+        if (sh.get("client_id") or sh.get("client_secret") or sh.get("access_token")) and (sh.get("shop_url") or "").strip():
+            token, terr = _shopify_access_token(sh.get("shop_url"), sh)
+            if terr:
+                return jsonify(ok=False, message="Artikel-import: " + terr)
+            try:
+                shop = _shopify_norm_shop(sh.get("shop_url"))
+                url = "https://%s/admin/api/2024-04/products/count.json?status=active" % shop
+                req = urllib.request.Request(url, headers={"X-Shopify-Access-Token": token})
+                cnt = json.loads(urllib.request.urlopen(req, timeout=15).read().decode()).get("count")
+                return jsonify(ok=True, message="Shopify-koppeling werkt. %s actieve artikelen gevonden — "
+                                                "importeer ze onder Instellingen → Artikelen." % cnt)
+            except urllib.error.HTTPError as e:
+                return jsonify(ok=False, message="Shopify weigerde het lezen van producten (code %s). "
+                                                 "Controleer dat de app het recht 'read_products' heeft." % e.code)
+            except Exception as e:
+                return jsonify(ok=False, message="Kon producten niet lezen: %s" % e)
         if not (sh.get("webhook_secret") or "").strip():
             return jsonify(ok=False, message="Vul het Webhook-secret in (verplicht). Shop-URL is aanbevolen; "
                                              "de API-velden zijn optioneel (alleen nodig voor backfill van oude orders).")
