@@ -60,6 +60,12 @@
 {% endblock %}
 
 {% block content %}
+{% if maatwerk_orders %}
+<div class="draft-banner" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713"><svg class="ico"><use href="#ic-alert"/></svg>
+  <div><b>{{ maatwerk_orders|length }} order(s) met maatwerk-artikelen.</b> Vul de montagetijd in zodat de planning klopt:
+  {% for m in maatwerk_orders %}<a href="{{ url_for('planning.order_maatwerk', oid=m.oid, next=url_for('planning.dashboard')) }}" style="color:#7a5713;font-weight:700;text-decoration:underline">#{{ m.onum }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</div>
+</div>
+{% endif %}
 {% if auto_mails %}
 <div class="draft-banner" style="background:#e3f3da;border-color:#c5e6b6;color:#3c7a2c"><svg class="ico"><use href="#ic-mail"/></svg> <div><b>{{ auto_mails }} klantmail(s) automatisch verstuurd.</b> Tijdvak-bevestigingen voor vandaag en eventuele vertraging-updates (≥20 min) zijn verzonden en in het klantdossier bewaard.</div></div>
 {% endif %}

@@ -1,0 +1,51 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Maatwerk #{{ o.order_number }} · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Maatwerk-tijd invullen</h1><p>Order #{{ o.order_number }} · {{ o.client }}</p>{% endblock %}
+{% block page_css %}
+  .mw{max-width:720px}
+  .mw .note{background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:12px;padding:13px 15px;font-size:13.5px;line-height:1.5;margin-bottom:16px}
+  .mw table{width:100%;border-collapse:collapse;font-size:13.5px;margin-bottom:6px}
+  .mw th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:7px 8px;border-bottom:2px solid var(--line)}
+  .mw td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .mw td.r{text-align:right}
+  .mw input[type=number]{width:90px;padding:9px;border:1px solid var(--line);border-radius:9px;font:inherit;text-align:center}
+  .mw .sub{color:var(--muted);font-size:13px}
+  .mw h3{color:var(--accent);font-size:14.5px;margin:18px 0 8px}
+  .mw .totrow{display:flex;justify-content:space-between;align-items:center;background:var(--soft);border-radius:10px;padding:11px 14px;margin-top:14px;font-weight:600}
+{% endblock %}
+{% block content %}
+<a class="btn ghost sm" href="{{ nxt or url_for('planning.order_detail', oid=o.id) }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Terug</a>
+<div class="card mw">
+  <div class="note"><b>Deze order bevat maatwerk.</b> De bekende artikelen zijn al automatisch berekend. Vul hieronder alleen de montagetijd (in minuten) in voor de custom artikelen. Het totaal is automatisch + maatwerk bij elkaar.</div>
+
+  <form method="post" action="{{ url_for('planning.order_maatwerk', oid=o.id, next=nxt) }}">
+    {% if known %}
+    <h3>Automatisch berekend</h3>
+    <table>
+      <thead><tr><th>Artikel</th><th class="r">Aantal</th><th class="r">Minuten</th></tr></thead>
+      <tbody>
+        {% for k in known %}<tr><td>{{ k.name }}</td><td class="r">{{ k.qty }}</td><td class="r">{{ k.min }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    <div class="sub">Subtotaal automatisch: <b>{{ known_total }} min</b></div>
+    {% endif %}
+
+    <h3>Maatwerk — vul de tijd in</h3>
+    <table>
+      <thead><tr><th>Custom artikel</th><th class="r">Aantal</th><th class="r">Minuten (totaal)</th></tr></thead>
+      <tbody>
+        {% for it in custom %}
+        <tr>
+          <td>{{ it.name }}</td>
+          <td class="r">{{ it.qty }}</td>
+          <td class="r"><input type="number" min="0" name="m_{{ it.id }}" value="{{ it.montage_custom if it.montage_custom is not none else '' }}" placeholder="0"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="totrow"><span>Totale montagetijd (na opslaan)</span><span>{{ known_total }} min + maatwerk</span></div>
+    <div style="margin-top:16px"><button class="btn primary" type="submit">Opslaan</button></div>
+  </form>
+</div>
+{% endblock %}

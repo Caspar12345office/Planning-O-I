@@ -78,6 +78,30 @@
 {% endblock %}
 
 {% block content %}
+{% if maatwerk_orders %}
+<div class="draft-banner" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713"><svg class="ico"><use href="#ic-alert"/></svg>
+  <div><b>{{ maatwerk_orders|length }} order(s) met maatwerk-artikelen.</b> Vul de montagetijd in zodat de werkdruk klopt:
+  {% for m in maatwerk_orders %}<a href="{{ url_for('planning.order_maatwerk', oid=m.oid, next=url_for('planning.planning', day=day)) }}" style="color:#7a5713;font-weight:700;text-decoration:underline">#{{ m.onum }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</div>
+</div>
+<div id="mwModalBg" style="display:none;position:fixed;inset:0;background:rgba(15,30,28,.45);z-index:120;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:24px 24px 18px;box-shadow:0 30px 70px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span style="font-size:22px">⚠️</span><h3 style="margin:0;color:var(--accent);font-size:17px">Let op: maatwerk-artikelen</h3></div>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 12px">De volgende order(s) bevatten custom artikelen zonder montagetijd. Vul die in zodat de planning met de juiste werkdruk rekent:</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+      {% for m in maatwerk_orders %}
+      <a href="{{ url_for('planning.order_maatwerk', oid=m.oid, next=url_for('planning.planning', day=day)) }}" style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px 13px;text-decoration:none;color:var(--ink)">
+        <span><b>#{{ m.onum }}</b> · {{ m.client or '—' }}</span><span style="font-size:12px;color:#b23a1e">{{ m.n }} maatwerk →</span>
+      </a>
+      {% endfor %}
+    </div>
+    <div style="text-align:right"><button class="btn ghost sm" type="button" onclick="mwClose()">Later</button></div>
+  </div>
+</div>
+<script>
+function mwClose(){document.getElementById('mwModalBg').style.display='none';try{sessionStorage.setItem('mwSeen','1')}catch(e){}}
+(function(){try{if(!sessionStorage.getItem('mwSeen'))document.getElementById('mwModalBg').style.display='flex';}catch(e){document.getElementById('mwModalBg').style.display='flex';}})();
+</script>
+{% endif %}
 <div class="daynav">
   <a href="{{ url_for('planning.planning') }}?day={{ prev_day }}&nd={{ nd }}"><svg class="ico"><use href="#ic-arrow-left"/></svg> Vorige</a>
   <span class="lbl">{{ day_label }}</span>

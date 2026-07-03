@@ -620,7 +620,8 @@ def init_db():
                  "ALTER TABLE products ADD COLUMN l2 INTEGER DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN l3 INTEGER DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN l4 INTEGER DEFAULT 0",
-                 "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0"):
+                 "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0",
+                 "ALTER TABLE order_items ADD COLUMN montage_custom INTEGER"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -1663,7 +1664,8 @@ def dashboard():
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
                            unplanned_all=unplanned_all, monteurs=monteurs,
                            office=office, office_day=office_day, today=today, auto_mails=auto_mails,
-                           my_questions=my_questions, all_users=all_users)
+                           my_questions=my_questions, all_users=all_users,
+                           maatwerk_orders=_orders_needing_custom())
 
 
 @bp.route("/api/locations")
@@ -1854,9 +1856,9 @@ def planning():
     if jobs:
         _oids = [j["order_id"] for j in jobs]
         _by_o = {}
-        for r in conn.execute("SELECT order_id,name,qty FROM order_items WHERE order_id IN (%s)"
+        for r in conn.execute("SELECT order_id,name,qty,montage_custom FROM order_items WHERE order_id IN (%s)"
                               % ",".join("?" * len(_oids)), tuple(_oids)).fetchall():
-            _by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"]})
+            _by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]})
         for j in jobs:
             montage_map[j["order_id"]] = _order_montage(_by_o.get(j["order_id"], []), _prods,
                                                         fallback=(j["montage_min"] or 0),
@@ -1937,7 +1939,8 @@ def planning():
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
                            day_label=day_label, daynames=["ma", "di", "wo", "do", "vr", "za", "zo"],
                            nd=nd, can_edit=has_perm("edit_planning"), usort=usort,
-                           shown_ids=shown_ids, addable=addable)
+                           shown_ids=shown_ids, addable=addable,
+                           maatwerk_orders=_orders_needing_custom())
 
 
 @bp.route("/api/assign", methods=["POST"])
@@ -3814,17 +3817,49 @@ def _order_montage(items, products, fallback=0, service_type="montage"):
     'levering' (ongemonteerd) en 'ophalen' de lichte tijden (tiers_lev). Is er geen
     aparte levertijd ingevuld, dan valt het terug op de montagetijd."""
     lev = (service_type or "montage") != "montage"
-    total, matched = 0, False
+    total, counted = 0, False
     for it in items:
         p = _match_product(it["name"], products)
-        if not p:
-            continue
-        tiers = p.get("tiers_lev") if lev else p["tiers"]
-        if not tiers or not any(tiers):
-            tiers = p["tiers"]
-        total += _montage_for_qty(tiers, int(it["qty"] or 1))
-        matched = True
-    return total if matched else fallback
+        if p:
+            tiers = p.get("tiers_lev") if lev else p["tiers"]
+            if not tiers or not any(tiers):
+                tiers = p["tiers"]
+            total += _montage_for_qty(tiers, int(it["qty"] or 1))
+            counted = True
+        else:
+            # Maatwerk-regel: gebruik de handmatig ingevulde tijd (totaal voor die regel).
+            mc = it.get("montage_custom")
+            if mc:
+                total += int(mc)
+                counted = True
+    return total if counted else fallback
+
+
+def _orders_needing_custom():
+    """Orders (niet-draft, niet afgerond) met één of meer MAATWERK-regels waarvoor de
+    montagetijd nog niet is ingevuld (regel matcht geen artikel én montage_custom IS NULL)."""
+    conn = db()
+    try:
+        prods = _load_products(conn)
+        rows = conn.execute("""SELECT o.id AS oid, o.order_number AS onum, c.name AS client
+                               FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+                               WHERE o.is_draft=0 AND o.status!='afgerond'""").fetchall()
+        if not rows:
+            return []
+        oids = [r["oid"] for r in rows]
+        by = {}
+        for it in conn.execute("SELECT order_id,name,montage_custom FROM order_items WHERE order_id IN (%s)"
+                               % ",".join("?" * len(oids)), tuple(oids)).fetchall():
+            by.setdefault(it["order_id"], []).append(it)
+        out = []
+        for r in rows:
+            n = sum(1 for it in by.get(r["oid"], [])
+                    if it["montage_custom"] is None and not _match_product(it["name"], prods))
+            if n:
+                out.append({"oid": r["oid"], "onum": r["onum"], "client": r["client"], "n": n})
+        return out
+    finally:
+        conn.close()
 
 
 @bp.route("/products", methods=["GET", "POST"])
@@ -3903,6 +3938,48 @@ def product_delete(pid):
     return redirect(url_for("planning.products"))
 
 
+@bp.route("/orders/<int:oid>/maatwerk", methods=["GET", "POST"])
+def order_maatwerk(oid):
+    guard = login_required("edit_planning")
+    if guard:
+        return guard
+    conn = db()
+    o = conn.execute("""SELECT o.*, c.name AS client FROM orders o
+                        LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
+    if not o:
+        conn.close()
+        abort(404)
+    prods = _load_products(conn)
+    items = conn.execute("SELECT id,name,qty,montage_custom FROM order_items WHERE order_id=? ORDER BY id",
+                         (oid,)).fetchall()
+    if request.method == "POST":
+        for it in items:
+            if not _match_product(it["name"], prods):
+                val = request.form.get("m_%d" % it["id"])
+                mv = _int(val, 0) if (val is not None and val.strip() != "") else None
+                conn.execute("UPDATE order_items SET montage_custom=? WHERE id=?", (mv, it["id"]))
+        conn.commit()
+        conn.close()
+        flash("Maatwerk-tijden opgeslagen.")
+        return redirect(request.args.get("next") or url_for("planning.order_detail", oid=oid))
+    lev = (o["service_type"] or "montage") != "montage"
+    custom, known, known_total = [], [], 0
+    for it in items:
+        p = _match_product(it["name"], prods)
+        if p:
+            tiers = p.get("tiers_lev") if lev else p["tiers"]
+            if not tiers or not any(tiers):
+                tiers = p["tiers"]
+            t = _montage_for_qty(tiers, int(it["qty"] or 1))
+            known.append({"name": it["name"], "qty": it["qty"], "min": t})
+            known_total += t
+        else:
+            custom.append(it)
+    conn.close()
+    return render_template("planning/maatwerk.html", o=o, custom=custom, known=known,
+                           known_total=known_total, nxt=request.args.get("next"))
+
+
 def _shopify_import_order(o):
     """Maak van een Shopify-orderpayload een 'in te plannen' order met alle regels
     (ook handmatig toegevoegde/custom producten). Idempotent op shopify_id."""
@@ -3961,8 +4038,8 @@ def _shopify_import_order(o):
         conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, _clean_item_name(li), qty))
     # Montagetijd (workload) uit de artikelcatalogus afleiden.
     prods = _load_products(conn)
-    itr = conn.execute("SELECT name,qty FROM order_items WHERE order_id=?", (oid,)).fetchall()
-    mm = _order_montage([{"name": r["name"], "qty": r["qty"]} for r in itr], prods, fallback=0, service_type=service)
+    itr = conn.execute("SELECT name,qty,montage_custom FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    mm = _order_montage([{"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]} for r in itr], prods, fallback=0, service_type=service)
     if mm:
         conn.execute("UPDATE orders SET montage_min=? WHERE id=?", (mm, oid))
     conn.commit()
