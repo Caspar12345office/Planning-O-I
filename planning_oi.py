@@ -444,6 +444,8 @@ INTEGRATIONS = [
         {"key": "from_email", "label": "Afzender-e-mail", "type": "text", "placeholder": "planning@office-interior.com",
          "help": "Voor je eigen domein: verifieer office-interior.com in Resend. Testen kan met onboarding@resend.dev."},
         {"key": "from_name", "label": "Afzendernaam", "type": "text", "default": "Office-Interior"},
+        {"key": "reply_to", "label": "Antwoorden naar (Reply-To)", "type": "text", "placeholder": "planning@office-interior.com",
+         "help": "Waar antwoorden van klanten binnenkomen. Bijv. planning@office-interior.com. Leeg = geen apart antwoordadres."},
         {"key": "smtp_host", "label": "SMTP-host (optioneel, alleen lokaal)", "type": "text", "placeholder": "leeg laten bij Resend"},
         {"key": "smtp_user", "label": "SMTP-gebruiker (optioneel)", "type": "text"},
         {"key": "smtp_pass", "label": "SMTP-wachtwoord (optioneel)", "type": "password"},
@@ -1254,11 +1256,14 @@ def _api_send(to, subject, text, html=None):
     if not from_email:
         return False
     frm = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), from_email)
+    reply_to = (c.get("reply_to") or "").strip()
     key = (c.get("resend_api_key") or "").strip()
     if key:
         try:
-            payload = json.dumps({"from": frm, "to": recips, "subject": subject,
-                                  "text": text, "html": html or text}).encode("utf-8")
+            body = {"from": frm, "to": recips, "subject": subject, "text": text, "html": html or text}
+            if reply_to:
+                body["reply_to"] = reply_to
+            payload = json.dumps(body).encode("utf-8")
             req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                          headers={"Authorization": "Bearer " + key,
                                                   "Content-Type": "application/json"})
@@ -1275,6 +1280,8 @@ def _api_send(to, subject, text, html=None):
     msg["Subject"] = subject
     msg["From"] = frm
     msg["To"] = ", ".join(recips)
+    if reply_to:
+        msg["Reply-To"] = reply_to
     msg.set_content(text)
     if html:
         msg.add_alternative(html, subtype="html")
@@ -4118,6 +4125,7 @@ def integration_test(ikey):
         u = current_user()
         test_to = (u["email"] if u and u["email"] else from_email)
         frm = "%s <%s>" % ((c.get("from_name") or "Office-Interior").strip(), from_email)
+        reply_to = (c.get("reply_to") or "").strip()
         text = "Dit is een testmail van OfficeRoute. De mailkoppeling werkt."
         html = _brand_email("Testmail geslaagd",
                             ["Dit is een testbericht van OfficeRoute.",
@@ -4125,8 +4133,10 @@ def integration_test(ikey):
         key = (c.get("resend_api_key") or "").strip()
         if key:
             try:
-                payload = json.dumps({"from": frm, "to": [test_to], "subject": "OfficeRoute — testmail",
-                                      "text": text, "html": html}).encode("utf-8")
+                _body = {"from": frm, "to": [test_to], "subject": "OfficeRoute — testmail", "text": text, "html": html}
+                if reply_to:
+                    _body["reply_to"] = reply_to
+                payload = json.dumps(_body).encode("utf-8")
                 req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                              headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
                 urllib.request.urlopen(req, timeout=10).read()
