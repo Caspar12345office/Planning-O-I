@@ -592,7 +592,9 @@ def init_db():
     CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
         m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
-        m4 INTEGER DEFAULT 0, m5 INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT);
+        m4 INTEGER DEFAULT 0, m5 INTEGER DEFAULT 0,
+        l1 INTEGER DEFAULT 0, l2 INTEGER DEFAULT 0, l3 INTEGER DEFAULT 0,
+        l4 INTEGER DEFAULT 0, l5 INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT);
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -612,7 +614,12 @@ def init_db():
                  "ALTER TABLE order_magazijn ADD COLUMN manco_at TEXT",
                  "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_by TEXT",
                  "ALTER TABLE order_magazijn ADD COLUMN manco_resolved_at TEXT",
-                 "ALTER TABLE orders ADD COLUMN track_token TEXT"):
+                 "ALTER TABLE orders ADD COLUMN track_token TEXT",
+                 "ALTER TABLE products ADD COLUMN l1 INTEGER DEFAULT 0",
+                 "ALTER TABLE products ADD COLUMN l2 INTEGER DEFAULT 0",
+                 "ALTER TABLE products ADD COLUMN l3 INTEGER DEFAULT 0",
+                 "ALTER TABLE products ADD COLUMN l4 INTEGER DEFAULT 0",
+                 "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -1851,7 +1858,8 @@ def planning():
             _by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"]})
         for j in jobs:
             montage_map[j["order_id"]] = _order_montage(_by_o.get(j["order_id"], []), _prods,
-                                                        fallback=(j["montage_min"] or 0))
+                                                        fallback=(j["montage_min"] or 0),
+                                                        service_type=j["service_type"])
 
     is_today = (day == _today_iso())
     raw, totals = {}, {}
@@ -3699,14 +3707,15 @@ def _int(v, d=0):
 
 def _load_products(conn):
     try:
-        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5 FROM products WHERE active=1").fetchall()
+        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5 FROM products WHERE active=1").fetchall()
     except Exception:
         return []
     out = []
     for r in rows:
         out.append({"name": (r["name"] or "").strip().lower(),
                     "display": (r["display_name"] or "").strip(),
-                    "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0]})
+                    "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0],
+                    "tiers_lev": [r["l1"] or 0, r["l2"] or 0, r["l3"] or 0, r["l4"] or 0, r["l5"] or 0]})
     return out
 
 
@@ -3736,13 +3745,21 @@ def _montage_for_qty(tiers, qty):
     return tier(5) * full + (tier(rem) if rem else 0)
 
 
-def _order_montage(items, products, fallback=0):
+def _order_montage(items, products, fallback=0, service_type="montage"):
+    """Werkdruk-minuten voor een order. 'montage' gebruikt de volle montagetijden;
+    'levering' (ongemonteerd) en 'ophalen' de lichte tijden (tiers_lev). Is er geen
+    aparte levertijd ingevuld, dan valt het terug op de montagetijd."""
+    lev = (service_type or "montage") != "montage"
     total, matched = 0, False
     for it in items:
         p = _match_product(it["name"], products)
-        if p:
-            total += _montage_for_qty(p["tiers"], int(it["qty"] or 1))
-            matched = True
+        if not p:
+            continue
+        tiers = p.get("tiers_lev") if lev else p["tiers"]
+        if not tiers or not any(tiers):
+            tiers = p["tiers"]
+        total += _montage_for_qty(tiers, int(it["qty"] or 1))
+        matched = True
     return total if matched else fallback
 
 
@@ -3757,11 +3774,13 @@ def products():
         if act == "add":
             name = (request.form.get("name") or "").strip()
             if name:
-                conn.execute("""INSERT INTO products(name,display_name,m1,m2,m3,m4,m5,active,created_at)
-                                VALUES(?,?,?,?,?,?,?,1,?)""",
+                conn.execute("""INSERT INTO products(name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,active,created_at)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?)""",
                              (name, (request.form.get("display_name") or "").strip(),
                               _int(request.form.get("m1")), _int(request.form.get("m2")), _int(request.form.get("m3")),
-                              _int(request.form.get("m4")), _int(request.form.get("m5")), _today_iso()))
+                              _int(request.form.get("m4")), _int(request.form.get("m5")),
+                              _int(request.form.get("l1")), _int(request.form.get("l2")), _int(request.form.get("l3")),
+                              _int(request.form.get("l4")), _int(request.form.get("l5")), _today_iso()))
                 conn.commit()
                 flash("Artikel toegevoegd.")
             else:
@@ -3788,9 +3807,11 @@ def product_edit(pid):
         return guard
     f = request.form
     conn = db()
-    conn.execute("UPDATE products SET name=?,display_name=?,m1=?,m2=?,m3=?,m4=?,m5=?,active=? WHERE id=?",
+    conn.execute("""UPDATE products SET name=?,display_name=?,m1=?,m2=?,m3=?,m4=?,m5=?,
+                    l1=?,l2=?,l3=?,l4=?,l5=?,active=? WHERE id=?""",
                  ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(),
                   _int(f.get("m1")), _int(f.get("m2")), _int(f.get("m3")), _int(f.get("m4")), _int(f.get("m5")),
+                  _int(f.get("l1")), _int(f.get("l2")), _int(f.get("l3")), _int(f.get("l4")), _int(f.get("l5")),
                   1 if f.get("active") else 0, pid))
     conn.commit()
     conn.close()
@@ -3870,7 +3891,7 @@ def _shopify_import_order(o):
     # Montagetijd (workload) uit de artikelcatalogus afleiden.
     prods = _load_products(conn)
     itr = conn.execute("SELECT name,qty FROM order_items WHERE order_id=?", (oid,)).fetchall()
-    mm = _order_montage([{"name": r["name"], "qty": r["qty"]} for r in itr], prods, fallback=0)
+    mm = _order_montage([{"name": r["name"], "qty": r["qty"]} for r in itr], prods, fallback=0, service_type=service)
     if mm:
         conn.execute("UPDATE orders SET montage_min=? WHERE id=?", (mm, oid))
     conn.commit()
