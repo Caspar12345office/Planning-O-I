@@ -159,7 +159,8 @@ got_request_exception.connect(_record_app_error)
 
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
-                 "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps"}
+                 "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
+                 "route_crew"}
 
 
 def _sub_placeholders(sql):
@@ -591,6 +592,8 @@ def init_db():
         started_at TEXT, updated_at TEXT, PRIMARY KEY(monteur_id, date));
     CREATE TABLE IF NOT EXISTS day_roster(
         date TEXT, monteur_id INTEGER, PRIMARY KEY(date, monteur_id));
+    CREATE TABLE IF NOT EXISTS route_crew(
+        date TEXT, lead_id INTEGER, monteur_id INTEGER, PRIMARY KEY(date, lead_id, monteur_id));
     CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
         m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
@@ -1823,6 +1826,40 @@ def roster_remove():
     return redirect(url_for("planning.planning", day=day))
 
 
+@bp.route("/planning/crew/add", methods=["POST"])
+def crew_add():
+    guard = login_required("edit_planning")
+    if guard:
+        return guard
+    day = request.form.get("day") or _today_iso()
+    lead = request.form.get("lead_id")
+    mid = request.form.get("monteur_id")
+    if lead and mid and lead != mid:
+        conn = db()
+        conn.execute("INSERT OR IGNORE INTO route_crew(date,lead_id,monteur_id) VALUES(?,?,?)", (day, lead, mid))
+        conn.commit()
+        conn.close()
+        flash("Extra monteur toegevoegd aan de route.")
+    return redirect(url_for("planning.planning", day=day))
+
+
+@bp.route("/planning/crew/remove", methods=["POST"])
+def crew_remove():
+    guard = login_required("edit_planning")
+    if guard:
+        return guard
+    day = request.form.get("day") or _today_iso()
+    lead = request.form.get("lead_id")
+    mid = request.form.get("monteur_id")
+    if lead and mid:
+        conn = db()
+        conn.execute("DELETE FROM route_crew WHERE date=? AND lead_id=? AND monteur_id=?", (day, lead, mid))
+        conn.commit()
+        conn.close()
+        flash("Extra monteur van de route gehaald.")
+    return redirect(url_for("planning.planning", day=day))
+
+
 @bp.route("/planning")
 def planning():
     guard = login_required("view_planning")
@@ -1837,6 +1874,10 @@ def planning():
     conn = db()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     busmap = {b["id"]: b for b in conn.execute("SELECT id,max_weight,empty_weight FROM busses").fetchall()}
+    _mnames = {m["id"]: m["name"] for m in monteurs}
+    crew_map = {}
+    for r in conn.execute("SELECT lead_id, monteur_id FROM route_crew WHERE date=?", (day,)).fetchall():
+        crew_map.setdefault(r["lead_id"], []).append({"id": r["monteur_id"], "name": _mnames.get(r["monteur_id"], "?")})
     jobs = conn.execute("""
         SELECT p.*, o.order_number, o.delivery_address, o.city, o.postal, o.email AS o_email,
                o.phone, o.notes, o.instructions, o.volume, o.weight, o.montage_min, o.amount, o.source, o.service_type,
@@ -1954,7 +1995,7 @@ def planning():
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
                            day_label=day_label, daynames=["ma", "di", "wo", "do", "vr", "za", "zo"],
                            nd=nd, can_edit=has_perm("edit_planning"), usort=usort,
-                           shown_ids=shown_ids, addable=addable,
+                           shown_ids=shown_ids, addable=addable, crew=crew_map,
                            maatwerk_orders=_orders_needing_custom())
 
 

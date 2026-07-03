@@ -165,6 +165,8 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     <span class="sw"></span>
     <span class="mn">{{ m.name }}</span>
     {% if not m.standard %}<span class="chip" style="background:rgba(255,255,255,.28)">incidenteel</span>{% endif %}
+    {% for cw in crew.get(m.id, []) %}<span class="chip" style="background:rgba(255,255,255,.28)">👥 {{ cw.name }}{% if can_edit %} <form method="post" action="{{ url_for('planning.crew_remove') }}" style="display:inline;margin:0"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="lead_id" value="{{ m.id }}"><input type="hidden" name="monteur_id" value="{{ cw.id }}"><button type="submit" title="Van route halen" style="background:none;border:0;color:#fff;cursor:pointer;padding:0;font:inherit">✕</button></form>{% endif %}</span>{% endfor %}
+    {% if can_edit %}<form method="post" action="{{ url_for('planning.crew_add') }}" style="display:inline;margin:0"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="lead_id" value="{{ m.id }}"><select name="monteur_id" onchange="if(this.value)this.form.submit()" title="Voeg een extra monteur toe op deze route" style="background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:8px;padding:3px 6px;font:inherit;font-size:11.5px;cursor:pointer"><option value="">+ monteur op route</option>{% for mm in monteurs if mm.id != m.id %}<option value="{{ mm.id }}" style="color:#16302d">{{ mm.name }}</option>{% endfor %}</select></form>{% endif %}
     <span class="chip"><svg class="ico"><use href="#ic-pin"/></svg> {{ t.region or '—' }}</span>
     {% if t.prov_count and t.prov_count >= 3 %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Let op: deze monteur staat in {{ t.prov_count }} verschillende provincies gepland ({{ t.region }}). Controleer of dit bewust is — dit past mogelijk niet in één dagroute."><svg class="ico"><use href="#ic-alert"/></svg> {{ t.prov_count }} provincies!</span>{% endif %}
     {% if t.overladen %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Laadgewicht {{ t.load_kg }} kg is meer dan het laadvermogen ({{ t.cap_kg }} kg) + de marge. {{ t.over_kg }} kg te zwaar."><svg class="ico"><use href="#ic-alert"/></svg> Overladen +{{ t.over_kg }} kg</span>{% endif %}
@@ -175,7 +177,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     {% if t.eta_back %}<span class="eta"><svg class="ico"><use href="#ic-home"/></svg> terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
     {% if t.stops %}<span class="exp" title="Bekijk route op kaart" onclick="showRouteMap(event,{{ m.id }},'{{ m.name|e }}')"><svg class="ico"><use href="#ic-map"/></svg></span>{% endif %}
     {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer stopvolgorde (kortste route)" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
-    <span class="exp" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
+    <span class="exp focusbtn" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
     {% if can_edit and not t.stops %}<form method="post" action="{{ url_for('planning.roster_remove') }}" style="margin:0;display:inline" onsubmit="return confirm('{{ m.name|e }} van deze dag halen?')"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="monteur_id" value="{{ m.id }}"><button class="exp" type="submit" title="Haal deze monteur van deze dag">✕</button></form>{% endif %}
     <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '—' }}</span><span>{{ t.km or 0 }} km</span>{% if t.cap_kg %}<span{% if t.overladen %} style="color:#c0533f;font-weight:700"{% endif %}>{{ t.load_kg or 0 }}/{{ t.cap_kg }} kg</span>{% endif %}{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
@@ -496,14 +498,14 @@ function optimizeRoute(ev, mid){
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
 }
 function clearFocus(){
-  document.querySelectorAll('.route.focus').forEach(function(x){x.classList.remove('focus');var e=x.querySelector('.exp');if(e)e.textContent='⤢';});
+  document.querySelectorAll('.route.focus').forEach(function(x){x.classList.remove('focus');var e=x.querySelector('.focusbtn');if(e){e.textContent='⤢';e.title='Vergroten / close-up';}});
   var b=document.getElementById('focusBackdrop'); if(b) b.style.display='none';
 }
 function toggleFocus(ev, el){
   ev.stopPropagation();
   var route=el.closest('.route'), on=route.classList.contains('focus');
   clearFocus();
-  if(!on){ route.classList.add('focus'); el.textContent='✕'; document.getElementById('focusBackdrop').style.display='block'; }
+  if(!on){ route.classList.add('focus'); el.textContent='⤡'; el.title='Verkleinen'; document.getElementById('focusBackdrop').style.display='block'; }
 }
 document.addEventListener('keydown',function(e){ if(e.key==='Escape') clearFocus(); });
 function autoPlan(btn){
