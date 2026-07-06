@@ -2624,9 +2624,57 @@ def client_detail(cid):
         conn.close(); abort(404)
     orders = conn.execute("SELECT * FROM orders WHERE client_id=? ORDER BY id DESC", (cid,)).fetchall()
     emails = conn.execute("SELECT * FROM email_log WHERE client_id=? ORDER BY ts DESC, id DESC", (cid,)).fetchall()
+    leverdocs = conn.execute("""SELECT l.id, l.status, l.reason, l.sent_at, l.received_at, o.order_number, o.id AS oid
+                                FROM leverdoc l JOIN orders o ON o.id=l.order_id
+                                WHERE o.client_id=? ORDER BY l.id DESC""", (cid,)).fetchall()
+    n_orders = len(orders)
+    total_value = sum((o["amount"] or 0) for o in orders)
     conn.close()
     return render_template("planning/client_detail.html", c=cl, orders=orders, emails=emails,
+                           leverdocs=leverdocs, n_orders=n_orders, total_value=total_value,
                            gmail_ready=(integ_status("gmail") == "verbonden"))
+
+
+@bp.route("/clients/<int:cid>/notitie", methods=["POST"])
+def client_note(cid):
+    if not has_perm("view_orders"):
+        abort(403)
+    note = (request.form.get("notes") or "").strip()
+    conn = db()
+    conn.execute("UPDATE clients SET notes=? WHERE id=?", (note, cid))
+    conn.commit()
+    conn.close()
+    flash("Notitie opgeslagen.")
+    return redirect(url_for("planning.client_detail", cid=cid))
+
+
+@bp.route("/zoeken")
+def zoeken():
+    """Globale zoekfunctie: vindt orders (op ordernummer, adres, plaats, e-mail,
+    telefoon of klantnaam) en klanten (naam, e-mail, telefoon, plaats)."""
+    guard = login_required("view_orders")
+    if guard:
+        return guard
+    q = (request.args.get("q") or "").strip()
+    clients, orders = [], []
+    if len(q) >= 2:
+        like = "%" + q + "%"
+        conn = db()
+        clients = conn.execute(
+            """SELECT id, name, city, phone, email,
+                      (SELECT COUNT(*) FROM orders WHERE client_id=clients.id) AS n_orders
+               FROM clients
+               WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR city LIKE ?
+               ORDER BY name LIMIT 25""", (like, like, like, like)).fetchall()
+        orders = conn.execute(
+            """SELECT o.id, o.order_number, o.city, o.delivery_address, o.status, o.amount,
+                      o.desired_date, o.is_draft, c.name AS client
+               FROM orders o LEFT JOIN clients c ON c.id=o.client_id
+               WHERE o.order_number LIKE ? OR o.delivery_address LIKE ? OR o.city LIKE ?
+                  OR o.email LIKE ? OR o.phone LIKE ? OR c.name LIKE ?
+               ORDER BY o.id DESC LIMIT 40""", (like, like, like, like, like, like)).fetchall()
+        conn.close()
+    return render_template("planning/zoeken.html", q=q, clients=clients, orders=orders)
 
 
 # --------------------------------------------------------------------------- #

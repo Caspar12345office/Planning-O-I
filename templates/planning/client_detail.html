@@ -11,22 +11,66 @@
   .mail .bd{font-size:13px;color:var(--muted)}
   .gmail-badge{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:999px;margin-bottom:12px}
   .gmail-badge.on{background:#e3f3da;color:#3c7a2c}.gmail-badge.off{background:#fbeccd;color:#9a6a17}
+  .infocard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:16px;display:grid;grid-template-columns:1.1fr 1fr;gap:20px}
+  .infocard h3{margin:0 0 10px;font-size:14px;color:var(--accent)}
+  .kv{font-size:13.5px;display:grid;grid-template-columns:auto 1fr;gap:7px 14px}
+  .kv .k{color:var(--muted)}
+  .noteform textarea{width:100%;min-height:88px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:13.5px;box-sizing:border-box;resize:vertical}
+  .ld{border:1px solid var(--line);border-radius:11px;padding:9px 12px;margin-bottom:9px;display:flex;align-items:center;gap:10px;font-size:13px}
+  .ld .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .ld .badge.rec{background:#d9f0e1;color:#1f6b3e}.ld .badge.open{background:#eef2f6;color:#4a6785}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  @media(max-width:640px){.infocard{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.clients') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle klanten</a>
+
+<div class="infocard">
+  <div>
+    <h3>Contactgegevens</h3>
+    <div class="kv">
+      <span class="k">Telefoon</span><span>{{ c.phone or '—' }}</span>
+      <span class="k">E-mail</span><span>{{ c.email or '—' }}</span>
+      <span class="k">Adres</span><span>{{ c.address or '—' }}{% if c.postal or c.city %}, {{ c.postal }} {{ c.city }}{% endif %}</span>
+      <span class="k">Factuuradres</span><span>{{ c.invoice_address or '—' }}</span>
+      <span class="k">Orders</span><span>{{ n_orders }} · totaal € {{ '%.0f'|format(total_value or 0) }}</span>
+    </div>
+  </div>
+  <div>
+    <h3>Notitie</h3>
+    <form class="noteform" method="post" action="{{ url_for('planning.client_note', cid=c.id) }}">
+      <textarea name="notes" placeholder="Interne notitie over deze klant…">{{ c.notes or '' }}</textarea>
+      <button class="btn primary sm" type="submit" style="margin-top:8px">Notitie opslaan</button>
+    </form>
+  </div>
+</div>
+
 <div class="cols">
   <div class="grid" style="align-content:start">
     <div class="card">
       <h3 style="color:var(--accent);margin-bottom:12px">Orders</h3>
       <table>
-        <thead><tr><th>Order</th><th>Datum</th><th>Status</th></tr></thead>
+        <thead><tr><th>Order</th><th>Bedrag</th><th>Datum</th><th>Status</th></tr></thead>
         <tbody>{% for o in orders %}
           <tr><td><a href="{{ url_for('planning.order_detail', oid=o.id) }}"><b>{{ o.order_number }}</b></a></td>
-          <td>{{ o.desired_date }}</td><td><span class="pill gray">{{ o.status }}</span></td></tr>
-        {% else %}<tr><td colspan="3" class="muted">Nog geen orders.</td></tr>{% endfor %}</tbody>
+          <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}—{% endif %}</td>
+          <td>{{ o.desired_date or '—' }}</td><td><span class="pill gray">{{ o.status }}</span></td></tr>
+        {% else %}<tr><td colspan="4" class="muted">Nog geen orders.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
+    {% if leverdocs %}
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:12px">Leveringsdocumenten</h3>
+      {% for d in leverdocs %}
+      <div class="ld">
+        <a href="{{ url_for('planning.order_detail', oid=d.oid) }}"><b>#{{ d.order_number }}</b></a>
+        {% if d.status=='received' %}<span class="badge rec">Ontvangen</span>{% else %}<span class="badge open">Open</span>{% endif %}
+        <span class="muted" style="margin-left:auto;font-size:12px">{{ d.received_at or d.sent_at }}</span>
+        {% if d.status=='received' %}<a class="btn ghost sm" href="{{ url_for('planning.leverdoc_view', lid=d.id) }}">Bekijk</a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   <div class="grid" style="align-content:start">
     <div class="card">

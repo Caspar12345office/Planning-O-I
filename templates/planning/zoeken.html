@@ -1,0 +1,72 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Zoeken · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Zoeken</h1><p>Vind snel een order of klant</p>{% endblock %}
+{% block page_css %}
+  .searchbar{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .searchbar input{flex:1;min-width:220px;padding:11px 14px;border:1px solid var(--line);border-radius:11px;font:inherit;font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:16px}
+  .card h3{margin:0 0 12px;font-size:15px;color:var(--accent);display:flex;align-items:center;gap:8px}
+  .card h3 .cnt{font-size:12px;color:var(--muted);font-weight:500}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:2px solid var(--line)}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tr:last-child td{border-bottom:0}
+  .muted{color:var(--muted)}
+  .empty{text-align:center;color:var(--muted);padding:30px 10px}
+  .hint{color:var(--muted);font-size:13px}
+{% endblock %}
+{% block content %}
+<form class="searchbar" method="get" action="{{ url_for('planning.zoeken') }}" role="search">
+  <input type="search" name="q" value="{{ q }}" placeholder="Zoek op ordernummer, klantnaam, adres, plaats, e-mail of telefoon…" autofocus>
+  <button class="btn primary" type="submit"><svg class="ico"><use href="#ic-search"/></svg> Zoeken</button>
+</form>
+
+{% if q|length < 2 %}
+  <div class="card"><div class="empty"><svg class="ico" style="width:26px;height:26px"><use href="#ic-search"/></svg>
+    <p class="hint" style="margin:10px 0 0">Typ minstens 2 tekens om te zoeken naar orders en klanten.</p></div></div>
+{% else %}
+
+<div class="card">
+  <h3><svg class="ico"><use href="#ic-box"/></svg> Orders <span class="cnt">· {{ orders|length }} gevonden{% if orders|length == 40 %} (top 40){% endif %}</span></h3>
+  {% if orders %}
+  <div style="overflow-x:auto"><table>
+    <thead><tr><th>Order</th><th>Klant</th><th>Adres</th><th>Bedrag</th><th>Datum</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td><a href="{{ url_for('planning.order_detail', oid=o.id) }}"><b>#{{ o.order_number }}</b></a>{% if o.is_draft %} <span class="pill gray">draft</span>{% endif %}</td>
+        <td>{{ o.client or '—' }}</td>
+        <td class="muted">{{ o.delivery_address or '' }}{% if o.city %}, {{ o.city }}{% endif %}</td>
+        <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}—{% endif %}</td>
+        <td class="muted">{{ o.desired_date or '—' }}</td>
+        <td><span class="pill gray">{{ o.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted" style="margin:0">Geen orders gevonden voor “{{ q }}”.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h3><svg class="ico"><use href="#ic-users"/></svg> Klanten <span class="cnt">· {{ clients|length }} gevonden{% if clients|length == 25 %} (top 25){% endif %}</span></h3>
+  {% if clients %}
+  <div style="overflow-x:auto"><table>
+    <thead><tr><th>Klant</th><th>Plaats</th><th>Telefoon</th><th>E-mail</th><th>Orders</th><th></th></tr></thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+        <td><b>{{ c.name }}</b></td>
+        <td class="muted">{{ c.city or '—' }}</td>
+        <td class="muted">{{ c.phone or '—' }}</td>
+        <td class="muted">{{ c.email or '—' }}</td>
+        <td>{{ c.n_orders }}</td>
+        <td><a class="btn ghost sm" href="{{ url_for('planning.client_detail', cid=c.id) }}">Dossier</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted" style="margin:0">Geen klanten gevonden voor “{{ q }}”.</p>{% endif %}
+</div>
+
+{% endif %}
+{% endblock %}
