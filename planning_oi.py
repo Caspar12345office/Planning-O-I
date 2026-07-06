@@ -1671,7 +1671,8 @@ def dashboard():
         "monteurs_active": scalar("SELECT COUNT(DISTINCT monteur_id) FROM planning "
                                   "WHERE date=? AND monteur_id IS NOT NULL AND status!='afgerond'", (today,)),
         "drafts_blocked": scalar("SELECT COUNT(*) FROM orders WHERE is_draft=1"),
-        "important": scalar("SELECT COUNT(*) FROM orders WHERE amount>=? AND is_draft=0 AND desired_date>=?",
+        "important": scalar("SELECT COUNT(*) FROM orders WHERE amount>=? AND is_draft=0 "
+                            "AND (desired_date IS NULL OR desired_date='' OR desired_date>=?)",
                             (IMPORTANT_THRESHOLD, today)),
     }
     # monteurs onderweg + ETA terug in Breda
@@ -1980,7 +1981,7 @@ def planning():
             d2["at"] = a["at"]
             d2["at_status"] = a["status"]
             d2["at_delta"] = a["delta"]
-            d2["important"] = (s["amount"] or 0) >= 2000
+            d2["important"] = (s["amount"] or 0) >= IMPORTANT_THRESHOLD
             st = s["service_type"]
             d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
             d2["arts"] = items_map.get(s["order_id"], "")
@@ -2560,7 +2561,8 @@ def important_orders():
     rows = conn.execute("""SELECT o.*, c.name AS client,
                            (SELECT COUNT(*) FROM order_items WHERE order_id=o.id) AS n_items
                            FROM orders o LEFT JOIN clients c ON c.id=o.client_id
-                           WHERE o.amount>=? AND o.is_draft=0 AND o.desired_date>=?
+                           WHERE o.amount>=? AND o.is_draft=0
+                                 AND (o.desired_date IS NULL OR o.desired_date='' OR o.desired_date>=?)
                            ORDER BY """ + order_by, (IMPORTANT_THRESHOLD, today)).fetchall()
     items = _items_by_order(conn, [o["id"] for o in rows])
     conn.close()
