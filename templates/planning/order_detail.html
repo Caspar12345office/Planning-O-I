@@ -8,6 +8,7 @@
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
+<script>window.__presence = {order_id: {{ o.id }}, label: "Order #{{ o.order_number }}"};</script>
 <a class="btn ghost sm" href="{{ url_for('planning.orders') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle orders</a>
 {% if o.is_draft %}
 <div class="card" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713;margin-bottom:16px"><svg class="ico"><use href="#ic-shield"/></svg> <b>Draft order.</b> Deze order is niet bevestigd/betaald en wordt daarom nooit automatisch ingepland.</div>

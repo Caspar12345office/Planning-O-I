@@ -27,7 +27,7 @@
   <thead><tr><th>#Order</th><th>Klant</th><th>Afleveradres</th><th>Gewenste datum</th><th>Waarde</th><th>Bron</th><th>Status</th><th></th></tr></thead>
   <tbody>
   {% for o in orders %}
-    <tr>
+    <tr data-order="{{ o.id }}">
       <td><b>#{{ o.order_number }}</b><div class="muted" style="font-size:12px">{{ o.n_items }} regel(s)</div></td>
       <td>{{ o.client }}</td>
       <td class="muted">{{ o.delivery_address }}</td>

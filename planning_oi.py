@@ -160,7 +160,7 @@ got_request_exception.connect(_record_app_error)
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
                  "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
-                 "route_crew"}
+                 "route_crew", "presence"}
 
 
 def _sub_placeholders(sql):
@@ -598,6 +598,8 @@ def init_db():
         date TEXT, monteur_id INTEGER, PRIMARY KEY(date, monteur_id));
     CREATE TABLE IF NOT EXISTS route_crew(
         date TEXT, lead_id INTEGER, monteur_id INTEGER, PRIMARY KEY(date, lead_id, monteur_id));
+    CREATE TABLE IF NOT EXISTS presence(
+        user_id INTEGER PRIMARY KEY, user_name TEXT, path TEXT, order_id INTEGER, label TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS leverdoc_template(
         id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, intro TEXT, questions TEXT,
         active INTEGER DEFAULT 1, created_at TEXT);
@@ -977,7 +979,7 @@ def _invalidate_gcache():
 
 @bp.after_request
 def _gcache_bust_on_write(resp):
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint != "planning.api_presence":
         _invalidate_gcache()
     return resp
 
@@ -2675,6 +2677,38 @@ def zoeken():
                ORDER BY o.id DESC LIMIT 40""", (like, like, like, like, like, like)).fetchall()
         conn.close()
     return render_template("planning/zoeken.html", q=q, clients=clients, orders=orders)
+
+
+@bp.route("/api/presence", methods=["GET", "POST"])
+def api_presence():
+    """Live aanwezigheid (zoals Google Sheets): wie is nu waar bezig. De client
+    stuurt elke ~12s een heartbeat met de huidige pagina/order; we geven de andere
+    actieve gebruikers terug (actief = laatste 25 seconden)."""
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    now = datetime.now()
+    conn = db()
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        path = (str(data.get("path") or ""))[:120]
+        label = (str(data.get("label") or ""))[:80]
+        try:
+            oid = int(data.get("order_id")) if data.get("order_id") else None
+        except (ValueError, TypeError):
+            oid = None
+        conn.execute("""INSERT INTO presence(user_id,user_name,path,order_id,label,ts)
+                        VALUES(?,?,?,?,?,?)
+                        ON CONFLICT(user_id) DO UPDATE SET user_name=excluded.user_name,
+                          path=excluded.path, order_id=excluded.order_id,
+                          label=excluded.label, ts=excluded.ts""",
+                     (u["id"], u["name"], path, oid, label, now.isoformat(timespec="seconds")))
+        conn.commit()
+    cutoff = (now - timedelta(seconds=25)).isoformat(timespec="seconds")
+    rows = conn.execute("""SELECT user_name, path, order_id, label FROM presence
+                           WHERE ts>=? AND user_id!=?""", (cutoff, u["id"])).fetchall()
+    conn.close()
+    return jsonify(ok=True, users=[dict(r) for r in rows])
 
 
 # --------------------------------------------------------------------------- #
