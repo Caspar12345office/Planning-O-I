@@ -962,11 +962,46 @@ def _stamp_last_seen():
         pass
 
 
+# Korte in-process cache (per worker) voor globale instellingen + artikelen.
+# TTL van 20s én automatisch wissen na elke schrijf-actie (POST/PUT/PATCH/DELETE),
+# zodat waarden nooit langer dan één request verouderd zijn maar we per pagina
+# veel identieke DB-queries besparen.
+_GCACHE = {"settings": None, "settings_ts": 0.0, "products": None, "products_ts": 0.0}
+_GCACHE_TTL = 20.0
+
+
+def _invalidate_gcache():
+    _GCACHE["settings"] = None
+    _GCACHE["products"] = None
+
+
+@bp.after_request
+def _gcache_bust_on_write(resp):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        _invalidate_gcache()
+    return resp
+
+
 def setting(key, default=""):
-    conn = db()
-    row = conn.execute("SELECT value FROM settings WHERE skey=?", (key,)).fetchone()
-    conn.close()
-    return row["value"] if row else default
+    now = time.time()
+    if _GCACHE["settings"] is None or (now - _GCACHE["settings_ts"]) > _GCACHE_TTL:
+        try:
+            conn = db()
+            rows = conn.execute("SELECT skey, value FROM settings").fetchall()
+            conn.close()
+            _GCACHE["settings"] = {r["skey"]: r["value"] for r in rows}
+            _GCACHE["settings_ts"] = now
+        except Exception:
+            # Veilige terugval: directe enkel-key query (oorspronkelijk gedrag).
+            try:
+                conn = db()
+                row = conn.execute("SELECT value FROM settings WHERE skey=?", (key,)).fetchone()
+                conn.close()
+                return row["value"] if row else default
+            except Exception:
+                return default
+    d = _GCACHE["settings"]
+    return d.get(key, default) if d else default
 
 
 def integ_status(ikey):
@@ -4166,6 +4201,9 @@ def _shopify_products_import(conn, shop, token):
 
 
 def _load_products(conn):
+    now = time.time()
+    if _GCACHE["products"] is not None and (now - _GCACHE["products_ts"]) <= _GCACHE_TTL:
+        return _GCACHE["products"]
     try:
         rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,weight_kg FROM products WHERE active=1").fetchall()
     except Exception:
@@ -4177,6 +4215,8 @@ def _load_products(conn):
                     "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0],
                     "tiers_lev": [r["l1"] or 0, r["l2"] or 0, r["l3"] or 0, r["l4"] or 0, r["l5"] or 0],
                     "weight": r["weight_kg"] or 0})
+    _GCACHE["products"] = out
+    _GCACHE["products_ts"] = now
     return out
 
 
