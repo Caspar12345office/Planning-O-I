@@ -1,8 +1,17 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Dashboard · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Dashboard</h1><p>Hallo{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht</p>{% endblock %}
+{% block pagehead %}{% endblock %}
 
 {% block page_css %}
+  .dash-hero{display:flex;align-items:center;gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 22px;margin-bottom:20px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+  .dash-hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:linear-gradient(var(--gold2),var(--gold))}
+  .dash-hero h1{font-size:27px;font-weight:700;letter-spacing:-.02em;color:var(--accent);margin:0;line-height:1}
+  .dash-hero .dh-sub{font-size:13.5px;color:var(--muted);margin-top:5px}
+  .dash-hero .dh-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:7px}
+  .dash-hero .dh-date{font-size:12.5px;color:#5a6b64;background:var(--soft);border:1px solid #dce7df;border-radius:999px;padding:6px 13px;white-space:nowrap}
+  .dash-hero .dh-live{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#3a6b57;font-weight:600}
+  .dash-hero .dh-live .dot{width:8px;height:8px;border-radius:50%;background:#4fae6f;box-shadow:0 0 0 3px rgba(79,174,111,.18)}
+  @media(max-width:520px){.dash-hero{flex-wrap:wrap}.dash-hero .dh-right{margin-left:0;flex-direction:row;align-items:center}}
   .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
   .kpi .ic{position:absolute;right:14px;top:14px;font-size:20px;opacity:.5}
@@ -60,6 +69,16 @@
 {% endblock %}
 
 {% block content %}
+<div class="dash-hero">
+  <div class="dh-txt">
+    <h1>Dashboard</h1>
+    <div class="dh-sub">Hallo{{ ', ' + p_user.name.split(' ')[0] if p_user }} · live overzicht van vandaag</div>
+  </div>
+  <div class="dh-right">
+    <span class="dh-date">{{ (today_label or '')|capitalize }}</span>
+    <span class="dh-live"><span class="dot"></span>live</span>
+  </div>
+</div>
 {% if maatwerk_orders %}
 <div class="draft-banner" style="background:#fbeccd;border-color:#f0d49a;color:#7a5713"><svg class="ico"><use href="#ic-alert"/></svg>
   <div><b>{{ maatwerk_orders|length }} order(s) met maatwerk-artikelen.</b> Vul de montagetijd in zodat de planning klopt:
@@ -72,12 +91,6 @@
 {% if stats.drafts_blocked %}
 <div class="draft-banner"><svg class="ico"><use href="#ic-shield"/></svg> <div><b>{{ stats.drafts_blocked }} draft order(s) tegengehouden.</b> Draft orders uit Shopify worden nooit automatisch ingepland; alleen bevestigde/betaalde orders verschijnen als “nog in te plannen”.</div></div>
 {% endif %}
-{% if p_user and p_user.role=='beheerder' %}
-<form method="post" action="{{ url_for('planning.admin_demo_planning') }}" style="margin-bottom:16px" onsubmit="return confirm('De dagplanning van vandaag vullen met demo-leveringen?')">
-  <button class="btn gold sm" type="submit"><svg class="ico" style="width:15px;height:15px;vertical-align:-2px"><use href="#ic-bolt"/></svg> Vul dagplanning met demo-data</button>
-</form>
-{% endif %}
-
 <div class="kpis">
   <div class="kpi gold"><span class="ic"><svg class="ico"><use href="#ic-wrench"/></svg></span><div class="v">{{ stats.monteurs_active }}</div><div class="l">Monteurs vandaag actief</div><span class="trend pill" style="background:rgba(255,255,255,.18);color:#fff">{{ stats.underway }} onderweg</span></div>
   <div class="kpi"><span class="ic"><svg class="ico"><use href="#ic-box"/></svg></span><div class="v">{{ stats.unplanned }}</div><div class="l">Nog in te plannen</div><span class="trend pill amber">{{ stats.open_orders }} open orders</span></div>
@@ -191,6 +204,15 @@
     </div>
   </div>
 </div>
+
+{% if p_user and p_user.role=='beheerder' %}
+<div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line)">
+  <form method="post" action="{{ url_for('planning.admin_demo_planning') }}" onsubmit="return confirm('De dagplanning van vandaag vullen met demo-leveringen?')" style="margin:0">
+    <button class="btn gold sm" type="submit"><svg class="ico" style="width:15px;height:15px;vertical-align:-2px"><use href="#ic-bolt"/></svg> Vul dagplanning met demo-data</button>
+  </form>
+  <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Alleen voor demonstratie — vult de dagplanning van vandaag met voorbeeldleveringen.</div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

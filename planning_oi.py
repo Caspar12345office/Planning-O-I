@@ -1684,7 +1684,8 @@ def dashboard():
     conn.close()
     return render_template("planning/dashboard.html", stats=stats, underway=underway, unplanned=unplanned,
                            unplanned_all=unplanned_all, monteurs=monteurs,
-                           office=office, office_day=office_day, today=today, auto_mails=auto_mails,
+                           office=office, office_day=office_day, today=today, today_label=_nl_date(today),
+                           auto_mails=auto_mails,
                            my_questions=my_questions, all_users=all_users,
                            maatwerk_orders=_orders_needing_custom())
 
