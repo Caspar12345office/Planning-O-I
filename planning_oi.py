@@ -4012,6 +4012,12 @@ def _connection_health(deep=False):
     else:
         put("bedrijfsbank", "ok", "Verbonden", "live")
 
+    # Sentry — foutmonitoring; groen zodra SENTRY_DSN is gezet
+    if (os.environ.get("SENTRY_DSN") or setting("sentry_dsn", "")).strip():
+        put("sentry", "ok", "Actief", "live")
+    else:
+        put("sentry", "warn", "Nog in te stellen")
+
     conn.close()
     return st
 
