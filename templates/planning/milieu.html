@@ -1,0 +1,202 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Milieu &amp; CO₂ · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Milieu &amp; CO₂</h1><p>Beladingsgraad en CO₂-uitstoot per voertuig · interne milieu-KPI's</p>{% endblock %}
+{% block page_css %}
+  .filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px}
+  .chips{display:inline-flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px}
+  .chips a{padding:6px 13px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted)}
+  .chips a.on{background:var(--accent);color:#fff}
+  .chips a:hover{color:var(--accent)}
+  .chips a.on:hover{color:#fff}
+  .dsel{display:flex;align-items:center;gap:8px}
+  .dsel input{width:auto;padding:8px 11px;font-size:13px}
+  .statgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px 17px;box-shadow:var(--shadow-sm)}
+  .stat .lab{font-size:12.5px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:7px}
+  .stat .lab svg{width:15px;height:15px;stroke:var(--gold);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .stat .val{font-size:26px;font-weight:700;color:var(--accent);letter-spacing:-.02em;margin-top:7px;font-variant-numeric:tabular-nums}
+  .stat .sub{font-size:12px;color:var(--muted);margin-top:3px}
+  .rhead{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  .rhead .acts{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .sectitle{font-size:12.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin:24px 0 10px;display:flex;align-items:center;gap:8px}
+  .sectitle svg{width:16px;height:16px;stroke:var(--gold);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .plate{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.03em}
+  .blbar{height:8px;border-radius:999px;background:var(--soft);overflow:hidden;margin-top:6px;max-width:130px}
+  .blbar span{display:block;height:100%;border-radius:999px}
+  .maat{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+  .bldetail{font-size:12px;color:var(--muted);margin-top:2px}
+  .co2v{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .totrow td{background:var(--soft);font-weight:700;color:var(--accent);border-top:2px solid var(--line)}
+  .note{display:flex;align-items:center;gap:9px;background:#fbf3e6;border:1px solid #ecdcbf;color:#8a5f1e;border-radius:12px;padding:10px 14px;font-size:13px;margin-top:16px}
+  .note svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;flex-shrink:0}
+  @media(max-width:1100px){.statgrid{grid-template-columns:repeat(2,1fr)}}
+  .modal{position:fixed;inset:0;background:rgba(15,30,28,.5);display:none;align-items:center;justify-content:center;z-index:120;padding:20px}
+  .modal.on{display:flex}
+  .modal .mb{background:#fff;border-radius:18px;padding:24px;width:min(470px,94vw);box-shadow:0 30px 70px rgba(0,0,0,.3)}
+  .modal h3{font-size:18px;color:var(--accent);margin-bottom:6px}
+  .modal .dsc{font-size:13.5px;color:var(--muted);margin:0 0 14px}
+  .modal label{display:block;font-weight:600;font-size:13px;margin:0 0 6px;color:var(--ink)}
+  .filerow{display:flex;align-items:center;gap:10px;background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px 13px;font-size:13.5px;margin-top:14px}
+  .filerow svg{width:18px;height:18px;stroke:var(--accent);fill:none;stroke-width:1.7;flex-shrink:0}
+  .mhint{font-size:12px;color:var(--muted);margin-top:12px}
+  .mfoot{display:flex;gap:10px;justify-content:flex-end;margin-top:22px}
+  .kmsg{font-size:13.5px;font-weight:500;margin-top:14px;padding:11px 15px;border-radius:12px;display:none}
+  .kmsg.ok{display:block;background:#e3f3da;color:#3c7a2c;border:1px solid #c5e6b6}
+  .kmsg.err{display:block;background:#f7e2dc;color:#a23d2a;border:1px solid #eec4b9}
+{% endblock %}
+{% block content %}
+
+{% set labels = {'dag':'Dag','week':'Week','maand':'Maand','kwartaal':'Kwartaal','jaar':'Jaar'} %}
+<div class="filterbar">
+  <div class="chips">
+    {% for k, lbl in labels.items() %}
+      <a class="{{ 'on' if period==k }}" href="{{ url_for('planning.milieu', period=k) }}">{{ lbl }}</a>
+    {% endfor %}
+  </div>
+  <form class="dsel" method="get" action="{{ url_for('planning.milieu') }}">
+    <input type="date" name="from" value="{{ frm }}" aria-label="Van">
+    <span class="muted">t/m</span>
+    <input type="date" name="to" value="{{ to }}" aria-label="Tot">
+    <button class="btn ghost sm" type="submit">Toepassen</button>
+  </form>
+</div>
+
+<div class="statgrid">
+  <div class="stat">
+    <div class="lab"><svg><use href="#ic-truck"/></svg>Gereden kilometers</div>
+    <div class="val">{{ '{:,.0f}'.format(tot.km).replace(',','.') }} km</div>
+    <div class="sub">{{ n_bus }} voertuigen · {{ frm }} t/m {{ to }}</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><svg><use href="#ic-leaf"/></svg>CO₂-uitstoot</div>
+    <div class="val">{{ '{:,.0f}'.format(tot.co2).replace(',','.') }} kg</div>
+    <div class="sub">well-to-wheel</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><svg><use href="#ic-box"/></svg>Gem. beladingsgraad</div>
+    <div class="val">{{ tot.maat }}%</div>
+    <div class="sub">maatgevend (volume/gewicht)</div>
+  </div>
+  <div class="stat">
+    <div class="lab"><svg><use href="#ic-chart"/></svg>CO₂ per m³ vervoerd</div>
+    <div class="val">{{ ('%.1f'|format(tot.co2_per_m3)).replace('.',',') }} kg/m³</div>
+    <div class="sub">lager = efficiënter plannen</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="rhead">
+    <div>
+      <h2 style="font-size:17px;color:var(--accent)">Voertuigen</h2>
+      <p class="muted" style="margin:3px 0 0;font-size:13px">Beladingsgraad = maatgevende van volume en gewicht. CO₂ = km × verbruik × NL-emissiefactor.</p>
+    </div>
+    <div class="acts">
+      <a class="btn ghost sm" href="{{ url_for('planning.milieu_export', **{'from': frm, 'to': to}) }}"><svg class="ico"><use href="#ic-download"/></svg> Exporteer naar Excel</a>
+      <button class="btn primary sm" type="button" id="koppelBtn"><svg class="ico"><use href="#ic-link"/></svg> Koppel aan Bedrijfsbank-KPI</button>
+    </div>
+  </div>
+
+  {% macro bar(pct) %}
+    {% set col = '#5aab4e,#73bf52' if pct>=70 else ('#d9962b,#e0a53a' if pct>=50 else '#c0533f,#d97b5f') %}
+    <div class="blbar"><span style="width:{{ pct }}%;background:linear-gradient(90deg,{{ col }})"></span></div>
+  {% endmacro %}
+
+  {% set fuel_titles = {'diesel':'Bezorgbussen · diesel','benzine':"Kantoorauto's · benzine"} %}
+  {% set fuel_icons = {'diesel':'truck','benzine':'fuel'} %}
+  {% set any = namespace(rows=false) %}
+
+  {% for fuel in ['diesel','benzine'] %}
+    {% set rows = groups.get(fuel, []) %}
+    {% if rows %}
+      {% set any.rows = true %}
+      <div class="sectitle"><svg><use href="#ic-{{ fuel_icons[fuel] }}"/></svg>{{ fuel_titles[fuel] }}</div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Voertuig</th><th>Ritdagen</th><th>Km</th><th>Vervoerd</th>
+          <th style="min-width:160px">Beladingsgraad</th><th>CO₂</th>
+        </tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td><div>{{ r.bus.name }}</div>{% if r.bus.plate %}<div class="plate">{{ r.bus.plate }}</div>{% endif %}</td>
+            <td>{{ r.ritdagen }}</td>
+            <td>{{ '{:,.0f}'.format(r.km).replace(',','.') }}</td>
+            <td>{{ ('%.0f'|format(r.vol_total)) }} m³</td>
+            <td>
+              {% if r.maat is not none %}
+                <span class="maat">{{ r.maat }}%</span>{{ bar(r.maat) }}
+                <div class="bldetail">{{ r.volp if r.volp is not none else 0 }}% volume · {{ r.kgp if r.kgp is not none else 0 }}% gewicht</div>
+              {% else %}<span class="muted">n.v.t.</span>{% endif %}
+            </td>
+            <td><span class="co2v">{{ '{:,.0f}'.format(r.co2).replace(',','.') }} kg</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if not any.rows %}
+    <p class="muted" style="margin:0">Nog geen actieve voertuigen. Voeg bussen toe onder Bussen om hier de milieucijfers te zien.</p>
+  {% else %}
+    <table style="margin-top:14px">
+      <tbody><tr class="totrow">
+        <td>Totaal</td><td>{{ tot.ritdagen }}</td>
+        <td>{{ '{:,.0f}'.format(tot.km).replace(',','.') }}</td>
+        <td>{{ ('%.0f'|format(tot.vol)) }} m³</td>
+        <td><span class="maat">{{ tot.maat }}%</span> gemiddeld</td>
+        <td>{{ '{:,.0f}'.format(tot.co2).replace(',','.') }} kg</td>
+      </tr></tbody>
+    </table>
+    <div class="note"><svg><use href="#ic-info"/></svg>Nu op basis van gereden km × verbruik per voertuig. Zodra Radius VeloCity gekoppeld is, worden de werkelijke getankte liters gebruikt — zelfde emissiefactor, dus schatting en werkelijk zijn direct vergelijkbaar.</div>
+  {% endif %}
+</div>
+
+<div class="modal" id="kmodal">
+  <div class="mb">
+    <h3>Koppel dit rapport aan een KPI</h3>
+    <p class="dsc">Kies de KPI in de Bedrijfsbank waar dit rapport bij hoort. Je ziet alleen actieve KPI's die klaarstaan voor bestanden.</p>
+    <label for="kpisel">Bedrijfsbank-KPI</label>
+    <select id="kpisel"><option>Laden…</option></select>
+    <div class="filerow"><svg><use href="#ic-download"/></svg><div><div style="font-weight:600;color:var(--ink)" id="kfname">milieu-rapport.xlsx</div><div class="muted" style="font-size:12px">wordt als bijlage aan de gekozen KPI toegevoegd</div></div></div>
+    <p class="mhint">KPI's zonder databron «OfficeRoute» verschijnen hier niet. Zet in de Bedrijfsbank de databron op OfficeRoute om een KPI koppelbaar te maken.</p>
+    <div class="kmsg" id="kmsg"></div>
+    <div class="mfoot">
+      <button class="btn ghost sm" type="button" id="kcancel">Annuleren</button>
+      <button class="btn primary sm" type="button" id="kdo"><svg class="ico"><use href="#ic-link"/></svg> Koppel aan KPI</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var m=document.getElementById('kmodal'), sel=document.getElementById('kpisel'),
+      msg=document.getElementById('kmsg'), doBtn=document.getElementById('kdo'),
+      frm={{ frm|tojson }}, to={{ to|tojson }};
+  document.getElementById('kfname').textContent='milieu-rapport_'+frm+'_'+to+'.xlsx';
+  function load(){
+    sel.innerHTML='<option>Laden…</option>'; doBtn.disabled=true;
+    fetch('{{ url_for("planning.milieu_kpis") }}').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ sel.innerHTML='<option value="">— geen —</option>'; msg.className='kmsg err'; msg.textContent=d.error||'Kon de KPI\'s niet laden.'; return; }
+      if(!d.kpis||!d.kpis.length){ sel.innerHTML='<option value="">— geen actieve KPI\'s —</option>'; msg.className='kmsg err'; msg.textContent='Geen KPI met databron OfficeRoute gevonden.'; return; }
+      sel.innerHTML=''; d.kpis.forEach(function(k){ var o=document.createElement('option'); o.value=k.id; o.textContent=k.naam+(k.categorie?(' · '+k.categorie):''); sel.appendChild(o); });
+      doBtn.disabled=false;
+    }).catch(function(){ sel.innerHTML='<option value="">—</option>'; msg.className='kmsg err'; msg.textContent='Bedrijfsbank niet bereikbaar.'; });
+  }
+  document.getElementById('koppelBtn').addEventListener('click',function(){ m.classList.add('on'); msg.className='kmsg'; load(); });
+  document.getElementById('kcancel').addEventListener('click',function(){ m.classList.remove('on'); });
+  m.addEventListener('click',function(e){ if(e.target===m) m.classList.remove('on'); });
+  doBtn.addEventListener('click',function(){
+    if(!sel.value) return;
+    doBtn.disabled=true; msg.className='kmsg'; msg.textContent='';
+    var body=new URLSearchParams(); body.set('kpi_id',sel.value); body.set('from',frm); body.set('to',to);
+    fetch('{{ url_for("planning.milieu_koppel") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body.toString()})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.ok){ msg.className='kmsg ok'; msg.textContent='Gekoppeld aan de KPI in de Bedrijfsbank.'; }
+        else { msg.className='kmsg err'; msg.textContent=d.error||'Koppelen mislukt.'; doBtn.disabled=false; }
+      }).catch(function(){ msg.className='kmsg err'; msg.textContent='Er ging iets mis.'; doBtn.disabled=false; });
+  });
+})();
+</script>
+{% endblock %}

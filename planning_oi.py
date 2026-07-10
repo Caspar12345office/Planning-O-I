@@ -641,6 +641,8 @@ def init_db():
                  "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0",
                  "ALTER TABLE order_items ADD COLUMN montage_custom INTEGER",
                  "ALTER TABLE busses ADD COLUMN empty_weight REAL DEFAULT 0",
+                 "ALTER TABLE busses ADD COLUMN brandstof TEXT DEFAULT 'diesel'",
+                 "ALTER TABLE busses ADD COLUMN verbruik_l100 REAL DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0"):
         try:
             conn.execute(stmt)
@@ -1116,7 +1118,8 @@ NAV = [
     {"label": "Rapportages", "icon": "chart", "perm": None, "children": [
         {"label": "Monteursprestaties", "endpoint": "planning.performance", "icon": "chart", "perm": "view_performance"},
         {"label": "Kilometers", "endpoint": "planning.vehicle_km", "icon": "truck", "perm": "view_reports"},
-        {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"}]},
+        {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"},
+        {"label": "Milieu & CO₂", "endpoint": "planning.milieu", "icon": "leaf", "perm": "view_reports"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "sun", "perm": "manage_freedays"},
     {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
         {"label": "Live status koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
@@ -3051,10 +3054,11 @@ def bus_edit(bid):
         except (ValueError, TypeError):
             return 0.0
     conn.execute("""UPDATE busses SET name=?, plate=?, driver=?, max_volume=?, max_weight=?, empty_weight=?,
-                    max_stops=?, apk_date=?, maintenance=?, active=? WHERE id=?""",
+                    max_stops=?, apk_date=?, maintenance=?, brandstof=?, verbruik_l100=?, active=? WHERE id=?""",
                  (f.get("name"), f.get("plate"), f.get("driver"),
                   _f(f.get("max_volume")), _f(f.get("max_weight")), _f(f.get("empty_weight")),
                   _int(f.get("max_stops"), 0), f.get("apk_date"), f.get("maintenance"),
+                  (f.get("brandstof") or "diesel"), _f(f.get("verbruik_l100")),
                   1 if f.get("active") else 0, bid))
     conn.commit()
     conn.close()
@@ -5345,6 +5349,232 @@ def vehicle_km_export():
     conn.close()
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=kilometers.csv"})
+
+
+# --------------------------------------------------------------------------- #
+#  Milieu-KPI's: beladingsgraad + CO2-uitstoot per voertuig
+# --------------------------------------------------------------------------- #
+# Officiele NL-emissiefactoren (well-to-wheel, kg CO2e per liter). Overrulebaar
+# via settings 'co2_factor_diesel' / 'co2_factor_benzine'. Worden jaarlijks
+# herzien -> als waarde daarom instelbaar, niet hard vastgezet.
+CO2_FACTOR_DEFAULT = {"diesel": 3.262, "benzine": 2.784}
+# Geschat verbruik (l/100km) als er nog geen waarde per bus is ingevuld.
+# Straks vervangen door werkelijke getankte liters uit Radius VeloCity.
+L100_DEFAULT = {"diesel": 12.0, "benzine": 7.0}
+
+
+def _co2_factor(brandstof):
+    b = (brandstof or "diesel").lower()
+    try:
+        v = float(setting("co2_factor_" + b, "") or 0)
+    except (TypeError, ValueError):
+        v = 0
+    return v or CO2_FACTOR_DEFAULT.get(b, CO2_FACTOR_DEFAULT["diesel"])
+
+
+def _bus_l100(bus):
+    try:
+        v = float(bus["verbruik_l100"] or 0)
+    except (TypeError, ValueError, IndexError):
+        v = 0
+    return v or L100_DEFAULT.get((bus["brandstof"] or "diesel").lower(), L100_DEFAULT["diesel"])
+
+
+def _milieu_period():
+    """Bepaal (van, tot, periodelabel) uit de query-parameters."""
+    today = datetime.now().date()
+    frm, to = request.args.get("from"), request.args.get("to")
+    if frm and to:
+        return frm, to, "aangepast"
+    period = request.args.get("period", "maand")
+    if period == "dag":
+        return today.isoformat(), today.isoformat(), period
+    if period == "week":
+        ws = today - timedelta(days=today.weekday())
+        return ws.isoformat(), today.isoformat(), period
+    if period == "kwartaal":
+        q0 = today.replace(month=((today.month - 1) // 3) * 3 + 1, day=1)
+        return q0.isoformat(), today.isoformat(), period
+    if period == "jaar":
+        return today.replace(month=1, day=1).isoformat(), today.isoformat(), period
+    return today.replace(day=1).isoformat(), today.isoformat(), "maand"
+
+
+def _milieu_data(date_from, date_to):
+    """Beladingsgraad + CO2 per voertuig over de periode, gegroepeerd per brandstof."""
+    conn = db()
+    busses = conn.execute("SELECT * FROM busses WHERE active=1 ORDER BY name").fetchall()
+    # Lading per (bus, dag): som van ordervolume en -gewicht van de geplande orders.
+    load = {}
+    for r in conn.execute("""SELECT p.bus_id AS bid, p.date AS d,
+                                    COALESCE(o.volume, 0) AS vol, COALESCE(o.weight, 0) AS wt
+                             FROM planning p JOIN orders o ON o.id = p.order_id
+                             WHERE p.bus_id IS NOT NULL AND p.date BETWEEN ? AND ?""",
+                          (date_from, date_to)).fetchall():
+        d = load.setdefault(r["bid"], {})
+        cur = d.setdefault(r["d"], [0.0, 0.0])
+        cur[0] += r["vol"] or 0
+        cur[1] += r["wt"] or 0
+
+    def avg(xs):
+        return round(sum(xs) / len(xs)) if xs else 0
+
+    groups = {"diesel": [], "benzine": []}
+    tot = {"km": 0.0, "co2": 0.0, "vol": 0.0, "ritdagen": 0, "maat_sum": 0.0, "maat_n": 0}
+    for b in busses:
+        km = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date BETWEEN ? AND ?",
+                          (b["id"], date_from, date_to)).fetchone()[0] or 0
+        brandstof = (b["brandstof"] or "diesel").lower()
+        co2 = km * (_bus_l100(b) / 100.0) * _co2_factor(brandstof)
+        days = load.get(b["id"], {})
+        cap_vol = b["max_volume"] or 0
+        cap_kg = (b["max_weight"] or 0) - (b["empty_weight"] or 0)
+        maat_list, volp_list, kgp_list = [], [], []
+        for v in days.values():
+            volp = min((v[0] / cap_vol * 100) if cap_vol else 0, 100)
+            kgp = min((v[1] / cap_kg * 100) if cap_kg else 0, 100)
+            volp_list.append(volp)
+            kgp_list.append(kgp)
+            maat_list.append(max(volp, kgp))
+        has_cap = bool(cap_vol or cap_kg)
+        groups.setdefault(brandstof, []).append({
+            "bus": b, "km": round(km), "co2": round(co2),
+            "vol_total": round(sum(v[0] for v in days.values()), 1),
+            "ritdagen": len(days),
+            "maat": avg(maat_list) if (has_cap and maat_list) else None,
+            "volp": avg(volp_list) if (cap_vol and volp_list) else None,
+            "kgp": avg(kgp_list) if (cap_kg and kgp_list) else None,
+        })
+        tot["km"] += km
+        tot["co2"] += co2
+        tot["vol"] += sum(v[0] for v in days.values())
+        tot["ritdagen"] += len(days)
+        if has_cap and maat_list:
+            tot["maat_sum"] += sum(maat_list)
+            tot["maat_n"] += len(maat_list)
+    conn.close()
+    tot["km"] = round(tot["km"])
+    tot["co2"] = round(tot["co2"])
+    tot["vol"] = round(tot["vol"], 1)
+    tot["maat"] = round(tot["maat_sum"] / tot["maat_n"]) if tot["maat_n"] else 0
+    tot["co2_per_m3"] = round(tot["co2"] / tot["vol"], 1) if tot["vol"] else 0
+    return groups, tot
+
+
+@bp.route("/rapportages/milieu")
+def milieu():
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    frm, to, period = _milieu_period()
+    groups, tot = _milieu_data(frm, to)
+    return render_template("planning/milieu.html", groups=groups, tot=tot,
+                           frm=frm, to=to, period=period,
+                           n_bus=sum(len(v) for v in groups.values()),
+                           factors={"diesel": _co2_factor("diesel"), "benzine": _co2_factor("benzine")})
+
+
+def _milieu_xlsx(frm, to):
+    """Bouw het milieurapport als .xlsx; geeft (bytes, bestandsnaam) terug."""
+    groups, tot = _milieu_data(frm, to)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Milieu"
+    ws.append(["Milieurapportage OfficeRoute", "%s t/m %s" % (frm, to)])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([])
+    ws.append(["Voertuig", "Kenteken", "Brandstof", "Ritdagen", "Km", "Vervoerd (m3)",
+               "Beladingsgraad %", "Volume %", "Gewicht %", "CO2 (kg)"])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for brandstof in ("diesel", "benzine"):
+        for r in groups.get(brandstof, []):
+            bus = r["bus"]
+            ws.append([bus["name"], bus["plate"] or "", brandstof.capitalize(),
+                       r["ritdagen"], r["km"], r["vol_total"],
+                       r["maat"] if r["maat"] is not None else "n.v.t.",
+                       r["volp"] if r["volp"] is not None else "",
+                       r["kgp"] if r["kgp"] is not None else "",
+                       r["co2"]])
+    ws.append([])
+    ws.append(["Totaal", "", "", tot["ritdagen"], tot["km"], tot["vol"], tot["maat"], "", "", tot["co2"]])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for col, width in zip("ABCDEFGHIJ", (26, 13, 11, 10, 10, 14, 17, 10, 10, 11)):
+        ws.column_dimensions[col].width = width
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue(), "milieu-rapport_%s_%s.xlsx" % (frm, to)
+
+
+@bp.route("/rapportages/milieu/export.xlsx")
+def milieu_export():
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    frm, to, _ = _milieu_period()
+    data, fname = _milieu_xlsx(frm, to)
+    return Response(data,
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=%s" % fname})
+
+
+def _bb_config():
+    """Basis-URL + service-token van de Bedrijfsbank (env, met settings als terugval)."""
+    url = (os.environ.get("BEDRIJFSBANK_URL") or setting("bedrijfsbank_url", "") or "").rstrip("/")
+    tok = os.environ.get("BB_SERVICE_TOKEN") or setting("bb_service_token", "") or ""
+    return url, tok
+
+
+@bp.route("/rapportages/milieu/kpis")
+def milieu_kpis():
+    """Haal via de Bedrijfsbank de actieve KPI's op waaraan gekoppeld kan worden."""
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    url, tok = _bb_config()
+    if not url or not tok:
+        return jsonify(ok=False, error="Bedrijfsbank-koppeling nog niet ingesteld.")
+    try:
+        req = urllib.request.Request(url + "/bedrijfsbank/api/kpis?token=" + urllib.parse.quote(tok))
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return jsonify(json.loads(resp.read().decode("utf-8")))
+    except Exception:
+        return jsonify(ok=False, error="Bedrijfsbank is niet bereikbaar.")
+
+
+@bp.route("/rapportages/milieu/koppel", methods=["POST"])
+def milieu_koppel():
+    """Genereer het rapport en voeg het als bijlage toe aan de gekozen Bedrijfsbank-KPI."""
+    guard = login_required("view_reports")
+    if guard:
+        return guard
+    url, tok = _bb_config()
+    if not url or not tok:
+        return jsonify(ok=False, error="Bedrijfsbank-koppeling nog niet ingesteld."), 400
+    kpi_id = request.form.get("kpi_id") or request.args.get("kpi_id")
+    if not kpi_id:
+        return jsonify(ok=False, error="Kies eerst een KPI."), 400
+    frm = request.form.get("from") or request.args.get("from")
+    to = request.form.get("to") or request.args.get("to")
+    if not (frm and to):
+        frm, to, _ = _milieu_period()
+    data, fname = _milieu_xlsx(frm, to)
+    try:
+        q = urllib.parse.urlencode({"token": tok, "filename": fname,
+                                    "label": "Milieurapport %s t/m %s" % (frm, to)})
+        target = "%s/bedrijfsbank/api/kpi/%s/bijlage?%s" % (url, kpi_id, q)
+        req = urllib.request.Request(target, data=data, method="POST",
+                                     headers={"Content-Type": "application/octet-stream"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            r = json.loads(resp.read().decode("utf-8"))
+        if r.get("ok"):
+            return jsonify(ok=True)
+        return jsonify(ok=False, error=r.get("error") or "Koppelen mislukt."), 400
+    except Exception:
+        return jsonify(ok=False, error="Bedrijfsbank is niet bereikbaar."), 502
 
 
 @bp.route("/api/optimize-route/<int:mid>", methods=["POST"])
