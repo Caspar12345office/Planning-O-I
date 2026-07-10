@@ -3997,6 +3997,21 @@ def _connection_health(deep=False):
     put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
     put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
 
+    # Bedrijfsbank (OfficeHub) — koppeling voor milieurapporten naar KPI's
+    bb_url, bb_tok = _bb_config()
+    if not (bb_url and bb_tok):
+        put("bedrijfsbank", "warn", "Nog in te stellen")
+    elif deep:
+        try:
+            req = urllib.request.Request(bb_url + "/bedrijfsbank/api/kpis?token=" + urllib.parse.quote(bb_tok))
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                ok = bool((json.loads(resp.read().decode("utf-8")) or {}).get("ok"))
+            put("bedrijfsbank", "ok" if ok else "err", "Verbonden" if ok else "Token afgewezen")
+        except Exception:
+            put("bedrijfsbank", "err", "Niet bereikbaar")
+    else:
+        put("bedrijfsbank", "ok", "Verbonden", "live")
+
     conn.close()
     return st
 
