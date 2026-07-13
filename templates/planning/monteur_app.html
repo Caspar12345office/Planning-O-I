@@ -2,21 +2,25 @@
 {% block title %}Mijn route · OfficeRoute{% endblock %}
 {% block m_top %}<span class="brand">OfficeRoute</span>{% endblock %}
 {% block app_css %}
-  .dayhead{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:12px}
-  .dayhead .hi{font-size:13px;color:var(--muted)}
-  .dayhead h2{margin:1px 0 0;font-size:21px;color:var(--accent)}
-  .dayhead .sum{display:flex;gap:8px;margin-top:12px}
-  .dayhead .sum div{flex:1;background:var(--soft);border-radius:11px;padding:9px;text-align:center}
-  .dayhead .sum b{display:block;font-size:18px;color:var(--accent)}.dayhead .sum span{font-size:10.5px;color:var(--muted)}
-  .jc{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 6px 18px rgba(15,61,62,.05)}
-  .jc.done{background:#eaf4e4;border-color:#cfe8c2;opacity:.8}
+  .m-screen{background:#f6f1e6}
+  .dayhead{padding:6px 2px 14px;margin-bottom:14px;border-bottom:1px solid #e7dcc4}
+  .dayhead h2{margin:0;font-size:25px;color:var(--accent);font-weight:700;letter-spacing:-.01em}
+  .dayhead .sum{display:flex;gap:8px;margin-top:14px}
+  .dayhead .sum div{flex:1;background:#fffdf8;border:1px solid #ece1cb;border-radius:12px;padding:10px 4px;text-align:center}
+  .dayhead .sum b{display:block;font-size:19px;color:var(--accent);font-variant-numeric:tabular-nums}.dayhead .sum span{font-size:10.5px;color:var(--muted)}
+  @keyframes jcrise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .jc{background:#fffdf8;border:1px solid #ece1cb;border-radius:16px;padding:15px;margin-bottom:12px;box-shadow:0 10px 22px -16px rgba(120,90,30,.35);animation:jcrise .5s cubic-bezier(.23,1,.32,1) both}
+  #pane-route .jc:nth-of-type(2){animation-delay:.05s}
+  #pane-route .jc:nth-of-type(3){animation-delay:.1s}
+  #pane-route .jc:nth-of-type(4){animation-delay:.15s}
+  .jc.done{background:#eef4e6;border-color:#d9e6c8;opacity:.75}
   .jc .r1{display:flex;align-items:center;gap:9px;margin-bottom:6px}
   .jc .seq{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .jc .num{font-weight:700;font-size:13px;color:var(--accent)}
   .jc .cl{font-weight:700;font-size:17px}
   .jc .ad{font-size:13.5px;color:var(--muted);margin:2px 0 9px}
   .jc .box{font-size:13px;border-radius:9px;padding:8px 10px;margin-bottom:9px}
-  .jc .box.items{background:var(--soft)}
+  .jc .box.items{background:#f6f1e6}
   .jc .box.note{background:#fff8ef;border:1px solid #f0d49a;color:#7a5713}
   .jc .meta{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
   .pill{background:var(--soft);color:var(--accent);border-radius:999px;padding:6px 11px;font-size:12.5px;font-weight:600}
@@ -53,6 +57,7 @@
   .steps .step.active{color:var(--accent);background:#e7f0ec}.steps .step.active span{background:var(--accent)}
   .steps .step.done{color:#3c7a2c;background:#eaf4e4}.steps .step.done span{background:var(--green)}
   .stephint{font-size:11px;color:var(--muted);text-align:center;margin:-2px 0 8px}
+  @media(prefers-reduced-motion:reduce){.jc{animation:none}}
 {% endblock %}
 
 {% block content %}
@@ -64,8 +69,10 @@
     <div class="jc"><b>Geen monteurprofiel gekoppeld.</b><div class="ad">Vraag de beheerder je account aan een monteur te koppelen.</div></div>
   {% else %}
     <div class="dayhead">
-      <div style="display:flex;justify-content:space-between;align-items:baseline"><span class="hi">Vandaag · {{ HOME_BASE }}</span><span class="mWeather" style="font-size:13px;color:var(--muted)">weer…</span></div>
-      <h2>Hoi {{ monteur.name }}</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Hoi {{ monteur.name }}</h2>
+        <span class="mWeather" style="font-size:14px;color:var(--muted);font-weight:600">weer…</span>
+      </div>
       <div class="sum">
         <div><b>{{ jobs|length }}</b><span>stops</span></div>
         <div><b>{{ jobs|selectattr('status','equalto','afgerond')|list|length }}</b><span>afgerond</span></div>
@@ -77,7 +84,7 @@
     {% for j in jobs %}
     <div class="jc {{ 'done' if j.status=='afgerond' }}" data-pid="{{ j.id }}" data-arrived="{{ 1 if j.aangekomen_at else 0 }}" data-status="{{ j.status }}">
       <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">#{{ j.order_number }}</span>
-        {% if j.status=='afgerond' %}<span class="donepill"><svg class="ico"><use href="#ic-check"/></svg> Afgerond</span>{% elif j.aangekomen_at %}<span class="pill" style="margin-left:auto;background:#fbeccd;color:#7a5713"><svg class="ico"><use href="#ic-pin"/></svg> bij de klant</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
+        {% if j.status=='afgerond' %}<span class="donepill"><svg class="ico"><use href="#ic-check"/></svg> Afgerond</span>{% elif j.aangekomen_at %}<span class="pill" style="margin-left:auto;background:#fbeccd;color:#7a5713"><svg class="ico"><use href="#ic-pin"/></svg> bij de klant</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#f3e6c9;color:#8a6a1e">onderweg</span>{% endif %}</div>
       <div class="cl">{{ j.client }}</div>
       <div class="ad">{{ j.delivery_address }}</div>
       <div class="box items"><svg class="ico"><use href="#ic-box"/></svg> {{ j.items or 'geen artikelen' }}</div>
@@ -86,8 +93,7 @@
       {% if j.phone %}<div class="meta"><a class="pill" href="tel:{{ j.phone }}"><svg class="ico"><use href="#ic-phone"/></svg> bel klant</a></div>{% endif %}
       {% set q = j.delivery_address|urlencode %}
       <div class="navrow">
-        <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google</a>
-        <a target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple</a>
+        <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google Maps</a>
         <a target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
       </div>
       {% if j.status!='afgerond' %}
