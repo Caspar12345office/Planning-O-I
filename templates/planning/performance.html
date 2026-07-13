@@ -46,6 +46,13 @@
   .mfill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#15595a,#0f3d3e);border-radius:8px;display:flex;align-items:center;min-width:52px}
   .mfill span{color:#fff;font-size:12px;font-weight:800;margin-left:9px;white-space:nowrap}
   .mbrow .nn{font-size:11.5px;color:var(--muted);text-align:right}
+  .flag{background:#fff8ef;border:1px solid #f0d49a;border-radius:12px;padding:12px 14px;margin-bottom:10px}
+  .flag .fh{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .flag .fo{font-weight:700;color:var(--accent)}
+  .flag .fm{font-size:12px;color:var(--muted)}
+  .flag ul{margin:8px 0 0;padding-left:18px}
+  .flag li{font-size:12.5px;color:#7a5713;margin:2px 0}
+  .flagcount{background:#c0533f;color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:2px 9px}
 {% endblock %}
 {% block content %}
 <div class="toolbar">
@@ -86,6 +93,25 @@
   <span><b style="background:#4f9d3a"></b> Succesvol</span>
   <span><b style="background:#c0533f"></b> Beschadigd/incompleet</span>
   <span><b style="background:#d9962b"></b> Niet thuis</span>
+</div>
+
+<div class="lsec" id="controle">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+    <h2>Te controleren</h2>
+    {% if duur_flags %}<span class="flagcount">{{ duur_flags|length }}</span>{% endif %}
+    <span class="locknote" style="margin-left:auto"><svg class="ico"><use href="#ic-lock"/></svg> Alleen voor kantoor</span>
+  </div>
+  <p class="sub">Klussen waar de gemeten tijd mogelijk niet klopt (kruischeck met GPS + vertrekcontrole). Geen automatisch oordeel, even zelf bekijken.</p>
+  {% if duur_flags %}
+    {% for f in duur_flags %}
+    <div class="flag">
+      <div class="fh"><span class="fo">#{{ f.order }} · {{ f.client }}</span><span class="fm">{{ f.monteur }} · {{ f.date }} · {{ f.duur }} min gemeten</span></div>
+      <ul>{% for rs in f.reasons %}<li>{{ rs }}</li>{% endfor %}</ul>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="mcard"><p class="muted" style="margin:0">Niets opvallends. De gemeten klussen zien er normaal uit.</p></div>
+  {% endif %}
 </div>
 
 <div class="lsec">

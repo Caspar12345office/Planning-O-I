@@ -237,22 +237,30 @@ function toggleGps(){var btn=document.getElementById('gpsBtn'),st=document.getEl
     btn.textContent='Uitzetten';st.textContent='Live locatie aan';}
   else{navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;btn.textContent='Aanzetten';st.textContent='Live locatie uit';
     if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lng:p.coords.longitude,live:false})});});}}
-/* Startplicht: melding als de monteur al ~5 min stil op locatie staat maar zijn aankomst niet meldde. */
-var nudgePid=null,nudgeWatch=null,nAnchor=null,nAnchorT=0,nNudged=false,nSnooze=0;
-function _activeStopPid(){
+/* GPS: startmelding + vastleggen van aankomst/vertrek als controle (kantoor-only). */
+var gpsPid=null,trkWatch=null,anchor=null,anchorT=0,phase='travel';
+var arrivalMarked=false,departMarked=false,nudged=false,nudgeSnooze=0;
+function _curStop(){
   var cards=document.querySelectorAll('.jc[data-pid]');
   for(var i=0;i<cards.length;i++){var c=cards[i];
-    if(c.getAttribute('data-status')==='onderweg'&&c.getAttribute('data-arrived')==='0'){return parseInt(c.getAttribute('data-pid'),10);}}
+    if(c.getAttribute('data-status')!=='afgerond'){return {pid:parseInt(c.getAttribute('data-pid'),10),arrived:c.getAttribute('data-arrived')==='1'};}}
   return null;
 }
 function _distM(a,b){var R=6371000,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lng-a.lng)*Math.PI/180,la1=a.lat*Math.PI/180,la2=b.lat*Math.PI/180,x=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.sin(dLo/2)*Math.sin(dLo/2)*Math.cos(la1)*Math.cos(la2);return 2*R*Math.asin(Math.sqrt(x));}
-function _nudgeTick(p){var now=Date.now()/1000,pos={lat:p.coords.latitude,lng:p.coords.longitude};
-  if(nAnchor===null||_distM(nAnchor,pos)>60){nAnchor=pos;nAnchorT=now;nNudged=false;}
-  if(!nNudged&&now>nSnooze&&(now-nAnchorT)>=300){nNudged=true;_showNudge();}}
+function _mark(kind){if(gpsPid===null)return;fetch('{{ url_for("planning.monteur_gps_mark", pid=0) }}'.slice(0,-1)+gpsPid,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:kind})});}
 function _showNudge(){var el=document.getElementById('arrivePop');if(el)el.style.display='flex';try{if(navigator.vibrate)navigator.vibrate([120,60,120]);}catch(e){}}
-function snoozeNudge(){document.getElementById('arrivePop').style.display='none';var now=Date.now()/1000;nSnooze=now+300;nAnchorT=now;nNudged=false;}
-function arriveFromNudge(){if(nudgePid!==null)arriveStop(nudgePid);}
-(function(){nudgePid=_activeStopPid();if(nudgePid===null||!navigator.geolocation)return;
-  try{nudgeWatch=navigator.geolocation.watchPosition(_nudgeTick,function(){},{enableHighAccuracy:true,maximumAge:10000,timeout:20000});}catch(e){}})();
+function snoozeNudge(){document.getElementById('arrivePop').style.display='none';var now=Date.now()/1000;nudgeSnooze=now+300;anchorT=now;nudged=false;}
+function arriveFromNudge(){var s=_curStop();if(s)arriveStop(s.pid);}
+function _tick(p){var now=Date.now()/1000,pos={lat:p.coords.latitude,lng:p.coords.longitude};
+  var s=_curStop();if(!s)return;gpsPid=s.pid;
+  if(phase==='travel'){
+    if(anchor===null||_distM(anchor,pos)>60){anchor=pos;anchorT=now;}
+    else if(now-anchorT>=180){phase='onsite';if(!arrivalMarked){arrivalMarked=true;_mark('arrival');}anchorT=now;}
+  }else if(phase==='onsite'){
+    if(!s.arrived&&!nudged&&now>nudgeSnooze&&(now-anchorT)>=300){nudged=true;_showNudge();}
+    if(_distM(anchor,pos)>150){phase='left';if(!departMarked){departMarked=true;_mark('departure');}}
+  }}
+(function(){var s=_curStop();if(!s||!navigator.geolocation)return;gpsPid=s.pid;
+  try{trkWatch=navigator.geolocation.watchPosition(_tick,function(){},{enableHighAccuracy:true,maximumAge:10000,timeout:20000});}catch(e){}})();
 </script>
 {% endblock %}

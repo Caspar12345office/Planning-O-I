@@ -537,7 +537,8 @@ def init_db():
         date TEXT, slot_start TEXT, slot_end TEXT, sequence INTEGER DEFAULT 0,
         confirmed INTEGER DEFAULT 0, mailed INTEGER DEFAULT 0,
         arrival_mailed INTEGER DEFAULT 0, delay_mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland',
-        aangekomen_at TEXT, afgerond_at TEXT);
+        aangekomen_at TEXT, afgerond_at TEXT,
+        gps_arrival_at TEXT, gps_departure_at TEXT, arrival_backfilled INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS free_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT);
@@ -650,7 +651,10 @@ def init_db():
                  "ALTER TABLE busses ADD COLUMN verbruik_l100 REAL DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0",
                  "ALTER TABLE planning ADD COLUMN aangekomen_at TEXT",
-                 "ALTER TABLE planning ADD COLUMN afgerond_at TEXT"):
+                 "ALTER TABLE planning ADD COLUMN afgerond_at TEXT",
+                 "ALTER TABLE planning ADD COLUMN gps_arrival_at TEXT",
+                 "ALTER TABLE planning ADD COLUMN gps_departure_at TEXT",
+                 "ALTER TABLE planning ADD COLUMN arrival_backfilled INTEGER DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -5243,7 +5247,7 @@ def monteur_complete(pid):
         # Aankomst niet gemeld tijdens de klus? Val terug op de handmatig ingevulde aankomsttijd,
         # zodat de gemeten duur toch klopt.
         if not p["aangekomen_at"] and len(arrived) == 5 and arrived[2] == ":":
-            conn.execute("UPDATE planning SET aangekomen_at=? WHERE id=?",
+            conn.execute("UPDATE planning SET aangekomen_at=?, arrival_backfilled=1 WHERE id=?",
                          (_today_iso() + "T" + arrived + ":00", pid))
         # Order afronden én automatisch afhandelen naar Shopify (klaar voor facturatie/betaling).
         conn.execute("UPDATE orders SET status='afgerond', fulfilled=1, fulfilled_at=? WHERE id=?",
@@ -5301,6 +5305,28 @@ def monteur_arrive(pid):
         if p["status"] == "gepland":
             conn.execute("UPDATE planning SET status='onderweg' WHERE id=?", (pid,))
             conn.execute("UPDATE orders SET status='onderweg' WHERE id=?", (p["order_id"],))
+        conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/monteur/gps-mark/<int:pid>", methods=["POST"])
+def monteur_gps_mark(pid):
+    """Legt de GPS-aankomst/-vertrek vast als schaduwreferentie (controle op sjoemelen).
+    De monteur ziet hier niets van; het dient puur als kruischeck voor kantoor."""
+    if not has_perm("monteur_app"):
+        return jsonify(ok=False), 403
+    u = current_user()
+    kind = (request.get_json(silent=True) or {}).get("kind")
+    if kind not in ("arrival", "departure"):
+        return jsonify(ok=False), 400
+    col = "gps_arrival_at" if kind == "arrival" else "gps_departure_at"
+    conn = db()
+    p = conn.execute("SELECT %s AS v FROM planning WHERE id=? AND monteur_id=?" % col,
+                     (pid, u["monteur_id"])).fetchone()
+    if p and not p["v"]:
+        conn.execute("UPDATE planning SET %s=? WHERE id=?" % col,
+                     (datetime.now().isoformat(timespec="seconds"), pid))
         conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -5371,6 +5397,14 @@ def _klus_duur_min(aangekomen_at, afgerond_at):
     if d <= 0 or d > _LEARN_MAX_MIN:
         return None
     return d
+
+
+def _mins_between(a, b):
+    """Minuten tussen twee ISO-tijdstippen (b - a), of None."""
+    try:
+        return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() / 60.0
+    except Exception:
+        return None
 
 
 def _learn_now(conn):
@@ -5463,6 +5497,51 @@ def _duur_report(conn):
     return types, per_monteur
 
 
+def _duur_flags(conn, days=90):
+    """Markeert klussen die mogelijk gemanipuleerd zijn, voor handmatige controle door kantoor.
+    Kruischeck (start vs GPS-aankomst, handmatige invoer, onrealistisch kort) + vertrek-check."""
+    prods = _load_products(conn)
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    rows = conn.execute("""SELECT p.order_id, p.monteur_id, p.aangekomen_at, p.afgerond_at,
+                                  p.gps_arrival_at, p.gps_departure_at, p.arrival_backfilled,
+                                  o.order_number, o.service_type, o.montage_min, c.name AS client
+                           FROM planning p JOIN orders o ON o.id=p.order_id
+                           LEFT JOIN clients c ON c.id=o.client_id
+                           WHERE p.status='afgerond' AND p.aangekomen_at IS NOT NULL
+                                 AND p.afgerond_at IS NOT NULL AND p.afgerond_at>=?
+                           ORDER BY p.afgerond_at DESC""", (since,)).fetchall()
+    mons = {m["id"]: m["name"] for m in conn.execute("SELECT id,name FROM monteurs").fetchall()}
+    out = []
+    for r in rows:
+        dur = _klus_duur_min(r["aangekomen_at"], r["afgerond_at"])
+        if dur is None:
+            continue
+        reasons = []
+        if r["gps_arrival_at"]:
+            gap = _mins_between(r["gps_arrival_at"], r["aangekomen_at"])
+            if gap is not None and gap > 10:
+                reasons.append("Start %d min later gemeld dan GPS-aankomst" % round(gap))
+        if r["arrival_backfilled"]:
+            reasons.append("Aankomst handmatig ingevuld")
+        items = conn.execute("SELECT name, qty, montage_custom FROM order_items WHERE order_id=?",
+                             (r["order_id"],)).fetchall()
+        cat = _order_montage([{"name": it["name"], "qty": it["qty"], "montage_custom": it["montage_custom"]}
+                              for it in items], prods, fallback=(r["montage_min"] or 0),
+                             service_type=r["service_type"])
+        if cat and dur < 0.4 * cat:
+            reasons.append("Duur %d%% korter dan verwacht (%d vs %d min)"
+                           % (round((1 - dur / cat) * 100), round(dur), round(cat)))
+        if r["gps_departure_at"]:
+            linger = _mins_between(r["afgerond_at"], r["gps_departure_at"])
+            if linger is not None and linger > 15:
+                reasons.append("Nog %d min op locatie na tekenen" % round(linger))
+        if reasons:
+            out.append({"order": r["order_number"], "client": r["client"] or "",
+                        "monteur": mons.get(r["monteur_id"], "?"),
+                        "date": (r["afgerond_at"] or "")[:10], "duur": round(dur), "reasons": reasons})
+    return out
+
+
 def _performance_data():
     today = datetime.now().date()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
@@ -5501,9 +5580,11 @@ def performance():
     conn = db()
     _maybe_learn(conn)                       # leert 1x per dag op de achtergrond
     duur_types, duur_monteur = _duur_report(conn)
+    duur_flags = _duur_flags(conn)
     conn.close()
     return render_template("planning/performance.html", report=report, tot_wk=tot_wk, tot_mo=tot_mo,
-                           labels=OUTCOME_LABELS, duur_types=duur_types, duur_monteur=duur_monteur)
+                           labels=OUTCOME_LABELS, duur_types=duur_types, duur_monteur=duur_monteur,
+                           duur_flags=duur_flags)
 
 
 @bp.route("/rapportages/prestaties/export.csv")
