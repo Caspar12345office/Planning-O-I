@@ -5995,5 +5995,21 @@ def auto_send_daily_mails():
     return sent
 
 
+@bp.route("/cron/ochtendmail", methods=["GET", "POST"])
+def cron_ochtendmail():
+    """Stuurt de dagelijkse klantmails (tijdvak + live volglink). Bedoeld om door een
+    externe planner (bv. cron-job.org) elke werkdag rond 07:00 te worden aangeroepen.
+    Idempotent: elke order krijgt hooguit 1x de mail (arrival_mailed-vlag)."""
+    key = request.values.get("key", "")
+    expected = os.environ.get("CRON_KEY", "")
+    if not expected or key != expected:
+        return jsonify(ok=False, error="unauthorized"), 403
+    try:
+        n = auto_send_daily_mails()
+    except Exception as e:
+        return jsonify(ok=False, error=str(e)), 500
+    return jsonify(ok=True, sent=n)
+
+
 # Idempotent initialiseren bij import (ook onder gunicorn).
 init_db()

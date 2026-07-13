@@ -74,6 +74,12 @@
   .rtbl tr.done td{background:#eaf4e4}
   .rtbl tr.done .nm b{color:#3b6d11}
   .rtbl tr.done .seq{background:#cfe8c2;color:#2c5410;border-radius:50%}
+  .rtbl tr.done td:first-child{box-shadow:inset 3px 0 0 #73bf52}
+  .rtbl tr.onderweg td{background:#fdf3e0}
+  .rtbl tr.onderweg td:first-child{box-shadow:inset 3px 0 0 #cda35a}
+  .stbadge{display:inline-block;font-size:9px;font-weight:800;border-radius:999px;padding:1px 6px;margin-left:5px;letter-spacing:.02em;vertical-align:middle}
+  .stbadge.onderweg{background:#f3e6c9;color:#8a6a1e}
+  .stbadge.done{background:#cfe8c2;color:#2c5410}
   @media(max-width:980px){.blocks{grid-template-columns:1fr}}
 {% endblock %}
 
@@ -189,7 +195,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     </tr></thead>
     <tbody>
       {% for j in rj %}
-      <tr class="rowcard {{ 'imp' if j.important }} {{ 'done' if j.status=='afgerond' }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ j.order_id }}">
+      <tr class="rowcard {{ 'imp' if j.important }} {{ 'done' if j.status=='afgerond' }} {{ 'onderweg' if j.status=='onderweg' }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ j.order_id }}">
         <td class="seq">{{ loop.index }}</td>
         <td>{{ j.gt or '-' }}</td>
         <td>
@@ -197,7 +203,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
           {% elif j.at_status=='none' %}<span class="at-none">-</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm"><b>{{ (j.client or '').split()[:2] | join(' ') }}</b> <span>· {{ j.arts or '-' }}</span></td>
+        <td class="nm"><b>{{ (j.client or '').split()[:2] | join(' ') }}</b>{% if j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %} <span>· {{ j.arts or '-' }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
