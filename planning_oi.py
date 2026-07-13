@@ -920,6 +920,53 @@ def current_user():
     return u
 
 
+# --------------------------------------------------------------------------- #
+#  Single sign-on: accepteer een SSO-token van de OfficeHub en log de gebruiker
+#  automatisch in (geen tweede login nodig). Zelfde SSO_SECRET als op de hub.
+# --------------------------------------------------------------------------- #
+SSO_SECRET = os.environ.get("SSO_SECRET") or ""
+
+
+def _sso_verify(tok):
+    if not SSO_SECRET:
+        return None
+    try:
+        uid, exp, sig = tok.split(".")
+    except Exception:
+        return None
+    good = hmac.new(SSO_SECRET.encode(), (uid + "." + exp).encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, good):
+        return None
+    try:
+        if int(exp) < int(time.time()):
+            return None
+    except Exception:
+        return None
+    return uid
+
+
+@bp.before_app_request
+def _sso_login():
+    tok = request.args.get("sso")
+    if not tok:
+        return None
+    uid = _sso_verify(tok)
+    if uid:
+        try:
+            conn = db()
+            row = conn.execute("SELECT id FROM users WHERE id=? AND active=1", (int(uid),)).fetchone()
+            conn.close()
+        except Exception:
+            row = None
+        if row:
+            session.permanent = True
+            session["p_user_id"] = int(uid)
+    args = request.args.to_dict(flat=True)
+    args.pop("sso", None)
+    q = urllib.parse.urlencode(args)
+    return redirect(request.path + (("?" + q) if q else ""))
+
+
 def user_perms(u):
     if not u:
         return set()
