@@ -31,8 +31,9 @@
   .ikrow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
   .ikrow .av{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px}
   .ikrow b{font-size:16px}.ikrow span{font-size:12.5px;color:var(--muted)}
-  .ov{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:flex-end;justify-content:center;z-index:90}
-  .ov .sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px;max-height:92vh;overflow:auto}
+  .ov{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:flex-end;justify-content:center;z-index:200}
+  .ov .sheet{background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px 20px 0;max-height:90vh;overflow:auto}
+  .ov .sheetacts{position:sticky;bottom:0;background:#fff;display:flex;gap:10px;margin-top:14px;padding:12px 0 calc(env(safe-area-inset-bottom) + 12px);box-shadow:0 -10px 14px -10px rgba(0,0,0,.15)}
   .ov .sheet h3{margin:0 0 4px;color:var(--accent);font-size:18px}
   .ov label{font-size:13px;font-weight:600;display:block;margin:10px 0 4px}
   .ov input,.ov select,.ov textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:11px;font:inherit;font-size:15px}
@@ -146,7 +147,7 @@
     <button type="button" onclick="clearSig()" style="background:none;border:0;color:var(--muted);font-size:12.5px;padding:6px 0">opnieuw tekenen</button>
   </div>
   <div id="cmErr" style="color:#a23d2a;font-size:13px;display:none;margin:6px 0"></div>
-  <div style="display:flex;gap:10px;margin-top:8px"><button class="btn-lg ghost" onclick="document.getElementById('completeModal').style.display='none'">Annuleren</button><button class="btn-lg primary" onclick="submitComplete()">Bevestig &amp; volgende</button></div>
+  <div class="sheetacts"><button class="btn-lg ghost" onclick="document.getElementById('completeModal').style.display='none'">Annuleren</button><button class="btn-lg primary" onclick="submitComplete()">Bevestig &amp; volgende</button></div>
 </div></div>
 
 <div class="ov" id="leaveModal"><div class="sheet">
@@ -158,7 +159,7 @@
     <div id="lvToWrap"><label>Tot en met</label><input type="date" name="date_to"></div>
     <div id="lvTimeWrap" style="display:none"><label>Tijd</label><div style="display:flex;gap:8px"><input type="time" name="time_from"><input type="time" name="time_to"></div></div>
     <label>Toelichting</label><textarea name="reason" rows="2" placeholder="bv. tandarts om 10:00"></textarea>
-    <div style="display:flex;gap:10px;margin-top:12px"><button type="button" class="btn-lg ghost" onclick="document.getElementById('leaveModal').style.display='none'">Annuleren</button><button type="button" class="btn-lg primary" onclick="submitLeave(this)">Indienen</button></div>
+    <div class="sheetacts"><button type="button" class="btn-lg ghost" onclick="document.getElementById('leaveModal').style.display='none'">Annuleren</button><button type="button" class="btn-lg primary" onclick="submitLeave(this)">Indienen</button></div>
   </form>
 </div></div>
 
