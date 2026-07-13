@@ -35,10 +35,10 @@
       {% for o in orders %}
       <tr>
         <td><a href="{{ url_for('planning.order_detail', oid=o.id) }}"><b>#{{ o.order_number }}</b></a>{% if o.is_draft %} <span class="pill gray">draft</span>{% endif %}</td>
-        <td>{{ o.client or '—' }}</td>
+        <td>{{ o.client or '-' }}</td>
         <td class="muted">{{ o.delivery_address or '' }}{% if o.city %}, {{ o.city }}{% endif %}</td>
-        <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}—{% endif %}</td>
-        <td class="muted">{{ o.desired_date or '—' }}</td>
+        <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}-{% endif %}</td>
+        <td class="muted">{{ o.desired_date or '-' }}</td>
         <td><span class="pill gray">{{ o.status }}</span></td>
       </tr>
       {% endfor %}
@@ -56,9 +56,9 @@
       {% for c in clients %}
       <tr>
         <td><b>{{ c.name }}</b></td>
-        <td class="muted">{{ c.city or '—' }}</td>
-        <td class="muted">{{ c.phone or '—' }}</td>
-        <td class="muted">{{ c.email or '—' }}</td>
+        <td class="muted">{{ c.city or '-' }}</td>
+        <td class="muted">{{ c.phone or '-' }}</td>
+        <td class="muted">{{ c.email or '-' }}</td>
         <td>{{ c.n_orders }}</td>
         <td><a class="btn ghost sm" href="{{ url_for('planning.client_detail', cid=c.id) }}">Dossier</a></td>
       </tr>

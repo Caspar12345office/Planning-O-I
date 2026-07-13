@@ -29,10 +29,10 @@
       </div>
     </div>
     <div class="kv">
-      <span><svg class="ico"><use href="#ic-phone"/></svg></span><span>{{ m.phone or '—' }}</span>
-      <span><svg class="ico"><use href="#ic-mail"/></svg></span><span>{{ m.email or '—' }}</span>
+      <span><svg class="ico"><use href="#ic-phone"/></svg></span><span>{{ m.phone or '-' }}</span>
+      <span><svg class="ico"><use href="#ic-mail"/></svg></span><span>{{ m.email or '-' }}</span>
       <span><svg class="ico"><use href="#ic-truck"/></svg></span><span>{{ m.bus or 'Geen vaste bus' }}</span>
-      <span><svg class="ico"><use href="#ic-home"/></svg></span><span>{{ m.home_address or '—' }}</span>
+      <span><svg class="ico"><use href="#ic-home"/></svg></span><span>{{ m.home_address or '-' }}</span>
       <span>●</span><span>{{ 'Actief' if m.active else 'Inactief' }}</span>
     </div>
     {% if can_edit %}

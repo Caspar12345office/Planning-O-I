@@ -11,7 +11,7 @@ import secrets
 from flask import Flask, request
 from planning_oi import bp
 
-# Foutmonitoring (Sentry) — alleen actief als SENTRY_DSN is gezet; anders slaapt het.
+# Foutmonitoring (Sentry) - alleen actief als SENTRY_DSN is gezet; anders slaapt het.
 try:
     import sentry_sdk
     _sentry_dsn = os.environ.get("SENTRY_DSN")

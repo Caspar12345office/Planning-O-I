@@ -100,7 +100,7 @@ def region_for(cities):
         p = PROVINCE.get(c)
         if p and p not in provs:
             provs.append(p)
-    return " · ".join(provs) if provs else "—"
+    return " · ".join(provs) if provs else "-"
 
 
 # --------------------------------------------------------------------------- #
@@ -136,7 +136,7 @@ def _get_pg_pool():
     return _PG_POOL
 
 
-# Versiestempel (Render zet RENDER_GIT_COMMIT automatisch) — zo is via /version
+# Versiestempel (Render zet RENDER_GIT_COMMIT automatisch) - zo is via /version
 # te controleren welke build live staat, en het dient als keep-alive-doel.
 APP_VERSION = (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:12]
 
@@ -397,9 +397,9 @@ INTEGRATIONS = [
          "help": "Nieuw sinds 2026: maak in het Shopify Dev Dashboard een app met recht 'read_products', installeer die op je winkel, en kopieer onder Settings de Client ID hierheen."},
         {"key": "client_secret", "label": "Client secret (Dev Dashboard-app)", "type": "password", "optional": True,
          "help": "Hoort bij de Client ID. Wij wisselen die veilig om voor een tijdelijk lees-token (24 u) bij elke import; er wordt niets in je webshop gewijzigd."},
-        {"key": "api_key", "label": "API-sleutel (optioneel — alleen voor backfill)", "type": "password", "optional": True},
-        {"key": "api_secret", "label": "API-secret (optioneel — alleen voor backfill)", "type": "password", "optional": True},
-        {"key": "access_token", "label": "Admin API-token (oud — alleen bestaande custom apps)", "type": "password", "optional": True,
+        {"key": "api_key", "label": "API-sleutel (optioneel - alleen voor backfill)", "type": "password", "optional": True},
+        {"key": "api_secret", "label": "API-secret (optioneel - alleen voor backfill)", "type": "password", "optional": True},
+        {"key": "access_token", "label": "Admin API-token (oud - alleen bestaande custom apps)", "type": "password", "optional": True,
          "help": "Alleen nog voor oudere, in de winkel-admin gemaakte custom apps (shpat_…). Voor nieuwe apps gebruik je Client ID + Client secret hierboven."},
         {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
@@ -536,7 +536,8 @@ def init_db():
         order_id INTEGER UNIQUE, monteur_id INTEGER, bus_id INTEGER,
         date TEXT, slot_start TEXT, slot_end TEXT, sequence INTEGER DEFAULT 0,
         confirmed INTEGER DEFAULT 0, mailed INTEGER DEFAULT 0,
-        arrival_mailed INTEGER DEFAULT 0, delay_mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland');
+        arrival_mailed INTEGER DEFAULT 0, delay_mailed INTEGER DEFAULT 0, status TEXT DEFAULT 'gepland',
+        aangekomen_at TEXT, afgerond_at TEXT);
     CREATE TABLE IF NOT EXISTS free_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         monteur_id INTEGER, type TEXT, date_from TEXT, date_to TEXT, note TEXT);
@@ -643,7 +644,9 @@ def init_db():
                  "ALTER TABLE busses ADD COLUMN empty_weight REAL DEFAULT 0",
                  "ALTER TABLE busses ADD COLUMN brandstof TEXT DEFAULT 'diesel'",
                  "ALTER TABLE busses ADD COLUMN verbruik_l100 REAL DEFAULT 0",
-                 "ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0"):
+                 "ALTER TABLE products ADD COLUMN weight_kg REAL DEFAULT 0",
+                 "ALTER TABLE planning ADD COLUMN aangekomen_at TEXT",
+                 "ALTER TABLE planning ADD COLUMN afgerond_at TEXT"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -661,7 +664,7 @@ def init_db():
         conn.commit()
     except Exception:
         pass
-    # Indexen op veelgebruikte kolommen — houdt queries snel bij meerdere
+    # Indexen op veelgebruikte kolommen - houdt queries snel bij meerdere
     # gelijktijdige gebruikers (planning per dag/monteur, orderregels, statussen).
     for idx in ("CREATE INDEX IF NOT EXISTS idx_planning_date ON planning(date)",
                 "CREATE INDEX IF NOT EXISTS idx_planning_order ON planning(order_id)",
@@ -820,7 +823,7 @@ def _seed(conn):
     # kantoorbezetting vandaag (kantoorpersoneel = niet-monteurs)
     for person, status, note in [
         ("Caspar", "kantoor", ""), ("Aleks", "kantoor", ""),
-        ("Jorik", "afspraak", "Soms op de weg — incidenteel inzetbaar als monteur"),
+        ("Jorik", "afspraak", "Soms op de weg - incidenteel inzetbaar als monteur"),
         ("Stijn", "afspraak", "Klantbezoek Eindhoven (hele ochtend)"),
         ("Chris", "kantoor", ""), ("Thom", "kantoor", ""), ("Yelith", "kantoor", ""),
     ]:
@@ -848,7 +851,7 @@ def _seed(conn):
     # teamchat (voorbeeldgesprek over lopende orders)
     now_min = datetime.now().isoformat(timespec="minutes")
     chat = [
-        ("chris@office-interior.nl", "Order #36403 (Eindhoven) is groot — zal ik er 2 monteurs op zetten?", "36403"),
+        ("chris@office-interior.nl", "Order #36403 (Eindhoven) is groot - zal ik er 2 monteurs op zetten?", "36403"),
         ("caspar@office-interior.nl", "Ja prima, plan Tom en Stijn v Gurp samen. Ik stem de levertijd af met de klant.", "36403"),
         ("thom@office-interior.nl", "Antwerpen #36720 staat klaar, factuuradres klopt.", "36720"),
     ]
@@ -1280,7 +1283,7 @@ def _live_loc(conn, mid):
 
 def route_alerts(monteur_id, has_stops):
     """Significante files/werkzaamheden op de route (>= ALERT_THRESHOLD min).
-    Stub — wordt live gevoed door de route-/verkeerskoppeling. Onder de drempel = vrije route."""
+    Stub - wordt live gevoed door de route-/verkeerskoppeling. Onder de drempel = vrije route."""
     out = []
     if has_stops and monteur_id == 1:        # demo: één route met een echte file
         out.append({"icon": "🚗", "desc": "File A2 richting Den Bosch", "min": 25})
@@ -1448,10 +1451,10 @@ def _wide_window(slot_start, slot_end):
             return None
     a, b = hh(slot_start), hh(slot_end)
     if a is None or b is None:
-        return "08:00 – 17:00"
+        return "08:00 - 17:00"
     sh = max(7, a)
     eh = min(18, max(b + 2, sh + 3))
-    return "%02d:00 – %02d:00" % (sh, eh)
+    return "%02d:00 - %02d:00" % (sh, eh)
 
 
 MAIL_TEXT_DEFAULTS = {
@@ -1753,7 +1756,7 @@ def dashboard():
     unplanned = unplanned_all[:3]
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
 
-    # kantoorbezetting (dag selecteerbaar) — vaste kantoorploeg
+    # kantoorbezetting (dag selecteerbaar) - vaste kantoorploeg
     office_day = request.args.get("office_day", today)
     od = {r["person"]: r for r in conn.execute("SELECT * FROM office_days WHERE date=?", (office_day,)).fetchall()}
     office = []
@@ -1919,7 +1922,7 @@ def roster_remove():
         conn = db()
         if conn.execute("SELECT 1 FROM planning WHERE date=? AND monteur_id=?", (day, mid)).fetchone():
             conn.close()
-            flash("Deze monteur heeft nog stops op deze dag — sleep die er eerst af.")
+            flash("Deze monteur heeft nog stops op deze dag - sleep die er eerst af.")
             return redirect(url_for("planning.planning", day=day))
         mons = conn.execute("SELECT id,standard FROM monteurs WHERE active=1").fetchall()
         _ensure_roster(conn, day, mons)
@@ -2059,7 +2062,7 @@ def planning():
             over = (load - (cap + LOAD_MARGIN_KG)) if cap else 0
             totals[m["id"]] = {"stops": len(rj), "km": round(km),
                                "time": fmt_duration(montage + km / 45 * 60),
-                               "region": " · ".join(provs) if provs else "—",
+                               "region": " · ".join(provs) if provs else "-",
                                "prov_count": len(provs),
                                "load_kg": load, "cap_kg": cap,
                                "overladen": bool(cap and over > 0), "over_kg": max(0, round(over)),
@@ -2069,7 +2072,7 @@ def planning():
         else:
             # Geen stops → geen reistijd/km tonen (voorkomt 'spook'-reistijd)
             _bus = busmap.get(m["bus_id"])
-            totals[m["id"]] = {"stops": 0, "km": 0, "time": "—", "region": "—",
+            totals[m["id"]] = {"stops": 0, "km": 0, "time": "-", "region": "-",
                                "prov_count": 0,
                                "load_kg": 0, "cap_kg": (round((_bus["max_weight"] or 0) - (_bus["empty_weight"] or 0)) if _bus else 0),
                                "overladen": False, "over_kg": 0,
@@ -2128,7 +2131,7 @@ def api_assign():
                       (mid, d, d)).fetchone()
     if fd:
         mn = conn.execute("SELECT name FROM monteurs WHERE id=?", (mid,)).fetchone()
-        warn = "Let op: %s heeft vrij (%s) op deze dag — toch ingepland." % (
+        warn = "Let op: %s heeft vrij (%s) op deze dag - toch ingepland." % (
             (mn["name"] if mn else "Deze monteur"), fd["type"])
     conn.close()
     return jsonify(ok=True, warn=warn)
@@ -2362,7 +2365,7 @@ def api_send_confirmations():
     if not has_perm("inform_clients"):
         return jsonify(ok=False, error="Geen rechten"), 403
     if not _mail_live():
-        # Testmodus: niets versturen, niets markeren — alleen melden hoeveel het zouden zijn.
+        # Testmodus: niets versturen, niets markeren - alleen melden hoeveel het zouden zijn.
         conn = db()
         n = conn.execute("SELECT COUNT(*) FROM planning WHERE mailed=0 AND confirmed=0 AND status!='afgerond'").fetchone()[0]
         conn.close()
@@ -2449,7 +2452,7 @@ def track(token):
         the_date = p["date"]
         monteur = p["monteur"]
         if p["slot_start"]:
-            tijdvak = (p["slot_start"] or "") + " – " + (p["slot_end"] or "")
+            tijdvak = (p["slot_start"] or "") + " - " + (p["slot_end"] or "")
         if status == "onderweg" and p["mid"]:
             try:
                 live = _live_loc(conn, p["mid"])
@@ -2478,7 +2481,7 @@ def track(token):
 
 @bp.route("/track/<token>/note", methods=["POST"])
 def track_note(token):
-    """Klant geeft (max 100 tekens) iets door aan de chauffeur — publiek, via het niet-raadbare token."""
+    """Klant geeft (max 100 tekens) iets door aan de chauffeur - publiek, via het niet-raadbare token."""
     note = (request.form.get("note") or "").strip()[:100]
     conn = db()
     conn.execute("UPDATE orders SET customer_note=? WHERE track_token=?", (note, token))
@@ -2527,10 +2530,10 @@ def email_templates():
 
     previews = {
         "confirm": prev("mailtxt_confirm_h", "mailtxt_confirm_b",
-                        [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 – 12:00"), ("Ordernummer", "#36399")],
+                        [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 - 12:00"), ("Ordernummer", "#36399")],
                         note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur."),
         "today": prev("mailtxt_today_h", "mailtxt_today_b",
-                      [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30–10:30"), ("Ordernummer", "#36399")],
+                      [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30-10:30"), ("Ordernummer", "#36399")],
                       button=("Volg uw levering & bericht doorgeven", "#")),
         "near": prev("mailtxt_near_h", "mailtxt_near_b",
                      [("Monteur", "Tom"), ("Verwachte aankomst", "rond 09:55"), ("Ordernummer", "#36399")],
@@ -2540,7 +2543,7 @@ def email_templates():
                       button=("Volg uw levering", "#")),
     }
     blocks = [
-        ("confirm", "Bevestiging — automatisch ná het inplannen"),
+        ("confirm", "Bevestiging - automatisch ná het inplannen"),
         ("today", "Wij komen vandaag langs"),
         ("near", "Onze monteur is er bijna"),
         ("delay", "Update over uw levertijd"),
@@ -2572,7 +2575,7 @@ def api_mail():
     return jsonify(ok=True, mail_live=_mail_live(),
                    message=("Verzonden vanuit planning@office-interior.com en bewaard in het klantdossier."
                             if sent_ok else
-                            "Opgeslagen in het klantdossier. Er is nog NIETS verstuurd — zet 'E-mails écht versturen' aan onder Koppelingen → Klantmail om live te gaan."))
+                            "Opgeslagen in het klantdossier. Er is nog NIETS verstuurd - zet 'E-mails écht versturen' aan onder Koppelingen → Klantmail om live te gaan."))
 
 
 # --------------------------------------------------------------------------- #
@@ -2849,7 +2852,7 @@ def monteur_edit(mid):
 
 
 # --------------------------------------------------------------------------- #
-#  Urenregister — uren die monteurs vanuit de app doorgeven (inhoud alleen met recht)
+#  Urenregister - uren die monteurs vanuit de app doorgeven (inhoud alleen met recht)
 # --------------------------------------------------------------------------- #
 @bp.route("/urenregister")
 def urenregister():
@@ -2883,10 +2886,10 @@ def urenregister():
     prev_week = (start - timedelta(days=7)).isoformat()
     next_week = (start + timedelta(days=7)).isoformat()
     if custom:
-        range_label = "%d %s – %d %s %d" % (start.day, _NL_MONTHS[start.month][:3],
+        range_label = "%d %s - %d %s %d" % (start.day, _NL_MONTHS[start.month][:3],
                                             end.day, _NL_MONTHS[end.month][:3], end.year)
     else:
-        range_label = "Week %d · %d %s – %d %s" % (start.isocalendar()[1], start.day,
+        range_label = "Week %d · %d %s - %d %s" % (start.isocalendar()[1], start.day,
                                                    _NL_MONTHS[start.month][:3], end.day, _NL_MONTHS[end.month][:3])
     van_val, tot_val = (van or start.isoformat()), (tot or end.isoformat())
     if can_view:
@@ -2933,7 +2936,7 @@ def urenregister():
                     src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
                     warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], warn_over)
                     warn_count += 1
-            entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "—",
+            entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "-",
                             "start": r["start_time"], "end": r["end_time"],
                             "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
                             "note": r["note"] or "", "warn": warn, "warn_text": warn_text, "warn_over": warn_over})
@@ -2949,7 +2952,7 @@ def urenregister():
 
 @bp.route("/urenregister/demo", methods=["POST"])
 def urenregister_demo():
-    """Vul het urenregister met testdata (beheerder) — incl. één verdachte regel."""
+    """Vul het urenregister met testdata (beheerder) - incl. één verdachte regel."""
     u = current_user()
     if not u or u["role"] != "beheerder":
         abort(403)
@@ -2988,7 +2991,7 @@ def urenregister_demo():
         ins(m1["id"], m1["name"], 1, "08:00", "16:00")
     conn.commit()
     conn.close()
-    flash("Testdata toegevoegd — inclusief één verdachte regel (GPS thuis 17:00, uren tot 17:30).")
+    flash("Testdata toegevoegd - inclusief één verdachte regel (GPS thuis 17:00, uren tot 17:30).")
     return redirect(url_for("planning.urenregister", d=monday.isoformat()))
 
 
@@ -3372,7 +3375,7 @@ def magazijn_demo():
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     if not monteurs:
         conn.close()
-        flash("Geen actieve monteurs — voeg er eerst een toe.")
+        flash("Geen actieve monteurs - voeg er eerst een toe.")
         return redirect(url_for("planning.magazijn"))
     _clear_magazijn_demo(conn)
     today = datetime.now().date()
@@ -3428,7 +3431,7 @@ def magazijn_demo():
     conn.commit()
     conn.close()
     flash("Magazijn gevuld met testdata (routes, picken, 1 manco, voormontage, taken)."
-          + ("" if pk else " Let op: nog geen picker-account — maak die aan onder Gebruikers voor de taken."))
+          + ("" if pk else " Let op: nog geen picker-account - maak die aan onder Gebruikers voor de taken."))
     return redirect(url_for("planning.magazijn"))
 
 
@@ -3458,7 +3461,7 @@ def magazijn_manco_resolve():
                      ((u["name"] if u else ""), datetime.now().isoformat(timespec="minutes"), oid))
         conn.commit()
         conn.close()
-        flash("Manco vrijgegeven — de picker kan de order weer klaarzetten.")
+        flash("Manco vrijgegeven - de picker kan de order weer klaarzetten.")
     return redirect(url_for("planning.magazijn"))
 
 
@@ -3895,7 +3898,7 @@ def kladblok_save():
 def _conn_advice(key):
     """Slim, regelgebaseerd advies bij een storing (diagnose + concrete stappen)."""
     A = {
-        "db": ("Het lijkt erop dat de database niet reageert — dan werkt vrijwel niets meer.",
+        "db": ("Het lijkt erop dat de database niet reageert - dan werkt vrijwel niets meer.",
                ["Controleer of de PostgreSQL-database (Render) actief is.",
                 "Kijk of DATABASE_URL nog klopt op beide services.",
                 "Start de service opnieuw via Render → Manual Deploy."]),
@@ -3903,7 +3906,7 @@ def _conn_advice(key):
                ["Ga naar Instellingen → Koppelingen → E-mail.",
                 "Vul de Resend API-sleutel en het afzendadres in.",
                 "Zet ‘E-mails écht versturen’ aan."]),
-        "resend_test": ("E-mail staat in testmodus — er gaat niets daadwerkelijk de deur uit.",
+        "resend_test": ("E-mail staat in testmodus - er gaat niets daadwerkelijk de deur uit.",
                ["Open Instellingen → Koppelingen → E-mail.",
                 "Zet ‘E-mails écht versturen’ aan zodra je live wilt."]),
         "resend_domain": ("Het lijkt erop dat uitgaande mail niet aankomt doordat het afzenddomein nog niet is geverifieerd bij Resend.",
@@ -3977,7 +3980,7 @@ def _connection_health(deep=False):
     conn = db()
     put("render", "ok", "Hosting online", "nu")
 
-    # Backend (Python) — recente onafgehandelde fouten?
+    # Backend (Python) - recente onafgehandelde fouten?
     recent = [e for e in list(_APP_ERRORS) if time.time() - e["ts"] < 3600]
     if recent:
         put("backend", "err",
@@ -3992,7 +3995,7 @@ def _connection_health(deep=False):
     except Exception:
         put("db", "err", "Geen databaseverbinding", advice=_conn_advice("db"))
 
-    # E-mail / Resend — alleen groen als écht ingesteld + live (+ domein geverifieerd)
+    # E-mail / Resend - alleen groen als écht ingesteld + live (+ domein geverifieerd)
     try:
         c = _email_cfg()
     except Exception:
@@ -4009,7 +4012,7 @@ def _connection_health(deep=False):
     else:
         put("resend", "ok", "Actief", "live")
 
-    # Shopify — groen alleen met webhook-secret
+    # Shopify - groen alleen met webhook-secret
     try:
         sh = {r["field"]: r["value"] for r in
               conn.execute("SELECT field,value FROM integrations WHERE ikey='shopify'").fetchall()}
@@ -4020,7 +4023,7 @@ def _connection_health(deep=False):
     else:
         put("shopify", "err", "Niet gekoppeld", advice=_conn_advice("shopify"))
 
-    # Monteurs-app + live GPS — groen alleen bij ECHT live locatie (laatste 30 min)
+    # Monteurs-app + live GPS - groen alleen bij ECHT live locatie (laatste 30 min)
     cutoff = (datetime.now() - timedelta(minutes=30)).isoformat(timespec="minutes")
     try:
         rec = conn.execute("SELECT MAX(updated_at) AS m FROM monteur_location WHERE live=1").fetchone()
@@ -4030,21 +4033,21 @@ def _connection_health(deep=False):
     # Apps draaien en delen de gedeelde database (gedeployed)
     put("app", "ok", "Verbonden", "live")
     put("magazijn", "ok", "Verbonden", "live")
-    # Live GPS — groen alleen bij ECHT live locatie (laatste 30 min)
+    # Live GPS - groen alleen bij ECHT live locatie (laatste 30 min)
     if last and last >= cutoff:
         put("gps1", "ok", "Live locatie ontvangen")
     else:
         put("gps1", "err", "Geen live locatie", advice=_conn_advice("gps"))
-    # Navigatie (Maps/Waze) — geen datakoppeling, alleen deeplinks
+    # Navigatie (Maps/Waze) - geen datakoppeling, alleen deeplinks
     put("maps", "link", "Navigatie-link (geen data)")
-    # Eigen domein via TransIP — nog te koppelen
+    # Eigen domein via TransIP - nog te koppelen
     put("transip", "warn", "Nog te koppelen", advice=_conn_advice("transip"))
     # Nog niet gekoppeld
     put("oauth", "err", "Niet gekoppeld", advice=_conn_advice("oauth"))
     put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
     put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
 
-    # Bedrijfsbank (OfficeHub) — koppeling voor milieurapporten naar KPI's
+    # Bedrijfsbank (OfficeHub) - koppeling voor milieurapporten naar KPI's
     bb_url, bb_tok = _bb_config()
     if not (bb_url and bb_tok):
         put("bedrijfsbank", "warn", "Nog in te stellen")
@@ -4059,7 +4062,7 @@ def _connection_health(deep=False):
     else:
         put("bedrijfsbank", "ok", "Verbonden", "live")
 
-    # Sentry — foutmonitoring; groen zodra SENTRY_DSN is gezet
+    # Sentry - foutmonitoring; groen zodra SENTRY_DSN is gezet
     if (os.environ.get("SENTRY_DSN") or setting("sentry_dsn", "")).strip():
         put("sentry", "ok", "Actief", "live")
     else:
@@ -4188,7 +4191,7 @@ def admin_wipe_testdata():
 
 
 # --------------------------------------------------------------------------- #
-#  Shopify — realtime orderimport via webhook (orders/create)
+#  Shopify - realtime orderimport via webhook (orders/create)
 # --------------------------------------------------------------------------- #
 def _shopify_cfg():
     conn = db()
@@ -4565,7 +4568,7 @@ def products():
                     conn.execute("INSERT INTO products(name,active,created_at) VALUES(?,1,?)", (mdl, _today_iso()))
                     n += 1
             conn.commit()
-            flash("%d standaard bureaus toegevoegd — vul de montagetijden nog aan." % n)
+            flash("%d standaard bureaus toegevoegd - vul de montagetijden nog aan." % n)
         elif act == "toggle_maatwerk":
             val = "1" if request.form.get("maatwerk_alerts") else "0"
             conn.execute("INSERT INTO settings(skey,value) VALUES('maatwerk_alerts',?) "
@@ -4984,18 +4987,18 @@ def integration_test(ikey):
         text = "Dit is een testmail van OfficeRoute. De mailkoppeling werkt."
         html = _brand_email("Testmail geslaagd",
                             ["Dit is een testbericht van OfficeRoute.",
-                             "De koppeling werkt — klantmails worden verstuurd zodra 'E-mails écht versturen' aanstaat."])
+                             "De koppeling werkt - klantmails worden verstuurd zodra 'E-mails écht versturen' aanstaat."])
         key = (c.get("resend_api_key") or "").strip()
         if key:
             try:
-                _body = {"from": frm, "to": [test_to], "subject": "OfficeRoute — testmail", "text": text, "html": html}
+                _body = {"from": frm, "to": [test_to], "subject": "OfficeRoute - testmail", "text": text, "html": html}
                 if reply_to:
                     _body["reply_to"] = reply_to
                 payload = json.dumps(_body).encode("utf-8")
                 req = urllib.request.Request("https://api.resend.com/emails", data=payload,
                                              headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
                 urllib.request.urlopen(req, timeout=10).read()
-                return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend — controleer de inbox." % test_to)
+                return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend - controleer de inbox." % test_to)
             except urllib.error.HTTPError as e:
                 try:
                     detail = e.read().decode()[:300]
@@ -5011,7 +5014,7 @@ def integration_test(ikey):
             return jsonify(ok=False, message="Vul een Resend API-sleutel in (SMTP wordt door Render geblokkeerd).")
         try:
             msg = EmailMessage()
-            msg["Subject"] = "OfficeRoute — testmail"
+            msg["Subject"] = "OfficeRoute - testmail"
             msg["From"] = frm
             msg["To"] = test_to
             msg.set_content(text)
@@ -5035,7 +5038,7 @@ def integration_test(ikey):
                 url = "https://%s/admin/api/2024-04/products/count.json?status=active" % shop
                 req = urllib.request.Request(url, headers={"X-Shopify-Access-Token": token})
                 cnt = json.loads(urllib.request.urlopen(req, timeout=15).read().decode()).get("count")
-                return jsonify(ok=True, message="Shopify-koppeling werkt. %s actieve artikelen gevonden — "
+                return jsonify(ok=True, message="Shopify-koppeling werkt. %s actieve artikelen gevonden - "
                                                 "importeer ze onder Instellingen → Artikelen." % cnt)
             except urllib.error.HTTPError as e:
                 return jsonify(ok=False, message="Shopify weigerde het lezen van producten (code %s). "
@@ -5046,7 +5049,7 @@ def integration_test(ikey):
             return jsonify(ok=False, message="Vul het Webhook-secret in (verplicht). Shop-URL is aanbevolen; "
                                              "de API-velden zijn optioneel (alleen nodig voor backfill van oude orders).")
         return jsonify(ok=True, message="Shopify-webhook staat klaar. Plaats een testorder in Shopify "
-                                        "(of klik 'Testmelding versturen') — de order verschijnt bij 'Nog in te plannen'.")
+                                        "(of klik 'Testmelding versturen') - de order verschijnt bij 'Nog in te plannen'.")
     if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")
@@ -5226,10 +5229,18 @@ def monteur_complete(pid):
     # Handtekening + ontvanger verplicht bij een succesvolle levering.
     if outcome == "succesvol" and (not receiver or not signature):
         return jsonify(ok=False, error="Ontvanger en handtekening zijn verplicht."), 400
+    arrived = (request.form.get("arrived") or "").strip()
     conn = db()
     p = conn.execute("SELECT * FROM planning WHERE id=?", (pid,)).fetchone()
     if p:
-        conn.execute("UPDATE planning SET status='afgerond' WHERE id=?", (pid,))
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        # Eindpunt van de duurmeting = het moment van tekenen/afronden (alleen zichtbaar voor kantoor).
+        conn.execute("UPDATE planning SET status='afgerond', afgerond_at=? WHERE id=?", (now_iso, pid))
+        # Aankomst niet gemeld tijdens de klus? Val terug op de handmatig ingevulde aankomsttijd,
+        # zodat de gemeten duur toch klopt.
+        if not p["aangekomen_at"] and len(arrived) == 5 and arrived[2] == ":":
+            conn.execute("UPDATE planning SET aangekomen_at=? WHERE id=?",
+                         (_today_iso() + "T" + arrived + ":00", pid))
         # Order afronden én automatisch afhandelen naar Shopify (klaar voor facturatie/betaling).
         conn.execute("UPDATE orders SET status='afgerond', fulfilled=1, fulfilled_at=? WHERE id=?",
                      (datetime.now().isoformat(timespec="minutes"), p["order_id"]))
@@ -5264,6 +5275,28 @@ def monteur_start(pid):
     if p:
         conn.execute("UPDATE planning SET status='onderweg' WHERE id=?", (pid,))
         conn.execute("UPDATE orders SET status='onderweg' WHERE id=?", (p["order_id"],))
+        conn.commit()
+    conn.close()
+    return jsonify(ok=True)
+
+
+@bp.route("/monteur/arrive/<int:pid>", methods=["POST"])
+def monteur_arrive(pid):
+    """Monteur meldt dat hij bij de klant is: startpunt van de duurmeting.
+    De monteur ziet nooit een berekende/verwachte tijd; dit legt alleen het moment vast."""
+    if not has_perm("monteur_app"):
+        return jsonify(ok=False), 403
+    u = current_user()
+    conn = db()
+    p = conn.execute("SELECT * FROM planning WHERE id=? AND monteur_id=?", (pid, u["monteur_id"])).fetchone()
+    if p:
+        if not p["aangekomen_at"]:
+            conn.execute("UPDATE planning SET aangekomen_at=? WHERE id=?",
+                         (datetime.now().isoformat(timespec="seconds"), pid))
+        # Als de monteur de 'onderweg'-stap oversloeg, status alsnog meelopen.
+        if p["status"] == "gepland":
+            conn.execute("UPDATE planning SET status='onderweg' WHERE id=?", (pid,))
+            conn.execute("UPDATE orders SET status='onderweg' WHERE id=?", (p["order_id"],))
         conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -5699,7 +5732,7 @@ def auto_send_daily_mails():
                            FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.date=? AND p.arrival_mailed=0 AND p.status!='afgerond'""", (today,)).fetchall()
     for r in rows:
-        tijdvak = (r["slot_start"] or "08:00") + "–" + (r["slot_end"] or "17:00")
+        tijdvak = (r["slot_start"] or "08:00") + "-" + (r["slot_end"] or "17:00")
         link = "https://planning-o-i.onrender.com/track/%s" % r["track_token"]
         greet = "Beste %s," % (r["client"] or "klant")
         intro = _mailtxt("mailtxt_today_b")

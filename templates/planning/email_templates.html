@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Automatische e-mails · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Automatische e-mails</h1><p>Stel de e-mails in die automatisch naar klanten gaan — het voorbeeld rechts toont meteen hoe de mail eruitziet</p>{% endblock %}
+{% block pagehead %}<h1>Automatische e-mails</h1><p>Stel de e-mails in die automatisch naar klanten gaan - het voorbeeld rechts toont meteen hoe de mail eruitziet</p>{% endblock %}
 {% block page_css %}
   .etcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:20px}
   .etcard h3{color:var(--accent);font-size:16px;margin:0 0 12px}
@@ -24,7 +24,7 @@
         <input name="mailtxt_{{ key }}_h" value="{{ cur['mailtxt_' + key + '_h'] }}">
         <label style="margin-top:14px">Bericht</label>
         <textarea name="mailtxt_{{ key }}_b">{{ cur['mailtxt_' + key + '_b'] }}</textarea>
-        <div class="hint">Een lege regel = nieuwe alinea. <b>"Beste {klant},"</b> en de gegevens (datum, tijdvak, ordernummer, knop) worden automatisch toegevoegd — die hoef je hier niet te typen.</div>
+        <div class="hint">Een lege regel = nieuwe alinea. <b>"Beste {klant},"</b> en de gegevens (datum, tijdvak, ordernummer, knop) worden automatisch toegevoegd - die hoef je hier niet te typen.</div>
       </div>
       <div>
         <label>Voorbeeld</label>

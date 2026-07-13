@@ -13,7 +13,7 @@ eigen database en eigen login.
 - Rapportages (Excel/PDF), bedrijfsinstellingen + e-mailtemplates
 - Mobiele monteur-app (route, navigatie via Google/Apple/Waze, levering afronden)
 - Koppelingen-module: Shopify, Gmail, Google Maps, Route Optimization,
-  Google OAuth+MFA, GPS, klantmail, back-ups — instelschermen staan klaar om de
+  Google OAuth+MFA, GPS, klantmail, back-ups - instelschermen staan klaar om de
   echte API-logica in te pluggen. Beveiligde toggles (draft-import, exacte GPS)
   staan vergrendeld.
 

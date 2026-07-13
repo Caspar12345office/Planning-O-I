@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Live magazijnstatus · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Live magazijnstatus</h1><p>Wat de pickers in de Magazijn-app aftikken, zie je hier direct — voormontage, picken en klaarzetten per order.</p>{% endblock %}
+{% block pagehead %}<h1>Live magazijnstatus</h1><p>Wat de pickers in de Magazijn-app aftikken, zie je hier direct - voormontage, picken en klaarzetten per order.</p>{% endblock %}
 {% block page_css %}
   .stats{display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap}
   .stat{flex:1;min-width:130px;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 16px}
@@ -63,7 +63,7 @@
   <div class="stat"><b>{{ stats.orders }}</b><span>orders ingepland</span></div>
   <div class="stat g"><b>{{ stats.klaar }}</b><span>klaargezet</span></div>
   <div class="stat"><b>{{ stats.bezig }}</b><span>bezig met picken</span></div>
-  <div class="stat {{ 'r' if stats.manco }}"><b>{{ stats.manco }}</b><span>manco — overleg nodig</span></div>
+  <div class="stat {{ 'r' if stats.manco }}"><b>{{ stats.manco }}</b><span>manco - overleg nodig</span></div>
   <div class="stat"><b>{{ stats.vm_open }}</b><span>voormonteren open</span></div>
 </div>
 
@@ -85,7 +85,7 @@
           {% for o in d.orders %}
           <tr class="{{ 'mancorow' if o.manco }}">
             <td>#{{ o.onum }}</td>
-            <td>{{ o.client or '—' }}{% if o.picker_note %}<div class="pnote">{{ o.picker_note }}</div>{% endif %}
+            <td>{{ o.client or '-' }}{% if o.picker_note %}<div class="pnote">{{ o.picker_note }}</div>{% endif %}
               {% if o.manco %}<div class="mancobox"><b>Manco gemeld{% if o.manco_by %} door {{ o.manco_by }}{% endif %}</b>{{ o.manco_note or 'Reden niet opgegeven' }}
                 {% if can_resolve %}<form method="post" action="{{ url_for('planning.magazijn_manco_resolve') }}"><input type="hidden" name="order_id" value="{{ o.oid }}"><button class="vrijgeef" type="submit" onclick="return confirm('Manco vrijgeven? De picker kan de order daarna klaarzetten.')">Vrijgeven</button></form>{% endif %}
               </div>{% endif %}
@@ -98,8 +98,8 @@
               {% else %}<span class="b todo">Nog niet</span>{% endif %}
             </td>
             <td>{% if o.klaargezet %}<span class="b klaar">Ja</span>{% else %}<span class="b todo">Nog niet</span>{% endif %}</td>
-            <td class="who">{{ o.gepickt_door or '—' }}</td>
-            <td class="who">{{ o.gecontroleerd_door or '—' }}</td>
+            <td class="who">{{ o.gepickt_door or '-' }}</td>
+            <td class="who">{{ o.gecontroleerd_door or '-' }}</td>
           </tr>
           {% endfor %}
         </tbody>

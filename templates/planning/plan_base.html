@@ -341,7 +341,7 @@
     <div class="ic">{{ '✅' if ld.status=='goedgekeurd' else '⛔' }}</div>
     <h3 style="color:{{ '#3c7a2c' if ld.status=='goedgekeurd' else '#a23d2a' }}">Je aanvraag is {{ ld.status }}</h3>
     <p>
-      {% if ld.category=='afspraak' %}Afspraak op {{ ld.date_from }}{% if ld.time_from %} ({{ ld.time_from }}–{{ ld.time_to }}){% endif %}{% else %}{{ ld.leave_type }} · {{ ld.date_from }}{% if ld.date_to and ld.date_to!=ld.date_from %} t/m {{ ld.date_to }}{% endif %}{% endif %}<br>
+      {% if ld.category=='afspraak' %}Afspraak op {{ ld.date_from }}{% if ld.time_from %} ({{ ld.time_from }}-{{ ld.time_to }}){% endif %}{% else %}{{ ld.leave_type }} · {{ ld.date_from }}{% if ld.date_to and ld.date_to!=ld.date_from %} t/m {{ ld.date_to }}{% endif %}{% endif %}<br>
       {% if ld.decision_reason %}<span style="color:var(--muted)">“{{ ld.decision_reason }}”</span><br>{% endif %}
       <span style="color:var(--muted);font-size:12.5px">beslist door {{ ld.decided_by }}</span>
     </p>

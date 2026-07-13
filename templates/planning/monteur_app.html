@@ -37,6 +37,15 @@
   .ov label{font-size:13px;font-weight:600;display:block;margin:10px 0 4px}
   .ov input,.ov select,.ov textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:11px;font:inherit;font-size:15px}
   #cmSig{width:100%;height:140px;border:1px solid var(--line);border-radius:10px;background:#fff;touch-action:none}
+  .btn-lg.arrive{background:var(--gold);color:#fff;display:flex;align-items:center;justify-content:center;gap:8px}
+  .arrivepop{position:fixed;inset:0;background:rgba(15,30,28,.55);display:none;align-items:center;justify-content:center;z-index:130;padding:18px}
+  .arrivepop .lb{background:#fff;border-radius:18px;padding:22px;width:100%;max-width:360px;text-align:center;animation:apop .3s cubic-bezier(.23,1,.32,1)}
+  @keyframes apop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
+  .arrivepop .ic{width:54px;height:54px;border-radius:50%;background:#fbeccd;color:#7a5713;display:flex;align-items:center;justify-content:center;margin:0 auto 10px}
+  .arrivepop .ic svg.ico{width:26px;height:26px}
+  .arrivepop h3{margin:2px 0 4px;color:var(--accent);font-size:19px}
+  .arrivepop p{font-size:14px;margin:0 0 16px;color:var(--ink)}
+  #cmArriveWrap .hlp{font-size:11.5px;color:var(--muted);margin-top:4px}
 {% endblock %}
 
 {% block content %}
@@ -53,29 +62,30 @@
       <div class="sum">
         <div><b>{{ jobs|length }}</b><span>stops</span></div>
         <div><b>{{ jobs|selectattr('status','equalto','afgerond')|list|length }}</b><span>afgerond</span></div>
-        <div><b>{{ jobs|sum(attribute='montage_min') }}</b><span>min montage</span></div>
+        <div><b>{{ jobs|rejectattr('status','equalto','afgerond')|list|length }}</b><span>te gaan</span></div>
       </div>
     </div>
     {% if alerts %}<div class="alert"><svg class="ico"><use href="#ic-alert"/></svg> <div><b>Vertraging op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}</div></div>{% endif %}
     {% if not jobs %}<div class="jc"><b>Geen leveringen vandaag.</b><div class="ad">Je route is leeg. Fijne dag!</div></div>{% endif %}
     {% for j in jobs %}
-    <div class="jc {{ 'done' if j.status=='afgerond' }}">
+    <div class="jc {{ 'done' if j.status=='afgerond' }}" data-pid="{{ j.id }}" data-arrived="{{ 1 if j.aangekomen_at else 0 }}" data-status="{{ j.status }}">
       <div class="r1"><span class="seq">{{ loop.index }}</span><span class="num">#{{ j.order_number }}</span>
-        {% if j.status=='afgerond' %}<span class="donepill"><svg class="ico"><use href="#ic-check"/></svg> Afgerond</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
+        {% if j.status=='afgerond' %}<span class="donepill"><svg class="ico"><use href="#ic-check"/></svg> Afgerond</span>{% elif j.aangekomen_at %}<span class="pill" style="margin-left:auto;background:#fbeccd;color:#7a5713"><svg class="ico"><use href="#ic-pin"/></svg> bij de klant</span>{% elif j.status=='onderweg' %}<span class="pill" style="margin-left:auto;background:#dbeafe;color:#1e54c8">onderweg</span>{% endif %}</div>
       <div class="cl">{{ j.client }}</div>
       <div class="ad">{{ j.delivery_address }}</div>
-      <div class="box items"><svg class="ico"><use href="#ic-box"/></svg> {{ j.items or '—' }}</div>
+      <div class="box items"><svg class="ico"><use href="#ic-box"/></svg> {{ j.items or 'geen artikelen' }}</div>
       {% if j.service_type=='ophalen' %}<div class="box note"><svg class="ico"><use href="#ic-download"/></svg> Ophalen{% if j.pakbon %} · <a href="{{ url_for('planning.pakbon', oid=j.oid) }}" target="_blank" style="color:#0f6e56;font-weight:700">Pakbon openen</a>{% endif %}</div>{% endif %}
       {% if j.instructions %}<div class="box note"><svg class="ico"><use href="#ic-pencil"/></svg> Van de planning: {{ j.instructions }}</div>{% endif %}
-      <div class="meta"><span class="pill">{{ j.montage_min }} min montage</span>{% if j.phone %}<a class="pill" href="tel:{{ j.phone }}"><svg class="ico"><use href="#ic-phone"/></svg> bel klant</a>{% endif %}</div>
+      {% if j.phone %}<div class="meta"><a class="pill" href="tel:{{ j.phone }}"><svg class="ico"><use href="#ic-phone"/></svg> bel klant</a></div>{% endif %}
       {% set q = j.delivery_address|urlencode %}
       <div class="navrow">
         <a target="_blank" href="https://www.google.com/maps/dir/?api=1&destination={{ q }}">Google</a>
         <a target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple</a>
         <a target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
       </div>
-      {% if j.status=='gepland' %}<button class="btn-lg ghost" style="margin-bottom:8px" onclick="startStop({{ j.id }})">🚗 Onderweg naar deze klant</button>{% endif %}
-      {% if j.status!='afgerond' %}<button class="btn-lg primary" onclick="openComplete({{ j.id }}, '{{ j.client|e }}')">Levering afronden</button>{% endif %}
+      {% if j.status=='gepland' %}<button class="btn-lg ghost" style="margin-bottom:8px" onclick="startStop({{ j.id }})"><svg class="ico"><use href="#ic-truck"/></svg> Onderweg naar deze klant</button>{% endif %}
+      {% if j.status!='afgerond' and not j.aangekomen_at %}<button class="btn-lg arrive" style="margin-bottom:8px" onclick="arriveStop({{ j.id }})"><svg class="ico"><use href="#ic-pin"/></svg> Ik ben bij de klant</button>{% endif %}
+      {% if j.status!='afgerond' %}<button class="btn-lg primary" onclick="openComplete({{ j.id }}, '{{ j.client|e }}', {{ 1 if j.aangekomen_at else 0 }})">Levering afronden</button>{% endif %}
     </div>
     {% endfor %}
     {% if all_done %}<button class="btn-lg danger" onclick="confirmCloseRoute()"><svg class="ico"><use href="#ic-lock"/></svg> Sluit route voor vandaag</button>{% endif %}
@@ -88,7 +98,7 @@
   {% if alerts %}
     <div class="alert"><svg class="ico"><use href="#ic-alert"/></svg> <div><b>Files / werkzaamheden op je route</b>{% for a in alerts %}{{ a.icon }} {{ a.desc }} · +{{ a.min }} min<br>{% endfor %}Je aankomsttijden zijn bijgewerkt.</div></div>
   {% else %}
-    <div class="okbar"><svg class="ico"><use href="#ic-check"/></svg> Geen files of werkzaamheden op je route — je kunt vlot rijden.</div>
+    <div class="okbar"><svg class="ico"><use href="#ic-check"/></svg> Geen files of werkzaamheden op je route - je kunt vlot rijden.</div>
   {% endif %}
   <p class="muted" style="font-size:12.5px;text-align:center">Beslissingen op je verlofaanvragen verschijnen automatisch als melding.</p>
 </div>
@@ -112,6 +122,7 @@
   <label>Resultaat</label>
   <select id="cmOutcome" onchange="cmToggle()"><option value="succesvol">Levering succesvol</option><option value="beschadigd">Beschadigd / incompleet</option><option value="niet_thuis">Ontvanger niet thuis</option></select>
   <div id="cmSubWrap"><label>Toelichting adres</label><select id="cmSub"><option value="adres in 1x correct">Adres was in 1x correct</option><option value="adres was niet juist">Adres was niet juist</option></select></div>
+  <div id="cmArriveWrap" style="display:none"><label>Hoe laat was je bij de klant?</label><input type="time" id="cmArrived"><div class="hlp">Je aankomst is niet gemeld. Vul de tijd in zodat de planning klopt.</div></div>
   <div id="cmSignWrap">
     <label>Naam ontvanger</label><input id="cmReceiver" placeholder="Naam ontvanger">
     <label>Handtekening ontvanger</label><canvas id="cmSig" width="320" height="140"></canvas>
@@ -134,6 +145,16 @@
   </form>
 </div></div>
 
+<div class="arrivepop" id="arrivePop">
+  <div class="lb">
+    <div class="ic"><svg class="ico"><use href="#ic-pin"/></svg></div>
+    <h3>Ben je bij de klant?</h3>
+    <p>Je staat hier al een paar minuten. Meld je aankomst, anders klopt je planning niet.</p>
+    <button class="btn-lg arrive" style="margin-bottom:8px" onclick="arriveFromNudge()"><svg class="ico"><use href="#ic-pin"/></svg> Ja, ik ben bij de klant</button>
+    <button class="btn-lg ghost" onclick="snoozeNudge()">Nog niet</button>
+  </div>
+</div>
+
 <div class="leavepop" id="closeConfirm" style="display:none">
   <div class="lb"><div class="ic"><svg class="ico"><use href="#ic-lock"/></svg></div><h3 style="color:var(--accent)">Route afsluiten?</h3>
     <p>Weet je het zeker? De klantgegevens van vandaag worden gewist (privacy).</p>
@@ -150,29 +171,39 @@ function wmoIcon(c){if(c===0)return'☀';if(c<=3)return'⛅';if(c<=48)return'�
     .then(function(r){return r.json();}).then(function(d){
       var t=Math.round(d.current.temperature_2m), ic=wmoIcon(d.current.weather_code);
       document.querySelectorAll('.mWeather').forEach(function(e){ e.textContent=ic+' '+t+'°'+(t>=25?' · warm':''); });
-      if(t>=25){ document.querySelectorAll('.mWeatherNote').forEach(function(e){e.textContent='Warm — zorg voor verkoeling onderweg.';}); }
+      if(t>=25){ document.querySelectorAll('.mWeatherNote').forEach(function(e){e.textContent='Warm - zorg voor verkoeling onderweg.';}); }
     }).catch(function(){});
 })();
 function startStop(pid){
   fetch('{{ url_for("planning.monteur_start", pid=0) }}'.slice(0,-1)+pid,{method:'POST'}).then(function(){ location.reload(); });
 }
+function arriveStop(pid){
+  fetch('{{ url_for("planning.monteur_arrive", pid=0) }}'.slice(0,-1)+pid,{method:'POST'}).then(function(){ location.reload(); });
+}
 var sigCtx=null, sigDrawn=false;
-function openComplete(pid, client){
+function openComplete(pid, client, hadArrived){
+  window._cmHadArrived=!!hadArrived;
   document.getElementById('cmPid').value=pid; document.getElementById('cmClient').textContent=client;
   document.getElementById('cmOutcome').value='succesvol'; document.getElementById('cmReceiver').value='';
+  var ca=document.getElementById('cmArrived'); if(ca) ca.value='';
   document.getElementById('cmErr').style.display='none'; cmToggle();
   document.getElementById('completeModal').style.display='flex'; setTimeout(initSig,60);
 }
-function cmToggle(){var oc=document.getElementById('cmOutcome').value;document.getElementById('cmSubWrap').style.display=oc==='succesvol'?'block':'none';document.getElementById('cmSignWrap').style.display=oc==='succesvol'?'block':'none';}
+function cmToggle(){var oc=document.getElementById('cmOutcome').value,suc=oc==='succesvol';
+  document.getElementById('cmSubWrap').style.display=suc?'block':'none';
+  document.getElementById('cmSignWrap').style.display=suc?'block':'none';
+  var aw=document.getElementById('cmArriveWrap'); if(aw) aw.style.display=(suc&&!window._cmHadArrived)?'block':'none';}
 function initSig(){var cv=document.getElementById('cmSig');if(!cv)return;var r=cv.getBoundingClientRect();cv.width=r.width;cv.height=140;sigCtx=cv.getContext('2d');sigCtx.strokeStyle='#13322f';sigCtx.lineWidth=2.5;sigCtx.lineCap='round';sigDrawn=false;var dr=false,last=null;function pos(e){var t=e.touches?e.touches[0]:e,b=cv.getBoundingClientRect();return {x:t.clientX-b.left,y:t.clientY-b.top};}function s(e){dr=true;last=pos(e);e.preventDefault();}function mv(e){if(!dr)return;var p=pos(e);sigCtx.beginPath();sigCtx.moveTo(last.x,last.y);sigCtx.lineTo(p.x,p.y);sigCtx.stroke();last=p;sigDrawn=true;e.preventDefault();}function en(){dr=false;}cv.onmousedown=s;cv.onmousemove=mv;cv.onmouseup=en;cv.onmouseleave=en;cv.ontouchstart=s;cv.ontouchmove=mv;cv.ontouchend=en;}
 function clearSig(){var cv=document.getElementById('cmSig');if(sigCtx)sigCtx.clearRect(0,0,cv.width,cv.height);sigDrawn=false;}
 function submitComplete(){
   var pid=document.getElementById('cmPid').value, oc=document.getElementById('cmOutcome').value;
   var sub=oc==='succesvol'?document.getElementById('cmSub').value:'', receiver=document.getElementById('cmReceiver').value.trim();
   var sig=(oc==='succesvol'&&sigDrawn)?document.getElementById('cmSig').toDataURL('image/png'):'';
+  var arrived=(!window._cmHadArrived&&document.getElementById('cmArrived'))?document.getElementById('cmArrived').value:'';
   var err=document.getElementById('cmErr');
   if(oc==='succesvol'&&(!receiver||!sig)){err.textContent='Vul de naam in én laat de ontvanger tekenen.';err.style.display='block';return;}
-  var fd=new URLSearchParams({receiver:receiver,signature:sig,outcome:oc,sub_outcome:sub});
+  if(oc==='succesvol'&&!window._cmHadArrived&&!arrived){err.textContent='Vul in hoe laat je bij de klant was.';err.style.display='block';return;}
+  var fd=new URLSearchParams({receiver:receiver,signature:sig,outcome:oc,sub_outcome:sub,arrived:arrived});
   fetch('{{ url_for("planning.monteur_complete", pid=0) }}'.slice(0,-1)+pid,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:fd.toString()})
     .then(function(r){return r.json();}).then(function(res){if(res.ok)location.reload();else{err.textContent=res.error||'Mislukt';err.style.display='block';}});
 }
@@ -189,5 +220,22 @@ function toggleGps(){var btn=document.getElementById('gpsBtn'),st=document.getEl
     btn.textContent='Uitzetten';st.textContent='Live locatie aan';}
   else{navigator.geolocation.clearWatch(gpsWatch);gpsWatch=null;btn.textContent='Aanzetten';st.textContent='Live locatie uit';
     if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){fetch('{{ url_for("planning.api_location") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:p.coords.latitude,lng:p.coords.longitude,live:false})});});}}
+/* Startplicht: melding als de monteur al ~5 min stil op locatie staat maar zijn aankomst niet meldde. */
+var nudgePid=null,nudgeWatch=null,nAnchor=null,nAnchorT=0,nNudged=false,nSnooze=0;
+function _activeStopPid(){
+  var cards=document.querySelectorAll('.jc[data-pid]');
+  for(var i=0;i<cards.length;i++){var c=cards[i];
+    if(c.getAttribute('data-status')==='onderweg'&&c.getAttribute('data-arrived')==='0'){return parseInt(c.getAttribute('data-pid'),10);}}
+  return null;
+}
+function _distM(a,b){var R=6371000,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lng-a.lng)*Math.PI/180,la1=a.lat*Math.PI/180,la2=b.lat*Math.PI/180,x=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.sin(dLo/2)*Math.sin(dLo/2)*Math.cos(la1)*Math.cos(la2);return 2*R*Math.asin(Math.sqrt(x));}
+function _nudgeTick(p){var now=Date.now()/1000,pos={lat:p.coords.latitude,lng:p.coords.longitude};
+  if(nAnchor===null||_distM(nAnchor,pos)>60){nAnchor=pos;nAnchorT=now;nNudged=false;}
+  if(!nNudged&&now>nSnooze&&(now-nAnchorT)>=300){nNudged=true;_showNudge();}}
+function _showNudge(){var el=document.getElementById('arrivePop');if(el)el.style.display='flex';try{if(navigator.vibrate)navigator.vibrate([120,60,120]);}catch(e){}}
+function snoozeNudge(){document.getElementById('arrivePop').style.display='none';var now=Date.now()/1000;nSnooze=now+300;nAnchorT=now;nNudged=false;}
+function arriveFromNudge(){if(nudgePid!==null)arriveStop(nudgePid);}
+(function(){nudgePid=_activeStopPid();if(nudgePid===null||!navigator.geolocation)return;
+  try{nudgeWatch=navigator.geolocation.watchPosition(_nudgeTick,function(){},{enableHighAccuracy:true,maximumAge:10000,timeout:20000});}catch(e){}})();
 </script>
 {% endblock %}

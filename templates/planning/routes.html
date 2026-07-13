@@ -59,7 +59,7 @@
       {% for j in routes.get(m.id, []) %}
       <div class="stop"><span class="seq">{{ loop.index }}</span><div class="info"><b>{{ j.client }}</b><span>{{ j.delivery_address }} · {{ j.montage_min }} min</span></div></div>
       {% else %}
-      <div class="stop"><span class="seq" style="background:var(--line);color:var(--muted)">–</span><div class="info"><b>Geen stops</b><span>Niets ingepland op {{ day }}</span></div></div>
+      <div class="stop"><span class="seq" style="background:var(--line);color:var(--muted)">-</span><div class="info"><b>Geen stops</b><span>Niets ingepland op {{ day }}</span></div></div>
       {% endfor %}
       <div class="stop depot"><span class="seq"><svg class="ico"><use href="#ic-home"/></svg></span><div class="info"><b>Terug · {{ HOME_BASE }}</b><span>Bus opnieuw laden</span></div></div>
     </div>

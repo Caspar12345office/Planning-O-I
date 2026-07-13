@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Artikelen · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Artikelen</h1><p>Beheer je producten en de tijd per 1 t/m 5 stuks — apart voor <b>gemonteerd</b> en <b>ongemonteerd</b> leveren. Deze tijden bepalen de werkdruk (workload) en het automatisch inplannen.</p>{% endblock %}
+{% block pagehead %}<h1>Artikelen</h1><p>Beheer je producten en de tijd per 1 t/m 5 stuks - apart voor <b>gemonteerd</b> en <b>ongemonteerd</b> leveren. Deze tijden bepalen de werkdruk (workload) en het automatisch inplannen.</p>{% endblock %}
 {% block page_css %}
   .intro{background:linear-gradient(135deg,#0f3d3e,#15595a);color:#fff;border-radius:13px;padding:14px 16px;margin-bottom:16px;font-size:13.5px;line-height:1.55}
   .intro b{color:var(--gold2)}
@@ -37,7 +37,7 @@
 {% endblock %}
 {% block content %}
 <div class="intro">
-  <b>Twee varianten per artikel.</b> Vul per artikel in hoeveel minuten het op locatie kost bij <b>1, 2, 3, 4 en 5 stuks</b> —
+  <b>Twee varianten per artikel.</b> Vul per artikel in hoeveel minuten het op locatie kost bij <b>1, 2, 3, 4 en 5 stuks</b> -
   één keer voor <b>gemonteerd leveren</b> (bv. bureau in elkaar zetten = 20 min) en één keer voor <b>ongemonteerd leveren</b> (bv. alleen neerzetten = 5 min).
   Het systeem kiest automatisch de juiste tijd op basis van of de order <b>montage (M)</b> of <b>levering (L)</b> is.
   Bij grotere aantallen rekenen we door (10 st = 2× de tijd van 5 st). De <b>herkenningsnaam</b> koppelt orderregels aan dit artikel
@@ -66,7 +66,7 @@
     <div class="f"><label>Weergavenaam (optioneel)</label><input type="text" name="display_name" placeholder="leeg = automatisch"></div>
     <div class="f"><label>Gewicht (kg/st)</label><input type="number" step="0.1" min="0" name="weight_kg" value="0"></div>
     <div class="grp">
-      <span class="glbl mont">Gemonteerd — min per aantal</span>
+      <span class="glbl mont">Gemonteerd - min per aantal</span>
       <div class="ins">
         <div><small>1</small><input type="number" name="m1" min="0" value="0"></div>
         <div><small>2</small><input type="number" name="m2" min="0" value="0"></div>
@@ -76,7 +76,7 @@
       </div>
     </div>
     <div class="grp">
-      <span class="glbl lev">Ongemonteerd — min per aantal</span>
+      <span class="glbl lev">Ongemonteerd - min per aantal</span>
       <div class="ins">
         <div><small>1</small><input type="number" name="l1" min="0" value="0"></div>
         <div><small>2</small><input type="number" name="l2" min="0" value="0"></div>

@@ -60,7 +60,7 @@
         </div>
         <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
         <textarea class="q" name="intro" style="min-height:56px">{{ t.intro or '' }}</textarea>
-        <label style="font-size:11px;color:var(--muted)">Vragen — één per regel</label>
+        <label style="font-size:11px;color:var(--muted)">Vragen - één per regel</label>
         <textarea class="q" name="questions">{{ t.questions or '' }}</textarea>
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn primary sm" type="submit">Opslaan</button>
@@ -85,7 +85,7 @@
       </div>
       <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
       <textarea class="q" name="intro" style="min-height:56px" placeholder="bv. Om uw levering vlot te laten verlopen hebben wij enkele gegevens nodig."></textarea>
-      <label style="font-size:11px;color:var(--muted)">Vragen — één per regel</label>
+      <label style="font-size:11px;color:var(--muted)">Vragen - één per regel</label>
       <textarea class="q" name="questions" placeholder="Op welke verdieping moet er geleverd worden?&#10;Is er een lift aanwezig?&#10;Zijn er parkeerbeperkingen?&#10;Naam contactpersoon op locatie&#10;Telefoonnummer contactpersoon"></textarea>
       <button class="btn primary sm" type="submit" style="margin-top:10px">Sjabloon aanmaken</button>
     </form>
@@ -107,11 +107,11 @@
       {% for d in docs %}
       <tr>
         <td><a href="{{ url_for('planning.order_detail', oid=d.order_id) }}">#{{ d.onum }}</a></td>
-        <td>{{ d.client or '—' }}</td>
+        <td>{{ d.client or '-' }}</td>
         <td class="muted" style="font-size:12px">{{ d.reason }}</td>
         <td>{% if d.status=='received' %}<span class="badge rec">Ontvangen</span>{% else %}<span class="badge open">Open</span>{% endif %}</td>
         <td class="muted" style="font-size:12px">{{ d.sent_at }}</td>
-        <td class="muted" style="font-size:12px">{{ d.received_at or '—' }}</td>
+        <td class="muted" style="font-size:12px">{{ d.received_at or '-' }}</td>
         <td style="text-align:right">
           {% if d.status=='received' %}<a class="btn ghost sm" href="{{ url_for('planning.leverdoc_view', lid=d.id) }}">Bekijk</a>
           {% else %}<code class="lnk">{{ base }}/leverdoc/{{ d.token }}</code>{% endif %}

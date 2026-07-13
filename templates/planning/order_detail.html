@@ -34,7 +34,7 @@
       <span style="opacity:.85">Retour op {{ ld_last.received_at }}.</span>
       <a href="{{ url_for('planning.leverdoc_view', lid=ld_last.id) }}" style="color:var(--accent2)">bekijk ingevuld document</a>
     {% elif ld_last %}
-      <b>Leveringsdocument verstuurd — nog niet terug.</b>
+      <b>Leveringsdocument verstuurd - nog niet terug.</b>
       <span style="opacity:.85">Verstuurd op {{ ld_last.sent_at }}{% if ld_last.to_email %} naar {{ ld_last.to_email }}{% endif %}.</span>
       <div style="font-size:12px;margin-top:3px">Retourlink: <code style="user-select:all">{{ leverdoc_base }}/leverdoc/{{ ld_last.token }}</code></div>
     {% else %}
@@ -74,11 +74,11 @@
       <h3 style="color:var(--accent);margin-bottom:14px">Gegevens</h3>
       <div class="kv">
         <span class="k">Status</span><span>{{ o.status }}</span>
-        <span class="k">Orderwaarde</span><span>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <svg class="ico"><use href="#ic-star"/></svg> belangrijke order{% endif %}{% else %}—{% endif %}</span>
+        <span class="k">Orderwaarde</span><span>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <svg class="ico"><use href="#ic-star"/></svg> belangrijke order{% endif %}{% else %}-{% endif %}</span>
         <span class="k">Bron</span><span>{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}{% if o.source=='shopify' %} (ordernr = Shopify){% endif %}</span>
         <span class="k">Gewenste datum</span><span>{{ o.desired_date }}</span>
-        <span class="k">Telefoon</span><span>{{ o.phone or '—' }}</span>
-        <span class="k">E-mail</span><span>{{ o.email or '—' }}</span>
+        <span class="k">Telefoon</span><span>{{ o.phone or '-' }}</span>
+        <span class="k">E-mail</span><span>{{ o.email or '-' }}</span>
         <span class="k">Afleveradres</span><span>{{ o.delivery_address }}</span>
         <span class="k">Factuuradres</span><span>{{ o.invoice_address or o.delivery_address }}</span>
         {% if o.shopify_id %}<span class="k">Shopify-ID</span><span class="muted" style="font-size:12px">{{ o.shopify_id }}</span>{% endif %}
@@ -89,7 +89,7 @@
       {% if plan %}
         <div class="kv"><span class="k">Monteur</span><span>{{ plan.monteur }}</span>
         <span class="k">Datum</span><span>{{ plan.date }}</span>
-        <span class="k">Tijdvak</span><span>{{ plan.slot_start or '—' }} – {{ plan.slot_end or '—' }}</span></div>
+        <span class="k">Tijdvak</span><span>{{ plan.slot_start or '-' }} - {{ plan.slot_end or '-' }}</span></div>
       {% else %}<p class="muted">Nog niet ingepland. Sleep deze order in de <a href="{{ url_for('planning.planning') }}">planning</a>.</p>{% endif %}
     </div>
   </div>

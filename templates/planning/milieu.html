@@ -150,7 +150,7 @@
         <td>{{ '{:,.0f}'.format(tot.co2).replace(',','.') }} kg</td>
       </tr></tbody>
     </table>
-    <div class="note"><svg><use href="#ic-info"/></svg>Nu op basis van gereden km × verbruik per voertuig. Zodra Radius VeloCity gekoppeld is, worden de werkelijke getankte liters gebruikt — zelfde emissiefactor, dus schatting en werkelijk zijn direct vergelijkbaar.</div>
+    <div class="note"><svg><use href="#ic-info"/></svg>Nu op basis van gereden km × verbruik per voertuig. Zodra Radius VeloCity gekoppeld is, worden de werkelijke getankte liters gebruikt - zelfde emissiefactor, dus schatting en werkelijk zijn direct vergelijkbaar.</div>
   {% endif %}
 </div>
 
@@ -178,11 +178,11 @@
   function load(){
     sel.innerHTML='<option>Laden…</option>'; doBtn.disabled=true;
     fetch('{{ url_for("planning.milieu_kpis") }}').then(function(r){return r.json();}).then(function(d){
-      if(!d.ok){ sel.innerHTML='<option value="">— geen —</option>'; msg.className='kmsg err'; msg.textContent=d.error||'Kon de KPI\'s niet laden.'; return; }
-      if(!d.kpis||!d.kpis.length){ sel.innerHTML='<option value="">— geen actieve KPI\'s —</option>'; msg.className='kmsg err'; msg.textContent='Geen KPI met databron OfficeRoute gevonden.'; return; }
+      if(!d.ok){ sel.innerHTML='<option value="">- geen -</option>'; msg.className='kmsg err'; msg.textContent=d.error||'Kon de KPI\'s niet laden.'; return; }
+      if(!d.kpis||!d.kpis.length){ sel.innerHTML='<option value="">- geen actieve KPI\'s -</option>'; msg.className='kmsg err'; msg.textContent='Geen KPI met databron OfficeRoute gevonden.'; return; }
       sel.innerHTML=''; d.kpis.forEach(function(k){ var o=document.createElement('option'); o.value=k.id; o.textContent=k.naam+(k.categorie?(' · '+k.categorie):''); sel.appendChild(o); });
       doBtn.disabled=false;
-    }).catch(function(){ sel.innerHTML='<option value="">—</option>'; msg.className='kmsg err'; msg.textContent='Bedrijfsbank niet bereikbaar.'; });
+    }).catch(function(){ sel.innerHTML='<option value="">-</option>'; msg.className='kmsg err'; msg.textContent='Bedrijfsbank niet bereikbaar.'; });
   }
   document.getElementById('koppelBtn').addEventListener('click',function(){ m.classList.add('on'); msg.className='kmsg'; load(); });
   document.getElementById('kcancel').addEventListener('click',function(){ m.classList.remove('on'); });

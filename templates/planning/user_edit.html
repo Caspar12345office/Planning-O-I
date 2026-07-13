@@ -23,11 +23,11 @@
       <div><label>E-mailadres (inloggen + 2FA-code)</label><input type="email" name="email" value="{{ u.email }}" required></div>
       <div><label>Nieuw wachtwoord <span class="muted" style="font-weight:400">(leeg laten = ongewijzigd)</span></label><input type="text" name="new_password" placeholder="alleen invullen om te wijzigen" autocomplete="new-password"></div>
       <div><label>Gekoppelde monteur <span class="muted" style="font-weight:400">(voor de route in de app)</span></label>
-        <select name="monteur_id"><option value="">— geen —</option>
+        <select name="monteur_id"><option value="">- geen -</option>
         {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if u.monteur_id==m.id }}>{{ m.name }}</option>{% endfor %}
         </select></div>
     </div>
-    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs loggen in met hun <b>privé-e-mailadres</b> — daar komt ook de 2FA-code binnen.</p>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs loggen in met hun <b>privé-e-mailadres</b> - daar komt ook de 2FA-code binnen.</p>
   </div>
   <div class="card" style="margin-bottom:18px">
     <div class="rolerow">

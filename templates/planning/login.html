@@ -73,7 +73,7 @@
         <input type="text" name="twofa_code" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="______" autofocus required style="letter-spacing:.4em;text-align:center;font-size:20px">
         <button class="btn" type="submit">Verifiëren &amp; inloggen</button>
       </form>
-      {% if demo_code %}<div class="demo" style="border-style:solid"><b>Demo:</b> je code is <code style="font-size:15px">{{ demo_code }}</code><div style="margin-top:5px;color:var(--muted)">Live wordt deze code via e-mail of de authenticator-app verstuurd — niemand van buitenaf komt er zo in.</div></div>{% endif %}
+      {% if demo_code %}<div class="demo" style="border-style:solid"><b>Demo:</b> je code is <code style="font-size:15px">{{ demo_code }}</code><div style="margin-top:5px;color:var(--muted)">Live wordt deze code via e-mail of de authenticator-app verstuurd - niemand van buitenaf komt er zo in.</div></div>{% endif %}
       <p class="sub" style="margin-top:14px"><a href="{{ url_for('planning.login') }}" style="color:var(--accent2)">← Opnieuw beginnen</a></p>
       {% else %}
       <h2>Welkom terug</h2>

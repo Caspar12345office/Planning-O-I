@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Urenregister · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Urenregister</h1><p>Uren die de monteurs vanuit de app doorgeven — direct zichtbaar zodra ze indienen. Alles boven 8 uur telt als overuren; pauzes zijn niet meegerekend.</p>{% endblock %}
+{% block pagehead %}<h1>Urenregister</h1><p>Uren die de monteurs vanuit de app doorgeven - direct zichtbaar zodra ze indienen. Alles boven 8 uur telt als overuren; pauzes zijn niet meegerekend.</p>{% endblock %}
 {% block page_css %}
   .locked{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:44px 20px;text-align:center;max-width:520px;margin:10px auto}
   .locked .ic{width:60px;height:60px;border-radius:50%;background:#f4efe4;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
@@ -74,7 +74,7 @@
   {% if warn_count %}
   <div class="notice">
     <svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 2.4 17.1a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
-    <div><b>{{ warn_count }} urenregel{{ 'regels' if warn_count>1 else '' }} wijk{{ 'en' if warn_count>1 else 't' }} af</b> — er zijn meer uren ingevuld dan volgens GPS/route daadwerkelijk gewerkt is (30+ min). Herkenbaar aan de <span class="warnbadge" style="width:16px;height:16px;font-size:11px">!</span> in de tabel.</div>
+    <div><b>{{ warn_count }} urenregel{{ 'regels' if warn_count>1 else '' }} wijk{{ 'en' if warn_count>1 else 't' }} af</b> - er zijn meer uren ingevuld dan volgens GPS/route daadwerkelijk gewerkt is (30+ min). Herkenbaar aan de <span class="warnbadge" style="width:16px;height:16px;font-size:11px">!</span> in de tabel.</div>
   </div>
   {% endif %}
   <div class="tblcard">
@@ -89,7 +89,7 @@
             <td>{{ e.start }}</td>
             <td>{{ e.end }}</td>
             <td>{{ e.worked_min//60 }}u {{ '%02d'|format(e.worked_min%60) }}m</td>
-            <td class="ov">{% if e.overtime_min %}+{{ e.overtime_min//60 }}u {{ '%02d'|format(e.overtime_min%60) }}m{% else %}—{% endif %}</td>
+            <td class="ov">{% if e.overtime_min %}+{{ e.overtime_min//60 }}u {{ '%02d'|format(e.overtime_min%60) }}m{% else %}-{% endif %}</td>
             <td>{{ e.note }}</td>
             <td><span class="st">Doorgegeven</span>{% if e.warn %}<span class="warnbadge" title="{{ e.warn_text }}">!</span><span class="warnamt" title="{{ e.warn_text }}">{% if e.warn_over>=60 %}+{{ e.warn_over//60 }}u {{ '%02d'|format(e.warn_over%60) }}m{% else %}+{{ e.warn_over }} min{% endif %}</span>{% endif %}</td>
           </tr>
@@ -99,7 +99,7 @@
         <tfoot><tr>
           <td colspan="4">Totaal · {{ range_label }}</td>
           <td>{{ range_total//60 }}u {{ '%02d'|format(range_total%60) }}m</td>
-          <td class="ov">{% if range_ot %}+{{ range_ot//60 }}u {{ '%02d'|format(range_ot%60) }}m{% else %}—{% endif %}</td>
+          <td class="ov">{% if range_ot %}+{{ range_ot//60 }}u {{ '%02d'|format(range_ot%60) }}m{% else %}-{% endif %}</td>
           <td colspan="2"></td>
         </tr></tfoot>
         {% endif %}

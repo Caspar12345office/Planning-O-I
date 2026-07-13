@@ -30,8 +30,8 @@
   {% for r in by_date[d] %}
   <div class="drow">
     <div class="meta">
-      <b>#{{ r.order_number }} · {{ r.client or '—' }}</b>
-      <span>{{ r.monteur }} · ontvanger: {{ r.receiver or '—' }} · {{ r.ts.replace('T',' ') }}</span>
+      <b>#{{ r.order_number }} · {{ r.client or '-' }}</b>
+      <span>{{ r.monteur }} · ontvanger: {{ r.receiver or '-' }} · {{ r.ts.replace('T',' ') }}</span>
     </div>
     <span class="lbl-s {{ r.outcome }}">{{ r.outcome }}{% if r.sub_outcome %} · {{ r.sub_outcome }}{% endif %}</span>
     {% if r.signature %}<img class="sig" src="{{ r.signature }}" alt="handtekening">{% else %}<span class="muted" style="font-size:12px">geen</span>{% endif %}

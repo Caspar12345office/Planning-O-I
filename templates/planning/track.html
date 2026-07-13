@@ -53,7 +53,7 @@
   {% set step = {'gepland':1,'onderweg':2,'afgerond':3}.get(status, 0) %}
   <div class="body">
     <div class="hero">
-      {% if status=='afgerond' %}<div class="ic">✅</div><h1>Geleverd</h1><p class="eta">Bedankt — uw bestelling is afgerond.</p>
+      {% if status=='afgerond' %}<div class="ic">✅</div><h1>Geleverd</h1><p class="eta">Bedankt - uw bestelling is afgerond.</p>
       {% elif status=='onderweg' %}<div class="ic">🚚</div><h1>Onze monteur is onderweg</h1>
         {% if eta %}<p class="eta">Verwachte aankomst rond <b>{{ eta }}</b></p>{% else %}<p class="eta">U krijgt zo bericht zodra de monteur er bijna is.</p>{% endif %}
       {% elif status=='gepland' %}<div class="ic">📦</div><h1>Uw levering is ingepland</h1><p class="eta">We zien u {% if the_date %}op <b>{{ the_date }}</b>{% endif %}{% if tijdvak %} tussen <b>{{ tijdvak }}</b>{% endif %}.</p>

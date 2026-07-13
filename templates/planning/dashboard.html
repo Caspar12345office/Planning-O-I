@@ -102,7 +102,7 @@
   <!-- KOLOM A: kaart + kantoorbezetting -->
   <div class="col">
     <div class="card mapcard">
-      <div class="sec-h"><h3>Live op de kaart</h3><div style="display:flex;gap:8px;align-items:center"><span class="pill gray" id="weather" title="Actueel weer — handig om te weten of monteurs verkoeling nodig hebben">weer…</span><span class="live"><span class="dot"></span>realtime</span></div></div>
+      <div class="sec-h"><h3>Live op de kaart</h3><div style="display:flex;gap:8px;align-items:center"><span class="pill gray" id="weather" title="Actueel weer - handig om te weten of monteurs verkoeling nodig hebben">weer…</span><span class="live"><span class="dot"></span>realtime</span></div></div>
       <div id="map" class="leaflet-map"></div>
       <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
       <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
@@ -188,12 +188,12 @@
 
 <div class="modal" id="planModal">
   <div class="box">
-    <div class="mh"><h3>Nog in te plannen — snel inplannen</h3><span class="x" style="cursor:pointer;color:var(--color-text-secondary,#74705f)" onclick="document.getElementById('planModal').style.display='none'"><svg class="ico"><use href="#ic-x"/></svg></span></div>
-    <p class="muted" style="font-size:13px;margin:0 0 8px">Kies een monteur en datum en klik op inplannen — de order verdwijnt dan uit deze lijst.</p>
+    <div class="mh"><h3>Nog in te plannen - snel inplannen</h3><span class="x" style="cursor:pointer;color:var(--color-text-secondary,#74705f)" onclick="document.getElementById('planModal').style.display='none'"><svg class="ico"><use href="#ic-x"/></svg></span></div>
+    <p class="muted" style="font-size:13px;margin:0 0 8px">Kies een monteur en datum en klik op inplannen - de order verdwijnt dan uit deze lijst.</p>
     <div id="planList">
       {% for o in unplanned_all %}
       <div class="prow" data-oid="{{ o.id }}">
-        <div class="pi"><b>#{{ o.order_number }} · {{ o.client }}</b><span>{{ o.delivery_address }} · {{ o.items or '—' }}</span></div>
+        <div class="pi"><b>#{{ o.order_number }} · {{ o.client }}</b><span>{{ o.delivery_address }} · {{ o.items or '-' }}</span></div>
         <div class="pa">
           <select class="pm">{% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}</select>
           <input type="date" class="pd" value="{{ today }}">
@@ -210,7 +210,7 @@
   <form method="post" action="{{ url_for('planning.admin_demo_planning') }}" onsubmit="return confirm('De dagplanning van vandaag vullen met demo-leveringen?')" style="margin:0">
     <button class="btn gold sm" type="submit"><svg class="ico" style="width:15px;height:15px;vertical-align:-2px"><use href="#ic-bolt"/></svg> Vul dagplanning met demo-data</button>
   </form>
-  <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Alleen voor demonstratie — vult de dagplanning van vandaag met voorbeeldleveringen.</div>
+  <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Alleen voor demonstratie - vult de dagplanning van vandaag met voorbeeldleveringen.</div>
 </div>
 {% endif %}
 {% endblock %}

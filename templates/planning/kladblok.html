@@ -1,6 +1,6 @@
 {% extends 'planning/plan_base.html' %}
 {% block title %}Openbaar kladblok · OfficeRoute{% endblock %}
-{% block pagehead %}<h1>Openbaar kladblok</h1><p>Gedeelde aantekeningen — iedereen kan meeschrijven, realtime zichtbaar</p>{% endblock %}
+{% block pagehead %}<h1>Openbaar kladblok</h1><p>Gedeelde aantekeningen - iedereen kan meeschrijven, realtime zichtbaar</p>{% endblock %}
 {% block page_css %}
   .kbwrap{display:grid;grid-template-columns:1fr;gap:18px}
   .kbwrap.admin{grid-template-columns:1fr 280px}
@@ -24,7 +24,7 @@
 <div class="kbwrap {{ 'admin' if is_admin }}">
   <div class="paper">
     <div class="top">
-      <span id="kbmeta">{% if by %}Laatst bewerkt door <b>{{ by }}</b> · {{ at }}{% else %}Nog niets genoteerd — begin maar te typen.{% endif %}</span>
+      <span id="kbmeta">{% if by %}Laatst bewerkt door <b>{{ by }}</b> · {{ at }}{% else %}Nog niets genoteerd - begin maar te typen.{% endif %}</span>
       <span class="save" id="kbsave"><span class="dot"></span><span id="kbsavetxt">Opgeslagen</span></span>
     </div>
     <textarea id="kbarea" placeholder="Typ hier gezamenlijke aantekeningen…">{{ content }}</textarea>

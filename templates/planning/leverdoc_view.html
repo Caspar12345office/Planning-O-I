@@ -29,7 +29,7 @@
 <div class="card">
   <h3>Antwoorden</h3>
   {% for qa in answers %}
-  <div class="qa"><div class="q">{{ qa.q }}</div><div class="a">{{ qa.a or '—' }}</div></div>
+  <div class="qa"><div class="q">{{ qa.q }}</div><div class="a">{{ qa.a or '-' }}</div></div>
   {% else %}
   <p class="muted">Geen vragen ingevuld.</p>
   {% endfor %}
@@ -37,7 +37,7 @@
 
 <div class="card">
   <h3>Ondertekening</h3>
-  <div class="meta"><span>Naam</span><span><b>{{ d.signer_name or '—' }}</b></span></div>
+  <div class="meta"><span>Naam</span><span><b>{{ d.signer_name or '-' }}</b></span></div>
   {% if d.signature %}<img class="sig" src="{{ d.signature }}" alt="handtekening">{% endif %}
 </div>
 {% else %}

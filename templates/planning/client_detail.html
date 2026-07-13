@@ -29,10 +29,10 @@
   <div>
     <h3>Contactgegevens</h3>
     <div class="kv">
-      <span class="k">Telefoon</span><span>{{ c.phone or '—' }}</span>
-      <span class="k">E-mail</span><span>{{ c.email or '—' }}</span>
-      <span class="k">Adres</span><span>{{ c.address or '—' }}{% if c.postal or c.city %}, {{ c.postal }} {{ c.city }}{% endif %}</span>
-      <span class="k">Factuuradres</span><span>{{ c.invoice_address or '—' }}</span>
+      <span class="k">Telefoon</span><span>{{ c.phone or '-' }}</span>
+      <span class="k">E-mail</span><span>{{ c.email or '-' }}</span>
+      <span class="k">Adres</span><span>{{ c.address or '-' }}{% if c.postal or c.city %}, {{ c.postal }} {{ c.city }}{% endif %}</span>
+      <span class="k">Factuuradres</span><span>{{ c.invoice_address or '-' }}</span>
       <span class="k">Orders</span><span>{{ n_orders }} · totaal € {{ '%.0f'|format(total_value or 0) }}</span>
     </div>
   </div>
@@ -53,8 +53,8 @@
         <thead><tr><th>Order</th><th>Bedrag</th><th>Datum</th><th>Status</th></tr></thead>
         <tbody>{% for o in orders %}
           <tr><td><a href="{{ url_for('planning.order_detail', oid=o.id) }}"><b>{{ o.order_number }}</b></a></td>
-          <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}—{% endif %}</td>
-          <td>{{ o.desired_date or '—' }}</td><td><span class="pill gray">{{ o.status }}</span></td></tr>
+          <td>{% if o.amount %}€ {{ '%.0f'|format(o.amount) }}{% else %}-{% endif %}</td>
+          <td>{{ o.desired_date or '-' }}</td><td><span class="pill gray">{{ o.status }}</span></td></tr>
         {% else %}<tr><td colspan="4" class="muted">Nog geen orders.</td></tr>{% endfor %}</tbody>
       </table>
     </div>

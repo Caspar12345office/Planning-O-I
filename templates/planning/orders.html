@@ -32,7 +32,7 @@
       <td>{{ o.client }}</td>
       <td class="muted">{{ o.delivery_address }}</td>
       <td>{{ o.desired_date }}</td>
-      <td>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <span title="Belangrijke order"><svg class="ico"><use href="#ic-star"/></svg></span>{% endif %}{% else %}—{% endif %}</td>
+      <td>{% if o.amount %}€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}{% if o.amount>=3000 %} <span title="Belangrijke order"><svg class="ico"><use href="#ic-star"/></svg></span>{% endif %}{% else %}-{% endif %}</td>
       <td><span class="src {{ o.source }}">{{ 'Shopify' if o.source=='shopify' else 'Handmatig' }}</span></td>
       <td>
         {% if o.is_draft %}<span class="pill gray"><svg class="ico"><use href="#ic-shield"/></svg> draft</span>

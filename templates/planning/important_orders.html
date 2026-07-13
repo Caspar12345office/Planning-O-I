@@ -29,7 +29,7 @@
       <td><b>#{{ o.order_number }}</b>{% if o.source=='shopify' %}<br><span class="src shopify">Shopify</span>{% endif %}</td>
       <td>{{ o.client }}</td>
       <td class="muted">{{ o.city }}</td>
-      <td class="muted" style="max-width:280px;font-size:13px">{{ items.get(o.id, '—') }}</td>
+      <td class="muted" style="max-width:280px;font-size:13px">{{ items.get(o.id, '-') }}</td>
       <td><span class="amt">€ {{ '{:,.0f}'.format(o.amount).replace(',','.') }}</span></td>
       <td>{% if o.status=='in_te_plannen' %}<span class="pill amber">in te plannen</span>{% elif o.status=='gepland' %}<span class="pill blue">gepland</span>{% else %}<span class="pill gray">{{ o.status }}</span>{% endif %}</td>
       <td><a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a></td>

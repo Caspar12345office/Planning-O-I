@@ -63,7 +63,7 @@
   <div class="req" data-id="{{ r.id }}">
     <div class="rh"><b>{{ r.user_name }}</b><span class="st open">open</span></div>
     <div class="meta">
-      {% if r.category=='afspraak' %}Afspraak op {{ r.date_from }} {{ r.time_from }}–{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %}
+      {% if r.category=='afspraak' %}Afspraak op {{ r.date_from }} {{ r.time_from }}-{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %}
       {% if r.reason %}<br>“{{ r.reason }}”{% endif %}
     </div>
     <div class="actions">
@@ -77,7 +77,7 @@
   {% for r in history %}
   <div class="req" style="box-shadow:none">
     <div class="rh"><b>{{ r.user_name }}</b><span class="st {{ r.status }}">{{ r.status }}</span></div>
-    <div class="meta">{% if r.category=='afspraak' %}Afspraak {{ r.date_from }} {{ r.time_from }}–{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %} · door {{ r.decided_by }}{% if r.decision_reason %} · “{{ r.decision_reason }}”{% endif %}</div>
+    <div class="meta">{% if r.category=='afspraak' %}Afspraak {{ r.date_from }} {{ r.time_from }}-{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %} · door {{ r.decided_by }}{% if r.decision_reason %} · “{{ r.decision_reason }}”{% endif %}</div>
   </div>
   {% else %}<p class="muted">Nog niets behandeld.</p>{% endfor %}
 </div>
@@ -107,7 +107,7 @@
         <thead><tr><th>Soort</th><th>Wanneer</th><th>Status</th><th>Reactie</th></tr></thead>
         <tbody>{% for r in my_reqs %}
           <tr><td>{% if r.category=='afspraak' %}Afspraak{% else %}{{ r.leave_type }}{% endif %}</td>
-          <td>{{ r.date_from }}{% if r.category=='afspraak' and r.time_from %} {{ r.time_from }}–{{ r.time_to }}{% elif r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}</td>
+          <td>{{ r.date_from }}{% if r.category=='afspraak' and r.time_from %} {{ r.time_from }}-{{ r.time_to }}{% elif r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}</td>
           <td><span class="st {{ r.status }}">{{ r.status }}</span></td>
           <td class="muted">{{ r.decision_reason or '' }}</td></tr>
         {% else %}<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">Nog geen aanvragen.</td></tr>{% endfor %}</tbody>
