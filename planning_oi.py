@@ -615,6 +615,10 @@ def init_db():
         m4 INTEGER DEFAULT 0, m5 INTEGER DEFAULT 0,
         l1 INTEGER DEFAULT 0, l2 INTEGER DEFAULT 0, l3 INTEGER DEFAULT 0,
         l4 INTEGER DEFAULT 0, l5 INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS duur_model(
+        product_key TEXT, monteur_id INTEGER DEFAULT 0,
+        minuten REAL, n INTEGER DEFAULT 0, updated_at TEXT,
+        PRIMARY KEY(product_key, monteur_id));
     """)
     # Defensieve migratie (bv. bestaande database met disk op Render).
     for stmt in ("ALTER TABLE users ADD COLUMN last_seen TEXT",
@@ -5345,6 +5349,120 @@ OUTCOMES = ["succesvol", "beschadigd", "niet_thuis"]
 OUTCOME_LABELS = {"succesvol": "Succesvol", "beschadigd": "Beschadigd/incompleet", "niet_thuis": "Niet thuis"}
 
 
+# --------------------------------------------------------------------------- #
+#  Planning die leert: gemeten montagetijden per artikel (volledig lokaal).
+#  Bron = afgeronde klussen met een gemelde aankomst (aangekomen_at) en een
+#  eindtijd (afgerond_at = moment van tekenen). De klusduur wordt over de
+#  artikelen verdeeld naar rato van de cataloguswaarde en per stuk omgerekend.
+#  EWMA weegt recente klussen zwaarder, zodat het model meebeweegt.
+# --------------------------------------------------------------------------- #
+_LEARN_ALPHA = 0.3          # EWMA-gewicht recente meting
+_LEARN_MAX_MIN = 600        # klussen langer dan 10 uur negeren (onrealistisch/vergeten af te ronden)
+
+
+def _klus_duur_min(aangekomen_at, afgerond_at):
+    """Gemeten montageduur in minuten, of None als onbruikbaar."""
+    if not aangekomen_at or not afgerond_at:
+        return None
+    try:
+        d = (datetime.fromisoformat(afgerond_at) - datetime.fromisoformat(aangekomen_at)).total_seconds() / 60.0
+    except Exception:
+        return None
+    if d <= 0 or d > _LEARN_MAX_MIN:
+        return None
+    return d
+
+
+def _learn_now(conn):
+    """Herbereken het duur-model uit alle afgeronde, gemeten klussen."""
+    prods = _load_products(conn)
+    rows = conn.execute("""SELECT p.monteur_id, p.order_id, p.aangekomen_at, p.afgerond_at
+                           FROM planning p
+                           WHERE p.status='afgerond' AND p.aangekomen_at IS NOT NULL
+                                 AND p.afgerond_at IS NOT NULL
+                           ORDER BY p.afgerond_at""").fetchall()
+    agg = {}    # (product_key, monteur_id) -> {"m": ewma, "n": count}
+
+    def push(key, x):
+        a = agg.get(key)
+        if a is None:
+            agg[key] = {"m": x, "n": 1}
+        else:
+            a["m"] = _LEARN_ALPHA * x + (1 - _LEARN_ALPHA) * a["m"]
+            a["n"] += 1
+
+    for r in rows:
+        dur = _klus_duur_min(r["aangekomen_at"], r["afgerond_at"])
+        if dur is None:
+            continue
+        items = conn.execute("SELECT name, qty, montage_custom FROM order_items WHERE order_id=?",
+                             (r["order_id"],)).fetchall()
+        weights = []    # (product_key, qty, cataloguswaarde-voor-die-regel)
+        for it in items:
+            qty = int(it["qty"] or 1)
+            p = _match_product(it["name"], prods)
+            if p:
+                cw = _montage_for_qty(p["tiers"], qty)
+                key = (p["name"] if p.get("name") else it["name"]) or it["name"]
+            else:
+                cw = int(it["montage_custom"] or 0)
+                key = (it["name"] or "").strip() or "Maatwerk"
+            weights.append((key, qty, cw))
+        tot = sum(w[2] for w in weights)
+        if tot <= 0:
+            continue
+        for key, qty, cw in weights:
+            if cw <= 0 or qty <= 0:
+                continue
+            per_unit = (dur * (cw / tot)) / qty       # gemeten minuten per stuk
+            push((key, 0), per_unit)                  # alle monteurs samen
+            if r["monteur_id"]:
+                push((key, r["monteur_id"]), per_unit)
+
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute("DELETE FROM duur_model")
+    for (key, mid), a in agg.items():
+        conn.execute("""INSERT INTO duur_model(product_key,monteur_id,minuten,n,updated_at)
+                        VALUES(?,?,?,?,?)""", (key, mid, round(a["m"], 1), a["n"], now))
+    conn.commit()
+
+
+def _maybe_learn(conn):
+    """Leert hooguit 1x per dag (bij het eerste bezoek aan de prestaties). Gratis, lokaal."""
+    today = datetime.now().date().isoformat()
+    row = conn.execute("SELECT value FROM settings WHERE skey='duur_model_date'").fetchone()
+    if row and row["value"] == today:
+        return
+    try:
+        _learn_now(conn)
+    except Exception:
+        pass
+    conn.execute("""INSERT INTO settings(skey,value) VALUES('duur_model_date',?)
+                    ON CONFLICT(skey) DO UPDATE SET value=excluded.value""", (today,))
+    conn.commit()
+
+
+def _duur_report(conn):
+    """Bouwt het lerende rapport: per artikel (catalogus vs gemeten) en per monteur."""
+    prods = _load_products(conn)
+    types = []
+    for r in conn.execute("""SELECT product_key, minuten, n, updated_at FROM duur_model
+                             WHERE monteur_id=0 ORDER BY n DESC, product_key""").fetchall():
+        p = _match_product(r["product_key"], prods)
+        cat = _montage_for_qty(p["tiers"], 1) if p else None
+        afw = (round((r["minuten"] - cat) / cat * 100) if cat else None)
+        types.append({"key": r["product_key"], "catalog": (round(cat) if cat else None),
+                      "gemeten": round(r["minuten"]), "n": r["n"], "afwijking": afw,
+                      "updated": r["updated_at"]})
+    mons = {m["id"]: m["name"] for m in conn.execute("SELECT id,name FROM monteurs").fetchall()}
+    per_monteur = {}
+    for r in conn.execute("""SELECT product_key, monteur_id, minuten, n FROM duur_model
+                             WHERE monteur_id!=0 ORDER BY product_key, minuten""").fetchall():
+        per_monteur.setdefault(r["product_key"], []).append(
+            {"monteur": mons.get(r["monteur_id"], "?"), "gemeten": round(r["minuten"]), "n": r["n"]})
+    return types, per_monteur
+
+
 def _performance_data():
     today = datetime.now().date()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
@@ -5380,8 +5498,12 @@ def performance():
     if guard:
         return guard
     report, tot_wk, tot_mo = _performance_data()
+    conn = db()
+    _maybe_learn(conn)                       # leert 1x per dag op de achtergrond
+    duur_types, duur_monteur = _duur_report(conn)
+    conn.close()
     return render_template("planning/performance.html", report=report, tot_wk=tot_wk, tot_mo=tot_mo,
-                           labels=OUTCOME_LABELS)
+                           labels=OUTCOME_LABELS, duur_types=duur_types, duur_monteur=duur_monteur)
 
 
 @bp.route("/rapportages/prestaties/export.csv")

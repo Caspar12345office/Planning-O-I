@@ -46,6 +46,12 @@
   .arrivepop h3{margin:2px 0 4px;color:var(--accent);font-size:19px}
   .arrivepop p{font-size:14px;margin:0 0 16px;color:var(--ink)}
   #cmArriveWrap .hlp{font-size:11.5px;color:var(--muted);margin-top:4px}
+  .steps{display:flex;gap:6px;margin:4px 0 10px}
+  .steps .step{flex:1;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted);background:var(--soft);border-radius:9px;padding:6px 8px}
+  .steps .step span{width:16px;height:16px;border-radius:50%;background:#c7cfc6;color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .steps .step.active{color:var(--accent);background:#e7f0ec}.steps .step.active span{background:var(--accent)}
+  .steps .step.done{color:#3c7a2c;background:#eaf4e4}.steps .step.done span{background:var(--green)}
+  .stephint{font-size:11px;color:var(--muted);text-align:center;margin:-2px 0 8px}
 {% endblock %}
 
 {% block content %}
@@ -83,9 +89,20 @@
         <a target="_blank" href="https://maps.apple.com/?daddr={{ q }}">Apple</a>
         <a target="_blank" href="https://waze.com/ul?q={{ q }}&navigate=yes">Waze</a>
       </div>
-      {% if j.status=='gepland' %}<button class="btn-lg ghost" style="margin-bottom:8px" onclick="startStop({{ j.id }})"><svg class="ico"><use href="#ic-truck"/></svg> Onderweg naar deze klant</button>{% endif %}
-      {% if j.status!='afgerond' and not j.aangekomen_at %}<button class="btn-lg arrive" style="margin-bottom:8px" onclick="arriveStop({{ j.id }})"><svg class="ico"><use href="#ic-pin"/></svg> Ik ben bij de klant</button>{% endif %}
-      {% if j.status!='afgerond' %}<button class="btn-lg primary" onclick="openComplete({{ j.id }}, '{{ j.client|e }}', {{ 1 if j.aangekomen_at else 0 }})">Levering afronden</button>{% endif %}
+      {% if j.status!='afgerond' %}
+      <div class="steps">
+        <div class="step {{ 'done' if (j.status=='onderweg' or j.aangekomen_at) else 'active' }}"><span>1</span>Onderweg</div>
+        <div class="step {{ 'done' if j.aangekomen_at else ('active' if j.status=='onderweg') }}"><span>2</span>Bij de klant</div>
+        <div class="step"><span>3</span>Afronden</div>
+      </div>
+      {% if j.status=='gepland' %}
+        <button class="btn-lg primary" style="margin-bottom:6px" onclick="startStop({{ j.id }})"><svg class="ico"><use href="#ic-truck"/></svg> Onderweg naar deze klant</button>
+        <div class="stephint">De klant en kantoor zien nu dat je onderweg bent.</div>
+      {% elif not j.aangekomen_at %}
+        <button class="btn-lg arrive" style="margin-bottom:8px" onclick="arriveStop({{ j.id }})"><svg class="ico"><use href="#ic-pin"/></svg> Ik ben bij de klant</button>
+      {% endif %}
+      <button class="btn-lg {{ 'primary' if j.aangekomen_at else 'ghost' }}" onclick="openComplete({{ j.id }}, '{{ j.client|e }}', {{ 1 if j.aangekomen_at else 0 }})">Levering afronden</button>
+      {% endif %}
     </div>
     {% endfor %}
     {% if all_done %}<button class="btn-lg danger" onclick="confirmCloseRoute()"><svg class="ico"><use href="#ic-lock"/></svg> Sluit route voor vandaag</button>{% endif %}
