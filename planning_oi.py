@@ -1041,6 +1041,12 @@ def _invalidate_gcache():
 def _gcache_bust_on_write(resp):
     if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint != "planning.api_presence":
         _invalidate_gcache()
+    # Dynamische HTML-pagina's nooit cachen: dwingt iPhone/Safari/PWA om altijd de
+    # verse versie te halen, zodat design-updates direct zichtbaar zijn.
+    ctype = resp.headers.get("Content-Type", "")
+    if ctype.startswith("text/html"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
     return resp
 
 
@@ -1688,7 +1694,8 @@ self.addEventListener('fetch', e=>{
 });
 """
     return Response(js, mimetype="application/javascript",
-                    headers={"Service-Worker-Allowed": "/"})
+                    headers={"Service-Worker-Allowed": "/",
+                             "Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 # --------------------------------------------------------------------------- #

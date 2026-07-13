@@ -120,7 +120,11 @@ function mtab(ev, id){
   document.querySelectorAll('.m-pane').forEach(function(p){p.classList.toggle('active', p.id==='pane-'+id);});
   document.querySelector('.m-content').scrollTop=0;
 }
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('{{ url_for("planning.service_worker") }}').catch(function(){}); }
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('{{ url_for("planning.service_worker") }}',{updateViaCache:'none'}).then(function(reg){ try{reg.update();}catch(e){} }).catch(function(){});
+  var _swReloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',function(){ if(_swReloaded)return; _swReloaded=true; location.reload(); });
+}
 </script>
 {% block scripts %}{% endblock %}
 </body>
