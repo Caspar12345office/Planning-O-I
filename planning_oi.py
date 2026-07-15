@@ -1037,6 +1037,16 @@ def _invalidate_gcache():
     _GCACHE["products"] = None
 
 
+def _save_setting(conn, key, value):
+    """Database-onafhankelijke upsert van een instelling (werkt op SQLite én
+    PostgreSQL, zonder afhankelijk te zijn van ON CONFLICT / unieke constraints)."""
+    exists = conn.execute("SELECT 1 FROM settings WHERE skey=?", (key,)).fetchone()
+    if exists:
+        conn.execute("UPDATE settings SET value=? WHERE skey=?", (value, key))
+    else:
+        conn.execute("INSERT INTO settings(skey,value) VALUES(?,?)", (key, value))
+
+
 @bp.after_request
 def _gcache_bust_on_write(resp):
     if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint != "planning.api_presence":
@@ -1512,47 +1522,48 @@ def _purge_old_customer_notes(conn):
 def _brand_email(heading, paragraphs, info=None, button=None, note=None):
     """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
     paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
+    ff = "font-family:Arial,Helvetica,sans-serif;"
+    logo_url = LEVERDOC_BASE + "/static/logos/office-interior.png"
     paras = ""
     for p in (paragraphs or []):
         if p:
-            paras += ('<p style="margin:0 0 14px;font-size:15px;color:#3a4a45;line-height:1.65;">'
+            paras += ('<p style="margin:0 0 14px;' + ff + 'font-size:14px;color:#5a6b64;line-height:1.6;">'
                       + _esc(p).replace("\n", "<br>") + '</p>')
     info_html = ""
     if info:
-        rows = ""
-        for label, value in info:
-            rows += ('<tr><td style="padding:7px 2px;font-size:13px;color:#6b7a74;">' + _esc(label) + '</td>'
-                     '<td style="padding:7px 2px;font-size:14px;color:#16302d;font-weight:bold;text-align:right;">'
-                     + _esc(value) + '</td></tr>')
-        info_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-                     'style="background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;margin:4px 0 16px;">'
-                     '<tr><td style="padding:8px 16px;"><table role="presentation" width="100%" cellpadding="0" '
-                     'cellspacing="0">' + rows + '</table></td></tr></table>')
+        parts = " &nbsp;&middot;&nbsp; ".join(
+            '<span style="color:#8a948f;">' + _esc(label) + ':</span> '
+            '<b style="color:#0f3d3e;">' + _esc(value) + '</b>' for label, value in info)
+        info_html = ('<p style="margin:2px 0 18px;' + ff + 'font-size:13px;color:#5a6b64;line-height:2;">'
+                     + parts + '</p>')
     note_html = ""
     if note:
-        note_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-                     'style="background:#f7efe0;border:1px solid #e3c98f;border-radius:12px;margin:0 0 16px;">'
-                     '<tr><td style="padding:12px 14px;font-size:13px;color:#6b4e15;line-height:1.55;">'
+        note_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">'
+                     '<tr><td style="background:#f7efe0;border:1px solid #e7d3a6;border-radius:10px;padding:11px 14px;'
+                     + ff + 'font-size:12.5px;color:#6b4e15;line-height:1.55;text-align:center;">'
                      + _esc(note) + '</td></tr></table>')
     btn_html = ""
     if button:
-        btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" style="margin:2px 0 16px;">'
-                    '<tr><td style="background:#0f3d3e;border-radius:10px;">'
-                    '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:12px 22px;color:#ffffff;'
-                    'font-size:14px;font-weight:bold;text-decoration:none;">' + _esc(button[0]) + '</a></td></tr></table>')
-    return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            'style="background:#f1ede5;padding:24px 0;margin:0;"><tr><td align="center">'
-            '<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;'
-            'background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e6ebe4;font-family:Arial,Helvetica,sans-serif;">'
-            '<tr><td style="background:#0f3d3e;padding:18px 28px;">'
-            '<span style="color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">OFFICE-INTERIOR</span></td></tr>'
-            '<tr><td style="height:3px;background:#cda35a;"></td></tr>'
-            '<tr><td style="padding:26px 28px 4px;">'
-            '<h1 style="margin:0 0 14px;font-size:20px;color:#0f3d3e;font-weight:bold;">' + _esc(heading) + '</h1>'
+        btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:4px auto 6px;">'
+                    '<tr><td align="center" bgcolor="#0f3d3e" style="border-radius:10px;">'
+                    '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:13px 26px;color:#ffffff;'
+                    + ff + 'font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;">'
+                    + _esc(button[0]) + '</a></td></tr></table>')
+    return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7f2ea" '
+            'style="background:#f7f2ea;margin:0;padding:26px 12px;"><tr><td align="center">'
+            '<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;'
+            'background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">'
+            '<tr><td align="center" style="padding:28px 30px 4px;">'
+            '<img src="' + logo_url + '" alt="OFFICE-INTERIOR" width="200" '
+            'style="display:block;width:200px;max-width:66%;height:auto;margin:0 auto;"></td></tr>'
+            '<tr><td align="center" style="padding:16px 30px 8px;">'
+            '<h1 style="margin:0 0 12px;' + ff + 'font-size:21px;color:#0f3d3e;font-weight:bold;letter-spacing:-.01em;">'
+            + _esc(heading) + '</h1>'
             + paras + info_html + note_html + btn_html +
-            '</td></tr><tr><td style="padding:6px 28px 22px;">'
-            '<p style="margin:10px 0 0;padding-top:14px;border-top:1px solid #eef0ec;font-size:12px;color:#8a948f;'
-            'line-height:1.6;">Vragen? Mail planning@office-interior.com of bel 085-0481444.</p></td></tr>'
+            '</td></tr>'
+            '<tr><td style="border-top:1px solid #eef0ec;padding:14px 30px 24px;text-align:center;'
+            + ff + 'font-size:11.5px;color:#8a948f;line-height:1.6;">'
+            'Vragen? planning@office-interior.com &nbsp;&middot;&nbsp; 085-0481444</td></tr>'
             '</table></td></tr></table>')
 
 
@@ -2538,9 +2549,7 @@ def email_templates():
     if request.method == "POST":
         conn = db()
         for k in keys:
-            conn.execute("INSERT INTO settings(skey,value) VALUES(?,?) "
-                         "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
-                         (k, (request.form.get(k) or "").strip()))
+            _save_setting(conn, k, (request.form.get(k) or "").strip())
         conn.commit()
         conn.close()
         flash("E-mailteksten opgeslagen.")
@@ -3673,9 +3682,7 @@ def leveringsdocumenten():
         if action == "save_triggers":
             for k, dflt in (("leverdoc_keywords", "Belcel"), ("leverdoc_min_bureau", "10"),
                             ("leverdoc_min_kast", "3"), ("leverdoc_min_stoel", "10")):
-                conn.execute("INSERT INTO settings(skey,value) VALUES(?,?) "
-                             "ON CONFLICT(skey) DO UPDATE SET value=excluded.value",
-                             (k, (request.form.get(k) or dflt).strip()))
+                _save_setting(conn, k, (request.form.get(k) or dflt).strip())
             conn.commit()
             flash("Trigger-instellingen opgeslagen.")
         elif action == "add_template":
@@ -4593,8 +4600,7 @@ def products():
             flash("%d standaard bureaus toegevoegd - vul de montagetijden nog aan." % n)
         elif act == "toggle_maatwerk":
             val = "1" if request.form.get("maatwerk_alerts") else "0"
-            conn.execute("INSERT INTO settings(skey,value) VALUES('maatwerk_alerts',?) "
-                         "ON CONFLICT(skey) DO UPDATE SET value=excluded.value", (val,))
+            _save_setting(conn, "maatwerk_alerts", val)
             conn.commit()
             flash("Maatwerk-waarschuwingen " + ("aangezet." if val == "1" else "uitgezet."))
         elif act == "import_shopify":
@@ -5185,9 +5191,7 @@ def company_settings():
     conn = db()
     if request.method == "POST":
         for k in ("company_name", "home_base", "tpl_confirm", "tpl_arrival", "tpl_delay"):
-            conn.execute("""INSERT INTO settings(skey,value) VALUES(?,?)
-                            ON CONFLICT(skey) DO UPDATE SET value=excluded.value""",
-                         (k, request.form.get(k, "")))
+            _save_setting(conn, k, request.form.get(k, ""))
         conn.commit()
         flash("Instellingen opgeslagen.")
     vals = {r["skey"]: r["value"] for r in conn.execute("SELECT skey,value FROM settings").fetchall()}
@@ -5485,8 +5489,7 @@ def _maybe_learn(conn):
         _learn_now(conn)
     except Exception:
         pass
-    conn.execute("""INSERT INTO settings(skey,value) VALUES('duur_model_date',?)
-                    ON CONFLICT(skey) DO UPDATE SET value=excluded.value""", (today,))
+    _save_setting(conn, "duur_model_date", today)
     conn.commit()
 
 
