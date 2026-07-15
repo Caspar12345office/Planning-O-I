@@ -1523,7 +1523,6 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
     """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
     paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
     ff = "font-family:Arial,Helvetica,sans-serif;"
-    logo_url = LEVERDOC_BASE + "/static/logos/office-interior.png"
     paras = ""
     for p in (paragraphs or []):
         if p:
@@ -1553,9 +1552,9 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
             'style="background:#f7f2ea;margin:0;padding:26px 12px;"><tr><td align="center">'
             '<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;'
             'background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">'
-            '<tr><td align="center" style="padding:28px 30px 4px;">'
-            '<img src="' + logo_url + '" alt="OFFICE-INTERIOR" width="200" '
-            'style="display:block;width:200px;max-width:66%;height:auto;margin:0 auto;"></td></tr>'
+            '<tr><td align="center" style="padding:28px 30px 6px;">'
+            '<div style="font-family:\'Montserrat\',Arial,Helvetica,sans-serif;font-size:20px;font-weight:500;'
+            'letter-spacing:4px;color:#111111;">OFFICE-INTERIOR</div></td></tr>'
             '<tr><td align="center" style="padding:16px 30px 8px;">'
             '<h1 style="margin:0 0 12px;' + ff + 'font-size:21px;color:#0f3d3e;font-weight:bold;letter-spacing:-.01em;">'
             + _esc(heading) + '</h1>'
