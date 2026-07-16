@@ -40,8 +40,44 @@
   details.edit summary::-webkit-details-marker{display:none}
   .ef{margin-top:10px}.ef label{font-size:12px;margin:8px 0 4px}
   .ef .row{display:flex;gap:10px}.ef .row>*{flex:1}
+  .addbus{margin-bottom:18px}
+  .addbus>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+  .addbus>summary::-webkit-details-marker{display:none}
+  .addbus .bcard{max-width:560px;margin-top:14px}
 {% endblock %}
 {% block content %}
+{% if can_edit %}
+<details class="addbus"{% if request.args.get('add') %} open{% endif %}>
+  <summary class="btn primary"><span style="font-size:18px;font-weight:800;line-height:1">+</span> Nieuwe bus toevoegen</summary>
+  <div class="bcard">
+    <form class="ef" method="post" action="{{ url_for('planning.bus_new') }}">
+      <div class="row">
+        <div><label>Naam <span class="muted">(verplicht)</span></label><input name="name" placeholder="bv. Bus 4 - VW Crafter" required></div>
+        <div><label>Kenteken</label><input name="plate" placeholder="bv. 8-XGT-99"></div>
+      </div>
+      <label>Chauffeur</label><input name="driver" placeholder="bv. Youssef">
+      <div class="row">
+        <div><label>Leeggewicht (kg)</label><input name="empty_weight" type="number" placeholder="bv. 2532"></div>
+        <div><label>Max. toegestaan gewicht (kg)</label><input name="max_weight" type="number" placeholder="bv. 3500"></div>
+      </div>
+      <div class="row">
+        <div><label>Laadvolume (m³)</label><input name="max_volume" type="number" step="0.5" placeholder="bv. 12"></div>
+        <div><label>Max. stops</label><input name="max_stops" type="number" placeholder="bv. 12"></div>
+      </div>
+      <div class="row">
+        <div><label>APK-datum</label><input name="apk_date" type="date"></div>
+        <div><label>Brandstof</label><select name="brandstof">
+          <option value="diesel">Diesel</option>
+          <option value="benzine">Benzine</option>
+        </select></div>
+      </div>
+      <label>Verbruik (l/100km)</label><input name="verbruik_l100" type="number" step="0.1" placeholder="bv. 12 - voedt de CO₂-berekening">
+      <label>Onderhoud / opmerking</label><input name="maintenance" placeholder="optioneel">
+      <button class="btn primary sm" type="submit" style="margin-top:12px">Bus toevoegen</button>
+    </form>
+  </div>
+</details>
+{% endif %}
 <div class="bgrid">
   {% for b in busses %}
   <div class="bcard">

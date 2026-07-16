@@ -377,16 +377,36 @@ function showAddr(ev, client, addr, oid){
   document.getElementById('addrMaps').href='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr);
   document.getElementById('addrModal').style.display='flex';
   if(oid){
+    body.innerHTML+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)">'
+      +'<b style="color:var(--accent)">Pand-indicatie</b>: <span id="pandStat">laden…</span></div>';
     fetch('/api/pand-indicatie/'+oid).then(function(r){return r.json();}).then(function(d){
-      if(!d||!d.ok||!d.pand) return;
-      var p=d.pand;
-      var t=(p.type==='flat')?'waarschijnlijk een flat/appartement':'waarschijnlijk een eengezins-/rijtjeshuis';
-      var fl=p.floors?(' · ± '+p.floors+' verdieping(en)'):'';
-      var lift=p.lift?' · <b style="color:#0f6e56">lift waarschijnlijk</b>':' · lift onwaarschijnlijk';
-      body.innerHTML+='<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)">'
-        +'<b style="color:var(--accent)">Pand-indicatie:</b> '+t+fl+lift+'</div>';
-    }).catch(function(){});
+      var s=document.getElementById('pandStat'); if(!s) return;
+      if(d&&d.ok&&d.pand){ s.innerHTML=pandSentence(d.pand); }
+      else if(d&&d.has_key){ s.innerHTML='nog niet opgehaald &nbsp;<button class="btn ghost sm" style="padding:3px 10px;font-size:12px" onclick="ophaalPand('+oid+')">Ophalen uit BAG</button>'; }
+      else { s.innerHTML='BAG-koppeling nog niet ingesteld (Instellingen → Koppelingen → BAG).'; }
+    }).catch(function(){ var s=document.getElementById('pandStat'); if(s) s.textContent='niet beschikbaar'; });
   }
+}
+function pandSentence(p){
+  var parts=[];
+  var woon=(p.type==='flat')?'flat/appartement':'eengezins-/rijtjeshuis';
+  if(p.functie){
+    parts.push('<b style="color:var(--accent)">'+p.functie+'</b>');
+    if(p.functie==='Woning') parts.push('('+woon+')');
+  } else {
+    parts.push('waarschijnlijk een '+woon);
+  }
+  if(p.floors) parts.push('± '+p.floors+' verdieping(en)');
+  parts.push(p.lift?'<b style="color:#0f6e56">lift waarschijnlijk</b>':'lift onwaarschijnlijk');
+  return parts.join(' · ');
+}
+function ophaalPand(oid){
+  var s=document.getElementById('pandStat'); if(s) s.textContent='ophalen uit BAG…';
+  fetch('/api/pand-indicatie/'+oid+'/live',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+    if(!s) return;
+    if(d&&d.ok&&d.pand){ s.innerHTML=pandSentence(d.pand); }
+    else { s.textContent=(d&&d.error)?d.error:'ophalen mislukt'; }
+  }).catch(function(){ if(s) s.textContent='ophalen mislukt'; });
 }
 function toggleWork(btn){
   var on=btn.getAttribute('data-on')==='1';  // on = currently hidden

@@ -2785,6 +2785,28 @@ def api_pand_indicatie(oid):
                          (akey,)).fetchone()
         rec = dict(r) if r else None
     conn.close()
+    if rec:
+        rec["functie"] = _bag_functie(rec.get("gebruiksdoel"))
+    # of de koppeling klaarstaat (bepaalt of we een 'Ophalen'-knop tonen)
+    has_key = bool((_bag_cfg().get("api_key") or "").strip())
+    return jsonify(ok=True, pand=rec, has_key=has_key)
+
+
+@bp.route("/api/pand-indicatie/<int:oid>/live", methods=["POST"])
+def api_pand_indicatie_live(oid):
+    """Live BAG-opvraging vanuit de adres-popup (op knopdruk)."""
+    if not has_perm("view_orders"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    o = conn.execute("SELECT delivery_address FROM orders WHERE id=?", (oid,)).fetchone()
+    conn.close()
+    if not o or not o["delivery_address"]:
+        return jsonify(ok=False, error="Geen leveradres bekend."), 404
+    rec, err = _pand_indicatie(o["delivery_address"], force=True)
+    if err:
+        return jsonify(ok=False, error=err)
+    rec = dict(rec)
+    rec["functie"] = _bag_functie(rec.get("gebruiksdoel"))
     return jsonify(ok=True, pand=rec)
 
 
@@ -3248,6 +3270,36 @@ def bus_edit(bid):
     conn.commit()
     conn.close()
     flash("Bus bijgewerkt.")
+    return redirect(url_for("planning.busses"))
+
+
+@bp.route("/busses/new", methods=["POST"])
+def bus_new():
+    if not has_perm("manage_users"):
+        abort(403)
+    f = request.form
+    name = (f.get("name") or "").strip()
+    if not name:
+        flash("Geef de bus minimaal een naam.")
+        return redirect(url_for("planning.busses"))
+
+    def _f(v):
+        try:
+            return float(v or 0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    conn = db()
+    conn.execute("""INSERT INTO busses(name,plate,driver,max_volume,max_weight,empty_weight,
+                    max_stops,apk_date,maintenance,brandstof,verbruik_l100,active)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,1)""",
+                 (name, (f.get("plate") or "").strip(), (f.get("driver") or "").strip(),
+                  _f(f.get("max_volume")), _f(f.get("max_weight")), _f(f.get("empty_weight")),
+                  _int(f.get("max_stops"), 12), f.get("apk_date"), f.get("maintenance"),
+                  (f.get("brandstof") or "diesel"), _f(f.get("verbruik_l100"))))
+    conn.commit()
+    conn.close()
+    flash("Bus toegevoegd.")
     return redirect(url_for("planning.busses"))
 
 
@@ -4835,6 +4887,30 @@ def _pand_indicatie(address, force=False):
     conn.commit()
     conn.close()
     return rec, None
+
+
+def _bag_functie(gebruiksdoel):
+    """Vertaalt het BAG-gebruiksdoel naar een leesbaar functielabel."""
+    g = (gebruiksdoel or "").lower()
+    if "kantoor" in g:
+        return "Kantoorpand"
+    if "winkel" in g:
+        return "Winkel / retail"
+    if "industrie" in g:
+        return "Bedrijfspand"
+    if "gezondheidszorg" in g or "zorg" in g:
+        return "Zorgpand"
+    if "onderwijs" in g:
+        return "Onderwijspand"
+    if "logies" in g:
+        return "Logies / hotel"
+    if "bijeenkomst" in g:
+        return "Bijeenkomstpand"
+    if "sport" in g:
+        return "Sportpand"
+    if "woon" in g:
+        return "Woning"
+    return ""
 
 
 @bp.route("/products", methods=["GET", "POST"])
