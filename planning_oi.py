@@ -1122,15 +1122,27 @@ def can_approve(u, is_monteur):
     return bool(u) and _email(u) in (APPROVERS_MONTEUR if is_monteur else APPROVERS_OFFICE)
 
 
+def _leave_conds(u):
+    """SQL-condities voor de aanvragen die deze gebruiker mag goedkeuren.
+    Kantoor-aanvragen (behalve die van Aleks) → Caspar; monteur-aanvragen → Jorik."""
+    e = _email(u)
+    conds = []
+    if e == "caspar@office-interior.nl":
+        conds.append("(is_monteur=0 AND COALESCE(user_name,'') != 'Aleks')")
+    if e == "jorik@office-interior.nl":
+        conds.append("is_monteur=1")
+    return conds
+
+
 def pending_leave_count(u):
     if not u:
         return 0
+    conds = _leave_conds(u)
+    if not conds:
+        return 0
     conn = db()
-    n = 0
-    if _email(u) in APPROVERS_MONTEUR:
-        n += conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND is_monteur=1").fetchone()[0]
-    if _email(u) in APPROVERS_OFFICE:
-        n += conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND is_monteur=0").fetchone()[0]
+    n = conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND (%s)"
+                     % " OR ".join(conds)).fetchone()[0]
     conn.close()
     return n
 
@@ -2708,6 +2720,23 @@ def order_pand_indicatie(oid):
     rec, err = _pand_indicatie(o["delivery_address"], force=True)
     flash(err if err else "Pand-indicatie opgehaald uit de BAG.")
     return redirect(url_for("planning.order_detail", oid=oid))
+
+
+@bp.route("/api/pand-indicatie/<int:oid>")
+def api_pand_indicatie(oid):
+    """Gecachte pand-indicatie voor de adres-popup in de dagplanning (geen live BAG-call)."""
+    if not current_user():
+        return jsonify(ok=False), 403
+    conn = db()
+    o = conn.execute("SELECT delivery_address FROM orders WHERE id=?", (oid,)).fetchone()
+    rec = None
+    if o and o["delivery_address"]:
+        akey = " ".join(o["delivery_address"].lower().split())
+        r = conn.execute("SELECT type,units,floors,lift,gebruiksdoel,bouwjaar FROM bag_cache WHERE addr_key=?",
+                         (akey,)).fetchone()
+        rec = dict(r) if r else None
+    conn.close()
+    return jsonify(ok=True, pand=rec)
 
 
 # --------------------------------------------------------------------------- #
@@ -4995,24 +5024,20 @@ def free_days():
     rows = conn.execute("""SELECT f.*, m.name AS monteur FROM free_days f
                            LEFT JOIN monteurs m ON m.id=f.monteur_id ORDER BY f.date_from DESC""").fetchall()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY name").fetchall()
-    # aanvragen die ik mag goedkeuren
-    appr = []
-    if _email(u) in APPROVERS_MONTEUR:
-        appr.append("is_monteur=1")
-    if _email(u) in APPROVERS_OFFICE:
-        appr.append("is_monteur=0")
+    # aanvragen die ik mag goedkeuren (kantoor→Caspar behalve Aleks, monteurs→Jorik)
+    conds = _leave_conds(u)
     open_reqs = []
-    if appr:
+    if conds:
         open_reqs = conn.execute("SELECT * FROM leave_requests WHERE status='open' AND (%s) ORDER BY created_at"
-                                 % " OR ".join(appr)).fetchall()
+                                 % " OR ".join(conds)).fetchall()
     history = conn.execute("SELECT * FROM leave_requests WHERE status!='open' ORDER BY decided_at DESC LIMIT 50").fetchall()
     my_reqs = conn.execute("SELECT * FROM leave_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 20", (u["id"],)).fetchall()
     conn.close()
     # tot wie kan deze gebruiker een aanvraag richten?
-    approvers_label = "Aleks, Stijn, Jorik en Caspar" if u["role"] == "monteur" else "Aleks, Caspar en Jorik"
+    approvers_label = "Jorik" if u["role"] == "monteur" else "Caspar"
     return render_template("planning/free_days.html", rows=rows, monteurs=monteurs,
                            open_reqs=open_reqs, history=history, my_reqs=my_reqs,
-                           is_approver=bool(appr), approvers_label=approvers_label)
+                           is_approver=bool(conds), approvers_label=approvers_label)
 
 
 @bp.route("/api/leave-request", methods=["POST"])

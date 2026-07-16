@@ -109,24 +109,32 @@
     </div>
 
     <div class="card">
-      <div class="sec-h"><h3>Kantoorbezetting</h3>
-        <input type="date" value="{{ office_day }}" style="width:auto;padding:7px 10px"
-               onchange="location.href='{{ url_for('planning.dashboard') }}?office_day='+this.value+'#kantoor'">
-      </div>
-      <div id="kantoor">
-      {% for o in office %}
-        <div class="office-row" data-person="{{ o.person }}">
-          <span class="nm">{{ o.person }}</span>
-          <select onchange="saveOffice(this)">
-            <option value="kantoor" {{ 'selected' if o.status=='kantoor' }}>🟢 Op kantoor</option>
-            <option value="afspraak" {{ 'selected' if o.status=='afspraak' }}>🟠 Afspraak/extern</option>
-            <option value="vrij" {{ 'selected' if o.status=='vrij' }}>⚪ Vrij/afwezig</option>
-          </select>
-          <input class="note" placeholder="toelichting (bv. vergadering op locatie)" value="{{ o.note }}" onchange="saveOffice(this)">
+      <details class="occ"{% if request.args.get('office_day') %} open{% endif %}>
+        <summary class="sec-h" style="cursor:pointer;list-style:none">
+          <h3 style="display:inline-flex;align-items:center;gap:8px">Kantoorbezetting
+            <span class="pill gray" style="font-weight:600">{{ office|selectattr('status','equalto','kantoor')|list|length }}/{{ office|length }} op kantoor</span>
+          </h3>
+          <span class="muted" style="margin-left:auto;font-size:12.5px">klik om te tonen ▾</span>
+        </summary>
+        <div style="margin-top:12px">
+          <input type="date" value="{{ office_day }}" style="width:auto;padding:7px 10px;margin-bottom:6px"
+                 onchange="location.href='{{ url_for('planning.dashboard') }}?office_day='+this.value+'#kantoor'">
+          <div id="kantoor">
+          {% for o in office %}
+            <div class="office-row" data-person="{{ o.person }}">
+              <span class="nm">{{ o.person }}</span>
+              <select onchange="saveOffice(this)">
+                <option value="kantoor" {{ 'selected' if o.status=='kantoor' }}>🟢 Op kantoor</option>
+                <option value="afspraak" {{ 'selected' if o.status=='afspraak' }}>🟠 Afspraak/extern</option>
+                <option value="vrij" {{ 'selected' if o.status=='vrij' }}>⚪ Vrij/afwezig</option>
+              </select>
+              <input class="note" placeholder="toelichting (bv. vergadering op locatie)" value="{{ o.note }}" onchange="saveOffice(this)">
+            </div>
+          {% endfor %}
+          </div>
+          <p class="gpsnote">Selecteer een dag om te zien wie er op kantoor is en wie een afspraak heeft.</p>
         </div>
-      {% endfor %}
-      </div>
-      <p class="gpsnote">Selecteer een dag om te zien wie er op kantoor is en wie een afspraak heeft.</p>
+      </details>
     </div>
   </div>
 
