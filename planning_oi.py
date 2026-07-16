@@ -663,7 +663,8 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN afgerond_at TEXT",
                  "ALTER TABLE planning ADD COLUMN gps_arrival_at TEXT",
                  "ALTER TABLE planning ADD COLUMN gps_departure_at TEXT",
-                 "ALTER TABLE planning ADD COLUMN arrival_backfilled INTEGER DEFAULT 0"):
+                 "ALTER TABLE planning ADD COLUMN arrival_backfilled INTEGER DEFAULT 0",
+                 "ALTER TABLE users ADD COLUMN totp_secret TEXT"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -1474,6 +1475,37 @@ def _send_mail(to_email, subject, body, html_body=None):
     return _api_send(to_email, subject, body, html_body)
 
 
+# --------------------------------------------------------------------------- #
+#  TOTP (authenticator-app 2FA) — RFC 6238, zonder externe dependency
+# --------------------------------------------------------------------------- #
+def _totp_secret_new():
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def _totp_at(secret, ts):
+    try:
+        key = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    except Exception:
+        return None
+    ctr = int(ts // 30)
+    h = hmac.new(key, ctr.to_bytes(8, "big"), hashlib.sha1).digest()
+    o = h[-1] & 0x0f
+    return "%06d" % ((int.from_bytes(h[o:o + 4], "big") & 0x7fffffff) % 1000000)
+
+
+def _totp_verify(secret, code):
+    code = (code or "").strip().replace(" ", "")
+    if not (secret and code.isdigit() and len(code) == 6):
+        return False
+    now = time.time()
+    return any(_totp_at(secret, now + w * 30) == code for w in (-1, 0, 1))
+
+
+def _totp_uri(secret, email):
+    label = urllib.parse.quote("OfficeRoute:" + (email or ""))
+    return "otpauth://totp/%s?secret=%s&issuer=OfficeRoute&digits=6&period=30" % (label, secret)
+
+
 _NL_DAYS = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 _NL_MONTHS = ["", "januari", "februari", "maart", "april", "mei", "juni", "juli",
               "augustus", "september", "oktober", "november", "december"]
@@ -1614,34 +1646,39 @@ def _finish_login(u, nxt):
 def login():
     error = ""
     show_2fa = False
-    demo_code = None
+    enrolling = False
+    totp_secret = None
+    otp_uri = None
     twofa_email = None
-    code_sent = False
     if request.method == "POST":
         if request.form.get("twofa_code") is not None:
-            # Stap 2: 2FA-code verifiëren
+            # Stap 2: TOTP-code uit de authenticator-app verifiëren
             tf = session.get("twofa") or {}
             code = (request.form.get("twofa_code") or "").strip()
             if not tf:
                 error = "Sessie verlopen. Log opnieuw in."
             elif time.time() > tf.get("exp", 0):
                 session.pop("twofa", None)
-                error = "Code verlopen. Log opnieuw in."
-            elif code == tf.get("code"):
+                error = "Sessie verlopen. Log opnieuw in."
+            elif _totp_verify(tf.get("secret"), code):
                 conn = db()
                 u = conn.execute("SELECT * FROM users WHERE id=? AND active=1", (tf["uid"],)).fetchone()
+                if u and tf.get("enroll"):
+                    conn.execute("UPDATE users SET totp_secret=? WHERE id=?", (tf["secret"], tf["uid"]))
+                    conn.commit()
                 conn.close()
                 if u:
                     return _finish_login(u, tf.get("next"))
                 error = "Account niet gevonden."
             else:
-                error = "Onjuiste 2FA-code."
+                error = "Onjuiste code. Controleer je authenticator-app."
+            if error and tf:
                 show_2fa = True
                 twofa_email = tf.get("email")
-                if tf.get("sent"):
-                    code_sent = True
-                else:
-                    demo_code = tf.get("code")
+                if tf.get("enroll"):
+                    enrolling = True
+                    totp_secret = tf.get("secret")
+                    otp_uri = _totp_uri(tf.get("secret"), tf.get("email"))
         else:
             # Stap 1: e-mail + wachtwoord
             email = (request.form.get("email") or "").strip().lower()
@@ -1650,8 +1687,6 @@ def login():
             u = conn.execute("SELECT * FROM users WHERE lower(email)=? AND active=1", (email,)).fetchone()
             conn.close()
             if u and check_password_hash(u["password"], pw):
-                # Oude/zware hash (scrypt of pbkdf2 met hoge telling) -> eenmalig
-                # omzetten naar de lichte methode, zodat elke volgende login snel is.
                 if not (u["password"] or "").startswith(_PW_METHOD):
                     try:
                         cu = db()
@@ -1659,24 +1694,21 @@ def login():
                         cu.commit(); cu.close()
                     except Exception:
                         pass
-                code = "%06d" % secrets.randbelow(1000000)
+                enrolled = bool((u["totp_secret"] or "").strip())
+                secret = u["totp_secret"] if enrolled else _totp_secret_new()
                 show_2fa = True
                 twofa_email = u["email"]
-                # Code alleen als 'verstuurd' beschouwen als de mail ECHT gelukt is
-                # (synchroon; Resend faalt snel bij een niet-gekoppeld domein). Zo raakt
-                # niemand buitengesloten: mislukt de mail, dan verschijnt de code als
-                # terugval op het scherm (alleen zichtbaar NA een juist wachtwoord).
-                if _mail_live():
-                    code_sent = _send_2fa_email(u["email"], code, u["name"])
-                if not code_sent:
-                    demo_code = code
-                session["twofa"] = {"uid": u["id"], "code": code, "exp": time.time() + 300,
-                                    "next": request.args.get("next"), "email": u["email"], "sent": code_sent}
+                if not enrolled:
+                    enrolling = True
+                    totp_secret = secret
+                    otp_uri = _totp_uri(secret, u["email"])
+                session["twofa"] = {"uid": u["id"], "secret": secret, "enroll": (not enrolled),
+                                    "exp": time.time() + 600, "next": request.args.get("next"), "email": u["email"]}
             else:
                 error = "Onjuiste inloggegevens."
     return render_template("planning/login.html", error=error, show_2fa=show_2fa,
-                           demo_code=demo_code, twofa_email=twofa_email, code_sent=code_sent,
-                           office_accounts=_office_demo_accounts())
+                           enrolling=enrolling, totp_secret=totp_secret, otp_uri=otp_uri,
+                           twofa_email=twofa_email, office_accounts=_office_demo_accounts())
 
 
 @bp.route("/logout")
