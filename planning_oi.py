@@ -4187,6 +4187,7 @@ def _connection_health(deep=False):
         put("gps1", "err", "Geen live locatie", advice=_conn_advice("gps"))
     # Navigatie (Maps/Waze) - geen datakoppeling, alleen deeplinks
     put("maps", "link", "Navigatie-link (geen data)")
+    put("waze", "link", "Navigatie-link (geen data)")
     # Eigen domein via TransIP - nog te koppelen
     put("transip", "warn", "Nog te koppelen", advice=_conn_advice("transip"))
     # Nog niet gekoppeld
