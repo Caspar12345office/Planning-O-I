@@ -160,7 +160,7 @@ got_request_exception.connect(_record_app_error)
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
                  "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
-                 "route_crew", "presence"}
+                 "route_crew", "presence", "bag_cache"}
 
 
 def _sub_placeholders(sql):
@@ -459,6 +459,12 @@ INTEGRATIONS = [
         {"key": "send_live", "label": "E-mails écht versturen", "type": "toggle", "default": "0",
          "help": "UIT = testmodus: er wordt NIETS echt verstuurd (alleen opgeslagen/gelogd; 2FA-code op het scherm). Zet pas AAN als je live wilt."},
         {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"}]},
+    {"key": "bag", "name": "BAG (pand-indicatie)", "icon": "🏠",
+     "desc": "Herkent per leveradres of het waarschijnlijk een eengezinswoning of een flat is en schat het aantal verdiepingen (lift-inschatting). Gebruikt de gratis BAG API van het Kadaster + de 3D-BAG-hoogtedata.",
+     "fields": [
+        {"key": "api_key", "label": "BAG API-sleutel (Kadaster)", "type": "password",
+         "help": "Gratis aan te vragen bij het Kadaster → BAG API Individuele Bevragingen. Wordt als X-Api-Key meegestuurd."},
+        {"key": "lift_floors", "label": "Lift waarschijnlijk vanaf meer dan … verdiepingen", "type": "text", "default": "4"}]},
     {"key": "backup", "name": "Back-ups", "icon": "💾",
      "desc": "Automatische dagelijkse back-up van de volledige database.",
      "fields": [
@@ -610,6 +616,9 @@ def init_db():
         token TEXT, reason TEXT, status TEXT DEFAULT 'open',
         sent_at TEXT, sent_by TEXT, to_email TEXT,
         answers TEXT, signer_name TEXT, signature TEXT, received_at TEXT, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS bag_cache(
+        addr_key TEXT PRIMARY KEY, type TEXT, units INTEGER, floors INTEGER, lift INTEGER,
+        gebruiksdoel TEXT, bouwjaar TEXT, note TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
         m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
@@ -2676,11 +2685,29 @@ def order_detail(oid):
     leverdocs = conn.execute("""SELECT id, status, reason, sent_at, received_at, token
                                 FROM leverdoc WHERE order_id=? ORDER BY id DESC""", (oid,)).fetchall()
     has_template = bool(_leverdoc_active_template(conn))
+    _akey = " ".join((o["delivery_address"] or "").lower().split())
+    pand_ind = conn.execute("SELECT * FROM bag_cache WHERE addr_key=?", (_akey,)).fetchone() if _akey else None
+    pand_ind = dict(pand_ind) if pand_ind else None
     conn.close()
     return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
                            needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload,
                            leverdoc_reasons=leverdoc_reasons, leverdocs=leverdocs,
-                           leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE)
+                           leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE,
+                           pand_ind=pand_ind, bag_ready=bool((_bag_cfg().get("api_key") or "").strip()))
+
+
+@bp.route("/orders/<int:oid>/pand-indicatie", methods=["POST"])
+def order_pand_indicatie(oid):
+    if not has_perm("view_orders"):
+        abort(403)
+    conn = db()
+    o = conn.execute("SELECT delivery_address FROM orders WHERE id=?", (oid,)).fetchone()
+    conn.close()
+    if not o:
+        abort(404)
+    rec, err = _pand_indicatie(o["delivery_address"], force=True)
+    flash(err if err else "Pand-indicatie opgehaald uit de BAG.")
+    return redirect(url_for("planning.order_detail", oid=oid))
 
 
 # --------------------------------------------------------------------------- #
@@ -3954,6 +3981,10 @@ def _conn_advice(key):
                ["Controleer de job op cron-job.org (werkdagen 07:00, Europe/Amsterdam).",
                 "Check dat CRON_KEY op Render gelijk is aan de sleutel in de cron-URL.",
                 "De mails gaan pas écht de deur uit zodra Resend live is."]),
+        "bag": ("De BAG-koppeling (pand-indicatie) is nog niet ingesteld.",
+               ["Vraag gratis een BAG API-sleutel aan bij het Kadaster.",
+                "Vul de sleutel in bij Instellingen → Koppelingen → BAG.",
+                "Open daarna een order en klik ‘Pand-indicatie ophalen’."]),
         "backend": ("Het lijkt erop dat er recent fouten optraden in de OfficeRoute-software zelf.",
                ["Probeer de pagina waar het misging opnieuw te openen.",
                 "Bekijk de logs van de Render-service voor de exacte foutmelding.",
@@ -4101,6 +4132,9 @@ def _connection_health(deep=False):
     put("oauth", "err", "Niet gekoppeld", advice=_conn_advice("oauth"))
     put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
     put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
+    bagk = (_bag_cfg().get("api_key") or "").strip()
+    put("bag", "ok" if bagk else "warn", "Actief" if bagk else "Nog te koppelen",
+        advice=None if bagk else _conn_advice("bag"))
 
     # Bedrijfsbank (OfficeHub) - koppeling voor milieurapporten naar KPI's
     bb_url, bb_tok = _bb_config()
@@ -4591,6 +4625,137 @@ def _leverdoc_status_map(conn, order_ids):
         if out.get(r["order_id"]) != "received":
             out[r["order_id"]] = r["status"]
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  BAG pand-indicatie: eengezins vs flat + geschat aantal verdiepingen (lift)
+# --------------------------------------------------------------------------- #
+def _bag_cfg():
+    conn = db()
+    try:
+        cfg = {r["field"]: r["value"] for r in
+               conn.execute("SELECT field,value FROM integrations WHERE ikey=?", ("bag",)).fetchall()}
+    except Exception:
+        cfg = {}
+    conn.close()
+    return cfg
+
+
+def _http_json(url, headers=None, timeout=12):
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": "OfficeRoute"})
+    return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8"))
+
+
+def _pdok_addr(query):
+    """Geocode een vrij adres via PDOK (keyless) → dict met postcode + huisnummer."""
+    q = (query or "").strip()
+    if not q:
+        return None
+    url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?" + urllib.parse.urlencode(
+        {"q": q, "fq": "type:adres", "rows": 1, "fl": "postcode,huisnummer,weergavenaam"})
+    try:
+        docs = _http_json(url).get("response", {}).get("docs", [])
+    except Exception:
+        return None
+    if not docs:
+        return None
+    d = docs[0]
+    return {"postcode": (d.get("postcode") or "").replace(" ", ""),
+            "huisnummer": d.get("huisnummer"), "naam": d.get("weergavenaam")}
+
+
+def _threedbag_floors(pandid):
+    """Aantal bouwlagen uit de 3D-BAG (keyless), of None."""
+    if not pandid:
+        return None
+    try:
+        d = _http_json("https://api.3dbag.nl/collections/pand/items/NL.IMBAG.Pand.%s" % pandid)
+        co = (d.get("feature") or {}).get("CityObjects") or {}
+        for k in co:
+            a = co[k].get("attributes", {})
+            if a.get("b3_bouwlagen") is not None:
+                return int(a["b3_bouwlagen"])
+    except Exception:
+        return None
+    return None
+
+
+def _bag_lookup(postcode, huisnummer, key):
+    """BAG API (Kadaster): pand + gebruiksdoel + bouwjaar + aantal verblijfsobjecten.
+    Retourneert (info-dict, foutmelding-of-None)."""
+    base = "https://api.bag.kadaster.nl/lvbag/individuelebevragingen/v2"
+    hdr = {"X-Api-Key": key, "Accept": "application/hal+json",
+           "Accept-Crs": "epsg:28992", "User-Agent": "OfficeRoute"}
+    try:
+        u = base + "/adressenuitgebreid?" + urllib.parse.urlencode(
+            {"postcode": postcode, "huisnummer": huisnummer})
+        d = _http_json(u, headers=hdr)
+        adres = ((d.get("_embedded") or {}).get("adressen") or [None])[0]
+        if not adres:
+            return None, "Adres niet gevonden in de BAG."
+        pand_ids = adres.get("pandIdentificaties") or []
+        pand = pand_ids[0] if pand_ids else None
+        gebruik = ", ".join(adres.get("gebruiksdoelen") or [])
+        bouwjaar = str(adres.get("oorspronkelijkBouwjaar") or "")
+        units = None
+        if pand:
+            try:
+                u2 = base + "/adressen?" + urllib.parse.urlencode({"pandIdentificatie": pand, "pageSize": 100})
+                d2 = _http_json(u2, headers=hdr)
+                units = len((d2.get("_embedded") or {}).get("adressen") or [])
+            except Exception:
+                units = None
+        return {"pand": pand, "gebruiksdoel": gebruik, "bouwjaar": bouwjaar, "units": units}, None
+    except urllib.error.HTTPError as e:
+        return None, "BAG weigerde (code %s) — controleer de API-sleutel." % e.code
+    except Exception as e:
+        return None, "BAG-fout: %s" % e
+
+
+def _pand_indicatie(address, force=False):
+    """Bepaalt (en cachet) de pand-indicatie voor een leveradres: type (eengezins/flat),
+    geschat aantal verdiepingen en lift-inschatting. Retourneert (dict, foutmelding-of-None)."""
+    addr_key = " ".join((address or "").lower().split())
+    if not addr_key:
+        return None, "Geen adres."
+    if not force:
+        conn = db()
+        row = conn.execute("SELECT * FROM bag_cache WHERE addr_key=?", (addr_key,)).fetchone()
+        conn.close()
+        if row:
+            return dict(row), None
+    cfg = _bag_cfg()
+    key = (cfg.get("api_key") or "").strip()
+    if not key:
+        return None, "Vul eerst de BAG API-sleutel in bij Koppelingen → BAG."
+    geo = _pdok_addr(address)
+    if not geo or not geo.get("postcode") or not geo.get("huisnummer"):
+        return None, "Kon het adres niet herleiden (postcode/huisnummer)."
+    info, err = _bag_lookup(geo["postcode"], geo["huisnummer"], key)
+    if err:
+        return None, err
+    floors = _threedbag_floors(info.get("pand"))
+    units = info.get("units")
+    try:
+        lift_min = int(float(cfg.get("lift_floors") or "4"))
+    except Exception:
+        lift_min = 4
+    rec = {"addr_key": addr_key,
+           "type": "flat" if (units and units > 1) else "eengezins",
+           "units": units or 0, "floors": floors or 0,
+           "lift": 1 if (floors and floors > lift_min) else 0,
+           "gebruiksdoel": info.get("gebruiksdoel") or "",
+           "bouwjaar": info.get("bouwjaar") or "", "note": "",
+           "updated_at": datetime.now().isoformat(timespec="minutes")}
+    conn = db()
+    conn.execute("DELETE FROM bag_cache WHERE addr_key=?", (addr_key,))
+    conn.execute("""INSERT INTO bag_cache(addr_key,type,units,floors,lift,gebruiksdoel,bouwjaar,note,updated_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""",
+                 (rec["addr_key"], rec["type"], rec["units"], rec["floors"], rec["lift"],
+                  rec["gebruiksdoel"], rec["bouwjaar"], rec["note"], rec["updated_at"]))
+    conn.commit()
+    conn.close()
+    return rec, None
 
 
 @bp.route("/products", methods=["GET", "POST"])
@@ -5104,6 +5269,14 @@ def integration_test(ikey):
                                              "de API-velden zijn optioneel (alleen nodig voor backfill van oude orders).")
         return jsonify(ok=True, message="Shopify-webhook staat klaar. Plaats een testorder in Shopify "
                                         "(of klik 'Testmelding versturen') - de order verschijnt bij 'Nog in te plannen'.")
+    if ikey == "bag":
+        if not (_bag_cfg().get("api_key") or "").strip():
+            return jsonify(ok=False, message="Vul eerst de BAG API-sleutel in.")
+        rec, err = _pand_indicatie("Nikkelstraat 28 Breda", force=True)
+        if err:
+            return jsonify(ok=False, message="BAG-test: " + err)
+        return jsonify(ok=True, message="BAG-koppeling werkt. Testadres herkend als %s · ± %s verdieping(en)." % (
+            "flat/appartement" if rec["type"] == "flat" else "eengezinswoning", rec["floors"]))
     if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")

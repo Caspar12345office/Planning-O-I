@@ -54,6 +54,26 @@
 </div>
 {% endif %}
 
+{% if bag_ready or pand_ind %}
+<div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <svg class="ico"><use href="#ic-home"/></svg>
+  <div style="flex:1;min-width:240px">
+    {% if pand_ind %}
+      <b>Pand-indicatie:</b>
+      {% if pand_ind.type=='flat' %}waarschijnlijk een flat/appartement{% else %}waarschijnlijk een eengezins-/rijtjeshuis{% endif %}{% if pand_ind.floors %} · ± {{ pand_ind.floors }} verdieping(en){% endif %}{% if pand_ind.lift %} · <b style="color:#0f6e56">lift waarschijnlijk</b>{% else %} · lift onwaarschijnlijk{% endif %}
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">{% if pand_ind.units %}{{ pand_ind.units }} verblijfsobject(en) in het pand · {% endif %}{{ pand_ind.gebruiksdoel }}{% if pand_ind.bouwjaar %} · bouwjaar {{ pand_ind.bouwjaar }}{% endif %} · schatting o.b.v. BAG</div>
+    {% else %}
+      <b>Pand-indicatie beschikbaar.</b> <span class="muted">Haal op of dit adres waarschijnlijk een huis of flat is, met een lift-inschatting.</span>
+    {% endif %}
+  </div>
+  {% if p_has_perm('view_orders') %}
+  <form method="post" action="{{ url_for('planning.order_pand_indicatie', oid=o.id) }}" style="margin:0">
+    <button class="btn ghost sm" type="submit">{{ 'Vernieuwen' if pand_ind else 'Pand-indicatie ophalen' }}</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="cols">
   <div class="grid" style="align-content:start">
     <div class="card">
