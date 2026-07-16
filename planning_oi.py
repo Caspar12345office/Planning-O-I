@@ -3950,6 +3950,10 @@ def _conn_advice(key):
         "velocity": ("Er zijn nog geen busgegevens uit Velocity.",
                ["Controleer de busregistratie-koppeling (Velocity).",
                 "Voeg voertuigen toe onder Bussen."]),
+        "cron": ("De dagelijkse ochtendmail-planner (cron-job.org) heeft nog niet gedraaid.",
+               ["Controleer de job op cron-job.org (werkdagen 07:00, Europe/Amsterdam).",
+                "Check dat CRON_KEY op Render gelijk is aan de sleutel in de cron-URL.",
+                "De mails gaan pas écht de deur uit zodra Resend live is."]),
         "backend": ("Het lijkt erop dat er recent fouten optraden in de OfficeRoute-software zelf.",
                ["Probeer de pagina waar het misging opnieuw te openen.",
                 "Bekijk de logs van de Render-service voor de exacte foutmelding.",
@@ -4039,6 +4043,29 @@ def _connection_health(deep=False):
             advice=None if ok else _conn_advice("resend_domain"))
     else:
         put("resend", "ok", "Actief", "live")
+
+    # Cron-job.org - dagelijkse ochtendmail-planner (hangt aan Resend)
+    try:
+        rr = conn.execute("SELECT value FROM settings WHERE skey='cron_last_run'").fetchone()
+        cron_run = rr["value"] if rr else None
+    except Exception:
+        cron_run = None
+    if not cron_run:
+        put("cron", "warn", "Klaargezet · nog niet gedraaid", advice=_conn_advice("cron"))
+    else:
+        try:
+            age_h = (datetime.now() - datetime.strptime(cron_run[:16], "%Y-%m-%dT%H:%M")).total_seconds() / 3600.0
+        except Exception:
+            age_h = 999
+        try:
+            rs = conn.execute("SELECT value FROM settings WHERE skey='cron_last_sent'").fetchone()
+            sent = (" · %s mails" % rs["value"]) if (rs and rs["value"] not in (None, "", "0")) else ""
+        except Exception:
+            sent = ""
+        if age_h <= 26:
+            put("cron", "ok", "Gedraaid %s%s" % (cron_run[11:16], sent), "live")
+        else:
+            put("cron", "warn", "Laatste run %s" % cron_run[:10], advice=_conn_advice("cron"))
 
     # Shopify - groen alleen met webhook-secret
     try:
@@ -6010,6 +6037,15 @@ def cron_ochtendmail():
         n = auto_send_daily_mails()
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
+    # Laatste run vastleggen voor het commandocentrum (status van de cron-node).
+    try:
+        cc = db()
+        _save_setting(cc, "cron_last_run", datetime.now().isoformat(timespec="minutes"))
+        _save_setting(cc, "cron_last_sent", str(n))
+        cc.commit()
+        cc.close()
+    except Exception:
+        pass
     return jsonify(ok=True, sent=n)
 
 

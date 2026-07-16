@@ -47,6 +47,7 @@
   {'id':'shopify','x':50.0,'y':9.0,'nm':'Shopify','logo':'shopify','c':'#7AB55C','lw':26,'sub':'orders (webhook)'},
   {'id':'transip','x':26.0,'y':13.0,'nm':'TransIP','icon':'ic-link','c':'#0a3aa6','sub':'domein / DNS'},
   {'id':'resend','x':74.0,'y':13.0,'nm':'Resend','logo':'resend','c':'#1f1f1f','lw':19,'sub':'e-mail'},
+  {'id':'cron','x':90.0,'y':6.0,'nm':'Cron-job.org','icon':'ic-clock','c':'#2f6f8f','sub':'ochtendmail'},
   {'id':'app','x':10.0,'y':45.0,'nm':'Monteurs-app','app':'monteurs','sub':'route · uren'},
   {'id':'magazijn','x':90.0,'y':45.0,'nm':'Magazijn-app','app':'magazijn','sub':'picken'},
   {'id':'bedrijfsbank','x':91.0,'y':61.0,'nm':'Bedrijfsbank','app':'bedrijfsbank','sub':'KPI-rapporten'},
@@ -62,6 +63,7 @@
 ] %}
 {% set LINES = [
   [400,52,400,278,'shopify','in'],[208,75,400,278,'transip','in'],[592,75,400,278,'resend','out'],
+  [720,36,592,75,'cron','in'],
   [80,261,400,278,'app','both'],[720,261,400,278,'magazijn','both'],
   [200,487,400,278,'render','both'],[400,534,400,278,'db','both'],[600,487,400,278,'backend','both'],
   [136,423,80,261,'gps1','in'],[104,145,80,261,'maps','out'],
