@@ -382,7 +382,7 @@ function showAddr(ev, client, addr, oid){
     fetch('/api/pand-indicatie/'+oid).then(function(r){return r.json();}).then(function(d){
       var s=document.getElementById('pandStat'); if(!s) return;
       if(d&&d.ok&&d.pand){ s.innerHTML=pandSentence(d.pand); }
-      else if(d&&d.has_key){ s.innerHTML='nog niet opgehaald &nbsp;<button class="btn ghost sm" style="padding:3px 10px;font-size:12px" onclick="ophaalPand('+oid+')">Ophalen uit BAG</button>'; }
+      else if(d&&d.has_key){ ophaalPand(oid); }
       else { s.innerHTML='BAG-koppeling nog niet ingesteld (Instellingen → Koppelingen → BAG).'; }
     }).catch(function(){ var s=document.getElementById('pandStat'); if(s) s.textContent='niet beschikbaar'; });
   }

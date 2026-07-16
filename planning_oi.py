@@ -2201,6 +2201,20 @@ def planning():
             week_days.append(dd)
         dd += timedelta(days=1)
     day_label = _NL_DAYS[d.weekday()].capitalize() + d.strftime(" %d-%m-%Y")
+    # Vul de BAG-cache alvast op de achtergrond voor de adressen van deze dag
+    # (geplande stops + nog in te plannen), zodat de pand-indicatie er direct staat.
+    try:
+        _pw = db()
+        _addrs = [r["delivery_address"] for r in _pw.execute(
+            "SELECT o.delivery_address FROM planning p JOIN orders o ON o.id=p.order_id "
+            "WHERE p.date=? AND o.delivery_address IS NOT NULL AND o.delivery_address<>'' "
+            "UNION SELECT delivery_address FROM orders "
+            "WHERE status='in_te_plannen' AND delivery_address IS NOT NULL AND delivery_address<>'' LIMIT 60",
+            (day,)).fetchall()]
+        _pw.close()
+        _bag_prewarm(_addrs)
+    except Exception:
+        pass
     return render_template("planning/planning.html", monteurs=monteurs, routes=routes_by_m, totals=totals,
                            unplanned=unplanned, items=items_map, frees=frees, day=day, dateobj=d,
                            prev_day=prev_day, next_day=next_day, week_days=week_days, today=_today_iso(),
@@ -2750,11 +2764,18 @@ def order_detail(oid):
     pand_ind = conn.execute("SELECT * FROM bag_cache WHERE addr_key=?", (_akey,)).fetchone() if _akey else None
     pand_ind = dict(pand_ind) if pand_ind else None
     conn.close()
+    _bag_key_set = bool((_bag_cfg().get("api_key") or "").strip())
+    # Nog niet gecachet maar sleutel is er? Direct ophalen (en cachen) zodat het er gewoon staat.
+    if pand_ind is None and _bag_key_set and o["delivery_address"]:
+        _rec, _ = _pand_indicatie(o["delivery_address"])
+        pand_ind = dict(_rec) if _rec else None
+    if pand_ind:
+        pand_ind["functie"] = _bag_functie(pand_ind.get("gebruiksdoel"))
     return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
                            needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload,
                            leverdoc_reasons=leverdoc_reasons, leverdocs=leverdocs,
                            leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE,
-                           pand_ind=pand_ind, bag_ready=bool((_bag_cfg().get("api_key") or "").strip()))
+                           pand_ind=pand_ind, bag_ready=_bag_key_set)
 
 
 @bp.route("/orders/<int:oid>/pand-indicatie", methods=["POST"])
@@ -4911,6 +4932,54 @@ def _bag_functie(gebruiksdoel):
     if "woon" in g:
         return "Woning"
     return ""
+
+
+_BAG_INFLIGHT = set()
+_BAG_LOCK = threading.Lock()
+
+
+def _bag_prewarm(addresses):
+    """Vult op de achtergrond de BAG-cache voor nog-niet-opgehaalde adressen,
+    zodat de pand-indicatie er 'gewoon' staat zonder handmatig opvragen."""
+    key = (_bag_cfg().get("api_key") or "").strip()
+    if not key:
+        return
+    todo = []
+    seen = set()
+    conn = db()
+    try:
+        for a in addresses:
+            ak = " ".join((a or "").lower().split())
+            if not ak or ak in seen:
+                continue
+            seen.add(ak)
+            with _BAG_LOCK:
+                if ak in _BAG_INFLIGHT:
+                    continue
+            if conn.execute("SELECT 1 FROM bag_cache WHERE addr_key=?", (ak,)).fetchone():
+                continue
+            todo.append((ak, a))
+    finally:
+        conn.close()
+    if not todo:
+        return
+    todo = todo[:40]  # veiligheidscap per pagina-load
+    with _BAG_LOCK:
+        for ak, _a in todo:
+            _BAG_INFLIGHT.add(ak)
+
+    def _work():
+        for ak, a in todo:
+            try:
+                _pand_indicatie(a)  # doet de lookup en cachet het resultaat
+            except Exception:
+                pass
+            finally:
+                with _BAG_LOCK:
+                    _BAG_INFLIGHT.discard(ak)
+            time.sleep(1.0)  # vriendelijk voor de externe BAG-diensten
+
+    threading.Thread(target=_work, daemon=True).start()
 
 
 @bp.route("/products", methods=["GET", "POST"])
