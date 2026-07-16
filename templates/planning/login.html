@@ -69,12 +69,17 @@
       <p class="sub">Koppel eenmalig je authenticator-app en voer de code in. Daarna log je voortaan in met een code uit die app.</p>
       {% if error %}<div class="err">{{ error }}</div>{% endif %}
       <div class="demo" style="border-style:solid">
-        <b>Zo koppel je 'm (Google of Microsoft Authenticator):</b>
-        <ol style="margin:8px 0 4px 18px;padding:0;line-height:1.65">
-          <li>Op je telefoon: <a href="{{ otp_uri }}" style="color:var(--accent2);font-weight:700">tik hier om toe te voegen</a>.</li>
-          <li>Of kies in de app "handmatig / setup key invoeren" en gebruik deze sleutel:</li>
-        </ol>
-        <div style="text-align:center;margin:10px 0"><code style="display:inline-block;max-width:100%;font-size:14px;letter-spacing:1px;line-height:1.6;word-break:break-all;padding:8px 12px">{% for i in range(0, totp_secret|length, 4) %}{{ totp_secret[i:i+4] }} {% endfor %}</code></div>
+        <b>Scan deze QR met je authenticator-app</b>
+        <p style="margin:4px 0 0;font-size:12.5px">Open Google of Microsoft Authenticator → "+" → "QR-code scannen".</p>
+        {% if qr_svg %}<div style="text-align:center;margin:12px 0">
+          <span style="display:inline-block;background:#fff;padding:10px;border-radius:12px;border:1px solid var(--line)">{{ qr_svg|safe }}</span>
+        </div>{% endif %}
+        <details style="margin-top:6px">
+          <summary style="cursor:pointer;font-size:12.5px;color:var(--accent2)">Kan je niet scannen? Handmatig invoeren</summary>
+          <p style="margin:8px 0 4px;font-size:12.5px">Op je telefoon: <a href="{{ otp_uri }}" style="color:var(--accent2);font-weight:700">tik hier om toe te voegen</a>. Of kies "setup key invoeren" en typ deze sleutel over:</p>
+          <div style="text-align:center;margin:8px 0"><code style="display:inline-block;max-width:100%;font-size:14px;letter-spacing:1px;line-height:1.6;word-break:break-all;padding:8px 12px">{% for i in range(0, totp_secret|length, 4) %}{{ totp_secret[i:i+4] }} {% endfor %}</code></div>
+          <p style="margin:2px 0 0;font-size:11.5px;color:var(--muted)">Let op: de sleutel bevat alleen letters en de cijfers 2 t/m 7. Een rond teken is dus altijd de letter <b>O</b> (nooit een nul).</p>
+        </details>
       </div>
       <form method="post" style="margin-top:14px">
         <label>Code uit je authenticator-app</label>
