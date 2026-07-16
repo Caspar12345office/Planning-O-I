@@ -20,14 +20,14 @@
   <div class="card" style="margin-bottom:18px">
     <div class="acctgrid">
       <div><label>Naam</label><input name="name" value="{{ u.name }}" required></div>
-      <div><label>E-mailadres (inloggen + 2FA-code)</label><input type="email" name="email" value="{{ u.email }}" required></div>
+      <div><label>E-mailadres (inloggen)</label><input type="email" name="email" value="{{ u.email }}" required></div>
       <div><label>Nieuw wachtwoord <span class="muted" style="font-weight:400">(leeg laten = ongewijzigd)</span></label><input type="text" name="new_password" placeholder="alleen invullen om te wijzigen" autocomplete="new-password"></div>
       <div><label>Gekoppelde monteur <span class="muted" style="font-weight:400">(voor de route in de app)</span></label>
         <select name="monteur_id"><option value="">- geen -</option>
         {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if u.monteur_id==m.id }}>{{ m.name }}</option>{% endfor %}
         </select></div>
     </div>
-    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs loggen in met hun <b>privé-e-mailadres</b> - daar komt ook de 2FA-code binnen.</p>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Monteurs loggen in met hun <b>privé-e-mailadres</b>. De 2FA-code komt uit hun eigen authenticator-app (Google/Microsoft Authenticator).</p>
   </div>
   <div class="card" style="margin-bottom:18px">
     <div class="rolerow">
@@ -54,6 +54,15 @@
       </div>
     </div>
     {% endfor %}
+  </div>
+</form>
+
+<form method="post" action="{{ url_for('planning.user_reset_2fa', uid=u.id) }}" style="margin-top:18px"
+      onsubmit="return confirm('2FA-koppeling resetten voor {{ u.name }}?\n\nBij de eerstvolgende login moet deze persoon opnieuw een authenticator-app koppelen. Doe dit alleen bij een nieuwe/verloren telefoon.');">
+  <div class="card">
+    <h4 style="margin:0 0 6px">Tweestapsverificatie (2FA)</h4>
+    <p class="muted" style="font-size:12.5px;margin:0 0 12px">Reset de koppeling met de authenticator-app als deze persoon een nieuwe telefoon heeft of geen toegang meer heeft tot de app. Bij de eerstvolgende login koppelt hij/zij dan opnieuw.</p>
+    <button class="btn ghost sm" type="submit"><svg class="ico"><use href="#ic-refresh"/></svg> 2FA-koppeling resetten</button>
   </div>
 </form>
 {% endblock %}

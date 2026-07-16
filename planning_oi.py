@@ -5437,6 +5437,22 @@ def user_edit(uid):
                            roles=ROLE_LABELS, role_defaults=ROLE_DEFAULTS, monteurs=monteurs)
 
 
+@bp.route("/users/<int:uid>/reset-2fa", methods=["POST"])
+def user_reset_2fa(uid):
+    guard = login_required("manage_users")
+    if guard:
+        return guard
+    conn = db()
+    u = conn.execute("SELECT id,name FROM users WHERE id=?", (uid,)).fetchone()
+    if not u:
+        conn.close(); abort(404)
+    # Sleutel wissen: bij de volgende login koppelt deze persoon een nieuwe authenticator.
+    conn.execute("UPDATE users SET totp_secret=NULL WHERE id=?", (uid,))
+    conn.commit(); conn.close()
+    flash("2FA-koppeling gereset voor %s. Bij de eerstvolgende login koppelt deze persoon opnieuw een authenticator-app." % u["name"])
+    return redirect(url_for("planning.user_edit", uid=uid))
+
+
 # --------------------------------------------------------------------------- #
 #  Bedrijfsinstellingen + e-mailtemplates
 # --------------------------------------------------------------------------- #

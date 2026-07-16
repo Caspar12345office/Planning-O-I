@@ -74,7 +74,7 @@
           <li>Op je telefoon: <a href="{{ otp_uri }}" style="color:var(--accent2);font-weight:700">tik hier om toe te voegen</a>.</li>
           <li>Of kies in de app "handmatig / setup key invoeren" en gebruik deze sleutel:</li>
         </ol>
-        <div style="text-align:center;margin:8px 0"><code style="font-size:15px;letter-spacing:2px">{{ totp_secret }}</code></div>
+        <div style="text-align:center;margin:10px 0"><code style="display:inline-block;max-width:100%;font-size:14px;letter-spacing:1px;line-height:1.6;word-break:break-all;padding:8px 12px">{% for i in range(0, totp_secret|length, 4) %}{{ totp_secret[i:i+4] }} {% endfor %}</code></div>
       </div>
       <form method="post" style="margin-top:14px">
         <label>Code uit je authenticator-app</label>
