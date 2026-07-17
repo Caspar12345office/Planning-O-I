@@ -6023,11 +6023,75 @@ def _performance_data():
     return report, tot_wk, tot_mo
 
 
+def _kpi_since(period):
+    today = datetime.now().date()
+    if period == "week":
+        return (today - timedelta(days=today.weekday())).isoformat(), "deze week"
+    if period == "all":
+        return "0000-01-01", "alle tijd"
+    return today.replace(day=1).isoformat(), "deze maand"
+
+
+def _on_time(date, slot_end, aangekomen_at):
+    """True als de monteur binnen het beloofde tijdvak (voor slot_end) aankwam."""
+    if not (date and slot_end and aangekomen_at):
+        return None
+    try:
+        end = datetime.fromisoformat("%sT%s:00" % (date, slot_end.strip()[:5]))
+        return datetime.fromisoformat(aangekomen_at) <= end
+    except Exception:
+        return None
+
+
+def _monteur_kpis(conn, since_iso):
+    """Ranglijst per monteur: aantal leveringen, gemiddelde montagetijd per levering
+    en per artikel, en op-tijd-percentage (aangekomen binnen het beloofde tijdvak)."""
+    mons = {m["id"]: m["name"] for m in conn.execute("SELECT id,name FROM monteurs WHERE active=1").fetchall()}
+    agg = {mid: {"name": nm, "n": 0, "dur": 0.0, "items": 0, "ot_ok": 0, "ot_elig": 0}
+           for mid, nm in mons.items()}
+    rows = conn.execute("""SELECT p.monteur_id, p.date, p.slot_end, p.aangekomen_at, p.afgerond_at, p.order_id
+                           FROM planning p
+                           WHERE p.status='afgerond' AND p.afgerond_at IS NOT NULL
+                                 AND p.aangekomen_at IS NOT NULL AND p.afgerond_at>=?""", (since_iso,)).fetchall()
+    for r in rows:
+        a = agg.get(r["monteur_id"])
+        if not a:
+            continue
+        dur = _klus_duur_min(r["aangekomen_at"], r["afgerond_at"])
+        if dur is None:
+            continue
+        a["n"] += 1
+        a["dur"] += dur
+        q = conn.execute("SELECT COALESCE(SUM(qty),0) q FROM order_items WHERE order_id=?",
+                         (r["order_id"],)).fetchone()["q"]
+        a["items"] += (q or 0)
+        ot = _on_time(r["date"], r["slot_end"], r["aangekomen_at"])
+        if ot is not None:
+            a["ot_elig"] += 1
+            a["ot_ok"] += 1 if ot else 0
+    out = []
+    for a in agg.values():
+        if a["n"] == 0:
+            continue
+        out.append({"name": a["name"], "n": a["n"],
+                    "avg_levering": round(a["dur"] / a["n"]),
+                    "avg_artikel": (round(a["dur"] / a["items"]) if a["items"] else None),
+                    "op_tijd_pct": (round(a["ot_ok"] / a["ot_elig"] * 100) if a["ot_elig"] else None)})
+    out.sort(key=lambda x: (x["op_tijd_pct"] if x["op_tijd_pct"] is not None else -1,
+                            -x["avg_levering"]), reverse=True)
+    return out
+
+
 @bp.route("/rapportages/prestaties")
 def performance():
     guard = login_required("view_performance")
     if guard:
         return guard
+    period = request.args.get("period", "month")
+    since_iso, period_label = _kpi_since(period)
+    _kc = db()
+    kpis = _monteur_kpis(_kc, since_iso)
+    _kc.close()
     report, tot_wk, tot_mo = _performance_data()
     conn = db()
     _maybe_learn(conn)                       # leert 1x per dag op de achtergrond
@@ -6036,7 +6100,7 @@ def performance():
     conn.close()
     return render_template("planning/performance.html", report=report, tot_wk=tot_wk, tot_mo=tot_mo,
                            labels=OUTCOME_LABELS, duur_types=duur_types, duur_monteur=duur_monteur,
-                           duur_flags=duur_flags)
+                           duur_flags=duur_flags, kpis=kpis, period=period, period_label=period_label)
 
 
 @bp.route("/rapportages/prestaties/export.csv")

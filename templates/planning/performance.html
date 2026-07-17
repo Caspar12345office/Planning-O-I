@@ -3,6 +3,19 @@
 {% block pagehead %}<h1>Monteursprestaties</h1><p>Resultaten per monteur · deze week en deze maand</p>{% endblock %}
 {% block page_css %}
   .toolbar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .lbtabs{display:inline-flex;gap:4px;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:4px;margin-bottom:14px}
+  .lbtabs a{padding:6px 15px;border-radius:999px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none}
+  .lbtabs a.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow-sm)}
+  .lb{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow-sm)}
+  .lb th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:12px 14px;border-bottom:1px solid var(--line)}
+  .lb th.num,.lb td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .lb td{padding:13px 14px;border-bottom:1px solid var(--line);font-size:14px}
+  .lb tr:last-child td{border-bottom:0}
+  .lb .rk{width:38px;font-weight:800;color:var(--muted);text-align:center;font-size:15px}
+  .lb .nm{font-weight:700;color:var(--ink)}
+  .lb tr.top td{background:#fbf7ec}
+  .lb .pct{font-weight:700}
+  .lb .pct.good{color:#3c7a2c}.lb .pct.mid{color:#9a6a17}.lb .pct.low{color:#b23b28}
   .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}
   .kpi{border-radius:16px;padding:18px 20px;color:#fff;position:relative;overflow:hidden}
   .kpi.succesvol{background:linear-gradient(135deg,#4f9d3a,#73bf52)}
@@ -55,6 +68,38 @@
   .flagcount{background:#c0533f;color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:2px 9px}
 {% endblock %}
 {% block content %}
+<div class="lsec" style="margin-top:0;margin-bottom:14px">
+  <h2>Ranglijst per monteur</h2>
+  <p class="sub">Wie is het snelst en het vaakst op tijd ({{ period_label }})? Mooi voor een onderling klassement.</p>
+</div>
+<div class="lbtabs">
+  <a href="?period=week" class="{{ 'on' if period=='week' }}">Deze week</a>
+  <a href="?period=month" class="{{ 'on' if period=='month' }}">Deze maand</a>
+  <a href="?period=all" class="{{ 'on' if period=='all' }}">Alle tijd</a>
+</div>
+<table class="lb">
+  <thead><tr>
+    <th class="rk">#</th><th>Monteur</th>
+    <th class="num">Leveringen</th><th class="num">Gem. per levering</th>
+    <th class="num">Gem. per artikel</th><th class="num">Op tijd</th>
+  </tr></thead>
+  <tbody>
+  {% for k in kpis %}
+    <tr class="{{ 'top' if loop.index<=3 }}">
+      <td class="rk">{% if loop.index==1 %}🥇{% elif loop.index==2 %}🥈{% elif loop.index==3 %}🥉{% else %}{{ loop.index }}{% endif %}</td>
+      <td class="nm">{{ k.name }}</td>
+      <td class="num">{{ k.n }}</td>
+      <td class="num">{{ k.avg_levering }} min</td>
+      <td class="num">{{ (k.avg_artikel ~ ' min') if k.avg_artikel is not none else 'n.v.t.' }}</td>
+      <td class="num"><span class="pct {{ 'good' if (k.op_tijd_pct is not none and k.op_tijd_pct>=90) else ('mid' if (k.op_tijd_pct is not none and k.op_tijd_pct>=75) else 'low') }}">{{ (k.op_tijd_pct ~ '%') if k.op_tijd_pct is not none else 'n.v.t.' }}</span></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">Nog geen afgeronde leveringen met gemeten tijden in deze periode.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="sub" style="color:var(--muted);font-size:12px;margin:10px 2px 22px">Gemiddelde tijd = van "ik ben bij de klant" tot afgetekend. Op tijd = aangekomen binnen het beloofde tijdvak. Gesorteerd op op-tijd-percentage.</p>
+
 <div class="toolbar">
   <a class="btn ghost sm" href="{{ url_for('planning.performance_export') }}"><svg class="ico"><use href="#ic-download"/></svg> Excel (CSV)</a>
   <button class="btn ghost sm" onclick="window.print()"><svg class="ico"><use href="#ic-download"/></svg> PDF / print</button>
