@@ -740,11 +740,14 @@ def _seed(conn):
         c.execute("""INSERT INTO monteurs(name,phone,email,speed,color,bus_id,home_address,home_lat,home_lng,standard)
                      VALUES(?,?,?,?,?,?,?,?,?,?)""", m)
 
+    # Seed-wachtwoord uit env (productie: zet SEED_ADMIN_PW = geheim), anders lokale default.
+    seed_pw = os.environ.get("SEED_ADMIN_PW", "PlanningOI2025!")
+
     def mk(name, email, role, monteur_id=None, phone="", extra=None):
         perms = list(ROLE_DEFAULTS[role]) + (extra or [])
         c.execute("""INSERT INTO users(name,email,password,role,permissions,phone,monteur_id,created_at)
                      VALUES(?,?,?,?,?,?,?,?)""",
-                  (name, email, _hash_pw("PlanningOI2025!"), role,
+                  (name, email, _hash_pw(seed_pw), role,
                    json.dumps(perms), phone, monteur_id, iso(today)))
     # kantoor
     mk("Caspar", "caspar@office-interior.nl", "beheerder", phone="085-0481444")
@@ -3679,7 +3682,7 @@ _PICKER_DEFAULTS = [
     ("Gregorz", "gregorz@office-interior.nl"),
     ("Stijn Pas", "stijnpas@office-interior.nl"),
 ]
-_PICKER_DEFAULT_PW = "Magazijn2026!"
+_PICKER_DEFAULT_PW = os.environ.get("SEED_PICKER_PW", "Magazijn2026!")
 
 
 @bp.route("/users/picker-defaults", methods=["POST"])
