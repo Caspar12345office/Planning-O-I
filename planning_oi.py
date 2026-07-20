@@ -3845,7 +3845,7 @@ def documenten_delete(did):
 #  Leveringsdocumenten: sjablonen beheren, versturen (beveiligde link),
 #  automatische ontvangst-detectie + doorzoekbare lijst.
 # --------------------------------------------------------------------------- #
-LEVERDOC_BASE = "https://planning-o-i.onrender.com"
+LEVERDOC_BASE = os.environ.get("PUBLIC_BASE_URL", "https://planning-o-i.onrender.com")  # publieke basis-URL voor track/leverdoc-links; zet PUBLIC_BASE_URL bij verhuizing/domein
 
 
 @bp.route("/leveringsdocumenten", methods=["GET", "POST"])
@@ -6452,7 +6452,7 @@ def auto_send_daily_mails():
                            WHERE p.date=? AND p.arrival_mailed=0 AND p.status!='afgerond'""", (today,)).fetchall()
     for r in rows:
         tijdvak = (r["slot_start"] or "08:00") + "-" + (r["slot_end"] or "17:00")
-        link = "https://planning-o-i.onrender.com/track/%s" % r["track_token"]
+        link = "%s/track/%s" % (LEVERDOC_BASE, r["track_token"])
         greet = "Beste %s," % (r["client"] or "klant")
         intro = _mailtxt("mailtxt_today_b")
         body = greet + "\n\n" + intro
@@ -6486,7 +6486,7 @@ def auto_send_daily_mails():
                 html = _brand_email(_mailtxt("mailtxt_delay_h"), _paras(greet, intro),
                                     info=[("Nieuwe verwachte tijd", a["at"]), ("Ordernummer", "#" + st["order_number"])],
                                     button=("Volg uw levering",
-                                            "https://planning-o-i.onrender.com/track/%s" % st["track_token"]))
+                                            "%s/track/%s" % (LEVERDOC_BASE, st["track_token"])))
                 _send_mail((st["oemail"] or st["cemail"]), subject, body, html)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                              (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
