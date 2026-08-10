@@ -127,11 +127,23 @@ def _get_pg_pool():
     if _PG_POOL is not None or _PG_POOL_TRIED:
         return _PG_POOL
     _PG_POOL_TRIED = True
+    p = None
     try:
         from psycopg_pool import ConnectionPool
-        _PG_POOL = ConnectionPool(_PG_URL, min_size=1, max_size=5,
-                                  kwargs={"autocommit": True}, timeout=10, open=True)
+        # open=False + expliciet open(wait=True): zo valideren we NU of de pool echt
+        # verbindt. Lukt dat niet snel, dan gooien we hem weg en gebruiken directe
+        # verbindingen -- die zijn same-region snel. Voorkomt dat elke request de
+        # volle pool-timeout (10s) afwacht op een kapotte pool.
+        p = ConnectionPool(_PG_URL, min_size=1, max_size=5,
+                           kwargs={"autocommit": True}, timeout=10, open=False)
+        p.open(wait=True, timeout=6)
+        _PG_POOL = p
     except Exception:
+        try:
+            if p is not None:
+                p.close()
+        except Exception:
+            pass
         _PG_POOL = None  # val terug op directe verbindingen
     return _PG_POOL
 
@@ -269,6 +281,14 @@ class _PgConn:
             try:
                 self._raw = self._pool.getconn()
             except Exception:
+                # Pool onbereikbaar: zet hem globaal uit zodat volgende requests niet
+                # opnieuw de pool-timeout betalen; val terug op een directe verbinding.
+                global _PG_POOL
+                try:
+                    self._pool.close()
+                except Exception:
+                    pass
+                _PG_POOL = None
                 self._pool = None
         if self._pool is None:
             import psycopg

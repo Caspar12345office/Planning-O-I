@@ -89,19 +89,5 @@ def _perf(resp):
     return resp
 
 
-# --- TIJDELIJK: debug-traceback op 500, alleen zichtbaar met geheime token ---
-# VERWIJDEREN zodra de verse-DB-crash gevonden is.
-import traceback as _traceback
-
-
-@app.errorhandler(500)
-def _dbg_err500(e):
-    if request.args.get("_dbg") == "8fb93da7f0e28b39":
-        orig = getattr(e, "original_exception", None) or e
-        tb = "".join(_traceback.format_exception(type(orig), orig, orig.__traceback__))
-        return "<pre>" + tb + "</pre>", 500
-    return "Internal Server Error", 500
-
-
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5059, debug=False)
