@@ -6545,38 +6545,5 @@ def cron_ochtendmail():
     return jsonify(ok=True, sent=n)
 
 
-@bp.route("/admin/wipe-demo", methods=["POST"])
-def admin_wipe_demo():
-    """TIJDELIJK: verwijdert de demo-seed-data uit de gedeelde database (transactioneel).
-    Behoudt inlogaccounts (users), monteurs, bedrijfsinstellingen en koppelingen.
-    Beveiligd met een geheime token. VERWIJDEREN na gebruik."""
-    if request.values.get("key", "") != "feda2f7f05163860c98cf8f8":
-        return jsonify(ok=False, error="unauthorized"), 403
-    conn = db()
-    result = {}
-
-    def wipe(sql, label):
-        try:
-            conn.execute(sql)
-            result[label] = "ok"
-        except Exception as e:
-            result[label] = "skip: " + str(e)[:60]
-
-    # transactionele / demo-tabellen (kinderen eerst)
-    for tbl in ("order_items", "order_magazijn", "voormontage_done", "route_pick", "route_crew",
-                "planning", "deliveries", "leverdoc", "team_questions", "chat_messages", "email_log",
-                "monteur_location", "monteur_day_gps", "vehicle_km", "free_days", "office_days",
-                "day_roster", "route_closed", "bus_choices", "bus_issues", "presence", "bag_cache"):
-        wipe("DELETE FROM %s" % tbl, tbl)
-    wipe("DELETE FROM orders", "orders")
-    wipe("DELETE FROM clients", "clients")
-    # bussen weg (demo); monteurs blijven maar hun bus-koppeling nullen
-    wipe("UPDATE monteurs SET bus_id=NULL", "monteurs.bus_id")
-    wipe("DELETE FROM busses", "busses")
-    conn.commit()
-    conn.close()
-    return jsonify(ok=True, result=result)
-
-
 # Idempotent initialiseren bij import (ook onder gunicorn).
 init_db()
