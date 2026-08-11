@@ -213,14 +213,6 @@
   </div>
 </div>
 
-{% if p_user and p_user.role=='beheerder' %}
-<div style="margin-top:22px;padding-top:16px;border-top:1px solid var(--line)">
-  <form method="post" action="{{ url_for('planning.admin_demo_planning') }}" onsubmit="return confirm('De dagplanning van vandaag vullen met demo-leveringen?')" style="margin:0">
-    <button class="btn gold sm" type="submit"><svg class="ico" style="width:15px;height:15px;vertical-align:-2px"><use href="#ic-bolt"/></svg> Vul dagplanning met demo-data</button>
-  </form>
-  <div style="font-size:11.5px;color:var(--muted);margin-top:6px">Alleen voor demonstratie - vult de dagplanning van vandaag met voorbeeldleveringen.</div>
-</div>
-{% endif %}
 {% endblock %}
 
 {% block scripts %}

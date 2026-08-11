@@ -3153,10 +3153,12 @@ def urenregister():
 
 @bp.route("/urenregister/demo", methods=["POST"])
 def urenregister_demo():
-    """Vul het urenregister met testdata (beheerder) - incl. één verdachte regel."""
+    """Verwijderd: testdata invullen is uitgeschakeld nu we live werken."""
     u = current_user()
     if not u or u["role"] != "beheerder":
         abort(403)
+    flash("De functie om testdata in te vullen is verwijderd; we werken nu met echte gegevens.")
+    return redirect(request.referrer or url_for("planning.dashboard"))
     conn = db()
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY id LIMIT 4").fetchall()
     if not monteurs:
@@ -3602,6 +3604,8 @@ def magazijn_demo():
     u = current_user()
     if not u or u["role"] != "beheerder":
         abort(403)
+    flash("De functie om testdata in te vullen is verwijderd; we werken nu met echte gegevens.")
+    return redirect(request.referrer or url_for("planning.dashboard"))
     conn = db()
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY id").fetchall()
     if not monteurs:
@@ -4367,10 +4371,12 @@ _SLOTS_DEMO = [("08:00", "09:15"), ("09:30", "10:45"), ("11:00", "12:15"),
 
 @bp.route("/admin/demo-planning", methods=["POST"])
 def admin_demo_planning():
-    """Vul de dagplanning van vandaag met demo-leveringen (beheerder, niet-destructief)."""
+    """Verwijderd: dagplanning met demo-leveringen vullen is uitgeschakeld nu we live werken."""
     u = current_user()
     if not u or u["role"] != "beheerder":
         abort(403)
+    flash("De functie om de planning met demo-data te vullen is verwijderd; we werken nu met echte gegevens.")
+    return redirect(request.referrer or url_for("planning.dashboard"))
     conn = db()
     today = _today_iso()
     monteurs = [m["id"] for m in conn.execute("SELECT id FROM monteurs WHERE active=1 ORDER BY id").fetchall()]
@@ -4408,6 +4414,8 @@ def admin_reseed_demo():
     u = current_user()
     if not u or u["role"] != "beheerder":
         abort(403)
+    flash("De functie om demodata opnieuw te vullen is verwijderd.")
+    return redirect(request.referrer or url_for("planning.dashboard"))
     if (request.form.get("confirm") or "") != "WIS-EN-VUL":
         abort(400)
     conn = db()
