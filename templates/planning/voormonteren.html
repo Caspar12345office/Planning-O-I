@@ -18,9 +18,26 @@
   .vfilter{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
   .vfilter a{padding:8px 15px;border-radius:999px;font-size:13px;font-weight:600;border:1.5px solid var(--line);color:var(--muted);background:var(--panel)}
   .vfilter a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .vfix{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:#fdf3e6;border:1px solid #f0cf9a;
+        border-radius:12px;padding:13px 16px;margin-bottom:18px;font-size:13px;line-height:1.55;color:#8a5a12}
+  .vfix>div{flex:1;min-width:240px}
+  .vfix .vnames{margin-top:6px;font-size:12px;color:#a07437}
+  .vfix .btn{flex:0 0 auto}
 {% endblock %}
 {% block content %}
 <div class="vnote"><svg class="ico"><use href="#ic-wrench"/></svg> Voormontage gebeurt doorgaans de werkdag <b>vóór</b> de levering. Filter hieronder op productsoort.</div>
+
+{% if n_overig and p_has_perm('manage_settings') %}
+<div class="vfix">
+  <div>
+    <b>{{ n_overig }} artikel{{ '' if n_overig == 1 else 'en' }} staat nog onder “Overige”.</b>
+    De app kan de soort niet uit de naam opmaken, omdat Shopify-regels ingekort worden voor de monteurs.
+    Zet de categorie bij het artikel, dan komt hij hier voortaan onder de juiste kop te staan.
+    <div class="vnames">{{ overig_names|join(' · ') }}{% if n_overig > overig_names|length %} · en nog {{ n_overig - overig_names|length }}{% endif %}</div>
+  </div>
+  <a class="btn ghost sm" href="{{ url_for('planning.products') }}">Naar Artikelen</a>
+</div>
+{% endif %}
 
 <div class="vfilter">
   <a href="{{ url_for('planning.voormonteren') }}" class="{{ 'on' if sel == 'alle' }}">Alles</a>

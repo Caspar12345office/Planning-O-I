@@ -640,6 +640,10 @@ def init_db():
     CREATE TABLE IF NOT EXISTS bag_cache(
         addr_key TEXT PRIMARY KEY, type TEXT, units INTEGER, floors INTEGER, lift INTEGER,
         gebruiksdoel TEXT, bouwjaar TEXT, note TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS order_deletions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_number TEXT, client TEXT, city TEXT,
+        status TEXT, amount REAL DEFAULT 0, source TEXT, shopify_id TEXT,
+        was_fulfilled INTEGER DEFAULT 0, deleted_by TEXT, deleted_at TEXT);
     CREATE TABLE IF NOT EXISTS products(
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, display_name TEXT,
         m1 INTEGER DEFAULT 0, m2 INTEGER DEFAULT 0, m3 INTEGER DEFAULT 0,
@@ -686,6 +690,8 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN gps_departure_at TEXT",
                  "ALTER TABLE planning ADD COLUMN arrival_backfilled INTEGER DEFAULT 0",
                  "ALTER TABLE users ADD COLUMN totp_secret TEXT",
+                 # Categorie voor de voormontage-indeling (Bureaus/Bureaustoelen/...)
+                 "ALTER TABLE products ADD COLUMN category TEXT",
                  # De monteur-, magazijn- en hub-app blokkeren een account na 5 mislukte
                  # inlogpogingen. Hier ook aanmaken zodat het ontgrendelen altijd werkt.
                  "ALTER TABLE users ADD COLUMN login_fails INTEGER DEFAULT 0",
@@ -2740,9 +2746,16 @@ def orders():
     q += " ORDER BY o.id ASC" if sort == "oud" else " ORDER BY o.id DESC"
     rows = conn.execute(q, args).fetchall()
     counts = {r["status"]: r["n"] for r in conn.execute("SELECT status,COUNT(*) AS n FROM orders GROUP BY status")}
+    deleted = []
+    if has_perm("delete_orders"):
+        try:
+            deleted = conn.execute("SELECT * FROM order_deletions ORDER BY id DESC LIMIT 15").fetchall()
+        except Exception:
+            deleted = []
     conn.close()
     u = current_user()
     return render_template("planning/orders.html", orders=rows, counts=counts, status=status, sort=sort,
+                           deleted=deleted,
                            is_admin=(u["role"] == "beheerder" if u else False))
 
 
@@ -2812,6 +2825,22 @@ ORDER_CHILD_TABLES = ("order_items", "planning", "order_magazijn", "deliveries",
                       "leverdoc", "team_questions")
 
 
+def _drop_pakbon_file(conn, pakbon):
+    """Ruim het pakbon-bestand op na het verwijderen van een order, maar alleen als
+    geen andere order hetzelfde bestand gebruikt."""
+    fn = os.path.basename((pakbon or "").strip())
+    if not fn:
+        return
+    try:
+        if conn.execute("SELECT 1 FROM orders WHERE pakbon=? LIMIT 1", (fn,)).fetchone():
+            return
+        path = os.path.join(UPLOAD_DIR, fn)
+        if os.path.isfile(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+
 @bp.route("/orders/<int:oid>/verwijderen", methods=["POST"])
 def order_delete(oid):
     """Verwijder één order plus alles wat eraan hangt (planning, magazijnstatus,
@@ -2824,7 +2853,8 @@ def order_delete(oid):
     if guard:
         return guard
     conn = db()
-    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    o = conn.execute("""SELECT o.*, c.name AS client FROM orders o
+                        LEFT JOIN clients c ON c.id=o.client_id WHERE o.id=?""", (oid,)).fetchone()
     if not o:
         conn.close(); abort(404)
     onum = o["order_number"] or str(oid)
@@ -2835,13 +2865,26 @@ def order_delete(oid):
         flash("Order %s is al afgeleverd. Typ op de orderpagina het ordernummer om het "
               "verwijderen te bevestigen; het afleverbewijs met handtekening gaat namelijk mee." % onum)
         return redirect(url_for("planning.order_detail", oid=oid))
+    pakbon = (o["pakbon"] if "pakbon" in _ok else None) or ""
     for t in ORDER_CHILD_TABLES:
         try:
             conn.execute("DELETE FROM %s WHERE order_id=?" % t, (oid,))
         except Exception:
             pass
     conn.execute("DELETE FROM orders WHERE id=?", (oid,))
-    conn.commit(); conn.close()
+    # Wie wat wanneer weggooide vastleggen: de order zelf is daarna niet meer te herleiden.
+    u = current_user()
+    try:
+        conn.execute("""INSERT INTO order_deletions(order_number,client,city,status,amount,source,
+                        shopify_id,was_fulfilled,deleted_by,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                     (onum, o["client"], o["city"], o["status"], o["amount"] or 0, o["source"],
+                      (o["shopify_id"] if "shopify_id" in _ok else None), fulfilled,
+                      (u["name"] if u else "onbekend"), datetime.now().isoformat(timespec="minutes")))
+    except Exception:
+        pass
+    conn.commit()
+    _drop_pakbon_file(conn, pakbon)
+    conn.close()
     flash("Order %s is verwijderd, samen met de planning, magazijnstatus en bijbehorende documenten." % onum)
     return redirect(url_for("planning.orders"))
 
@@ -3430,16 +3473,46 @@ def bus_issue_resolve(iid):
 VOORMONTAGE_CATS = ["Bureaustoelen", "Bureaus", "Scheidingswanden", "Overige"]
 
 
-def _voormontage_cat(name):
-    """Deel een productnaam in: Bureaustoelen, Bureaus, Scheidingswanden of Overige."""
+def _cat_choice(value):
+    """Categorie uit een formulier: alleen een bestaande categorie, anders leeg
+    (leeg = de app leidt hem zelf af uit de naam)."""
+    v = (value or "").strip()
+    return v if v in VOORMONTAGE_CATS else ""
+
+
+def _cat_from_name(name):
+    """Categorie uit een naam raden, of None als de naam niets verraadt."""
     n = (name or "").lower()
-    if "stoel" in n:
+    if not n:
+        return None
+    if "stoel" in n or "chair" in n or "kruk" in n:
         return "Bureaustoelen"
-    if "scheidingswand" in n or "akoest" in n or "paneel" in n or ("wand" in n and "kast" not in n):
+    if ("scheidingswand" in n or "akoest" in n or "paneel" in n or "schot" in n
+            or ("wand" in n and "kast" not in n)):
         return "Scheidingswanden"
-    if "bureau" in n:
+    if "bureau" in n or "desk" in n or (set(n.replace("/", " ").replace("-", " ").split()) & DESK_WORDS):
         return "Bureaus"
-    return "Overige"
+    return None
+
+
+def _voormontage_cat(name, products=None):
+    """Deel een orderregel in: Bureaustoelen, Bureaus, Scheidingswanden of Overige.
+
+    De categorie bij het artikel (Artikelen-pagina) is leidend. Staat die er niet, dan
+    kijken we naar de VOLLEDIGE artikelnaam uit de artikelenlijst en pas daarna naar de
+    orderregel zelf: Shopify-regels worden ingekort voor de monteurs ("Fuse
+    RobEik/Zwart/160", "Japandi"), waardoor het woord "bureau" of "stoel" verdwijnt en
+    alles onder Overige belandde.
+    """
+    p = _match_product(name, products or [])
+    if p:
+        cat = (p.get("category") or "").strip()
+        if cat in VOORMONTAGE_CATS:
+            return cat
+        cat = _cat_from_name(p.get("display")) or _cat_from_name(p.get("name"))
+        if cat:
+            return cat
+    return _cat_from_name(name) or "Overige"
 
 
 @bp.route("/voormonteren")
@@ -3460,16 +3533,20 @@ def voormonteren():
         WHERE p.date >= ? AND p.status != 'afgerond'
         ORDER BY p.date, oi.name
     """, (today,)).fetchall()
+    prods = _load_products(conn)
     conn.close()
 
     days = {}
+    overig = set()
     for r in rows:
         nm = r["name"] or ""
         qty = int(r["qty"] or 1)
         d = r["date"]
         day = days.setdefault(d, {"date": d, "label": _nl_date(d),
                                   "cats": {c: {} for c in VOORMONTAGE_CATS}})
-        cat = _voormontage_cat(nm)
+        cat = _voormontage_cat(nm, prods)
+        if cat == "Overige":
+            overig.add(nm)
         day["cats"][cat][nm] = day["cats"][cat].get(nm, 0) + qty
 
     day_list = []
@@ -3487,7 +3564,8 @@ def voormonteren():
         if cats:
             day_list.append({"date": d["date"], "label": d["label"], "total": day_total, "cats": cats})
     return render_template("planning/voormonteren.html", days=day_list, today=today,
-                           cats=VOORMONTAGE_CATS, sel=sel)
+                           cats=VOORMONTAGE_CATS, sel=sel,
+                           n_overig=len(overig), overig_names=sorted(overig)[:12])
 
 
 def _magazijn_overview(conn):
@@ -4519,6 +4597,7 @@ def _shopify_cfg():
 
 
 DESK_MODELS = ["Fuse", "Pinta", "Duo", "Now", "Aero", "Rosa"]
+DESK_WORDS = {m.lower() for m in DESK_MODELS}   # voor de voormontage-indeling
 _BLAD_SHORT = {
     "robuust eiken": "RobEik", "bruin eiken": "BruinEik", "midden eiken": "MidEik",
     "licht eiken": "LichtEik", "donker eiken": "DonkerEik", "wit eiken": "WitEik",
@@ -4680,14 +4759,22 @@ def _load_products(conn):
     now = time.time()
     if _GCACHE["products"] is not None and (now - _GCACHE["products_ts"]) <= _GCACHE_TTL:
         return _GCACHE["products"]
+    _cols = "name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,weight_kg"
     try:
-        rows = conn.execute("SELECT name,display_name,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,weight_kg FROM products WHERE active=1").fetchall()
+        rows = conn.execute("SELECT %s,category FROM products WHERE active=1" % _cols).fetchall()
     except Exception:
-        return []
+        # category-kolom nog niet aanwezig: zonder proberen, anders vallen ook de
+        # montagetijden weg en klopt de hele werkdrukberekening niet meer.
+        try:
+            rows = conn.execute("SELECT %s FROM products WHERE active=1" % _cols).fetchall()
+        except Exception:
+            return []
     out = []
     for r in rows:
+        _rk = set(r.keys())
         out.append({"name": (r["name"] or "").strip().lower(),
                     "display": (r["display_name"] or "").strip(),
+                    "category": ((r["category"] if "category" in _rk else "") or "").strip(),
                     "tiers": [r["m1"] or 0, r["m2"] or 0, r["m3"] or 0, r["m4"] or 0, r["m5"] or 0],
                     "tiers_lev": [r["l1"] or 0, r["l2"] or 0, r["l3"] or 0, r["l4"] or 0, r["l5"] or 0],
                     "weight": r["weight_kg"] or 0})
@@ -5069,9 +5156,10 @@ def products():
         if act == "add":
             name = (request.form.get("name") or "").strip()
             if name:
-                conn.execute("""INSERT INTO products(name,display_name,weight_kg,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,active,created_at)
-                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)""",
+                conn.execute("""INSERT INTO products(name,display_name,category,weight_kg,m1,m2,m3,m4,m5,l1,l2,l3,l4,l5,active,created_at)
+                                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)""",
                              (name, (request.form.get("display_name") or "").strip(),
+                              _cat_choice(request.form.get("category")),
                               _flt(request.form.get("weight_kg")),
                               _int(request.form.get("m1")), _int(request.form.get("m2")), _int(request.form.get("m3")),
                               _int(request.form.get("m4")), _int(request.form.get("m5")),
@@ -5085,7 +5173,8 @@ def products():
             n = 0
             for mdl in DESK_MODELS:
                 if not conn.execute("SELECT 1 FROM products WHERE lower(name)=?", (mdl.lower(),)).fetchone():
-                    conn.execute("INSERT INTO products(name,active,created_at) VALUES(?,1,?)", (mdl, _today_iso()))
+                    conn.execute("INSERT INTO products(name,category,active,created_at) VALUES(?,?,1,?)",
+                                 (mdl, "Bureaus", _today_iso()))
                     n += 1
             conn.commit()
             flash("%d standaard bureaus toegevoegd - vul de montagetijden nog aan." % n)
@@ -5107,10 +5196,16 @@ def products():
             else:
                 flash("Shopify-import klaar: %d actieve artikelen toegevoegd, %d al aanwezig. Vul nu de tijden aan." % (added, skipped))
         conn.close()
+        _invalidate_gcache()
         return redirect(url_for("planning.products"))
     rows = conn.execute("SELECT * FROM products ORDER BY active DESC, name").fetchall()
     conn.close()
-    return render_template("planning/products.html", products=rows,
+    # Voorstel per artikel, zodat je ziet waar de app hem nu zelf indeelt.
+    guess = {r["id"]: (_cat_from_name(r["display_name"]) or _cat_from_name(r["name"]) or "Overige")
+             for r in rows}
+    cat_now = {r["id"]: ((r["category"] if "category" in set(r.keys()) else "") or "") for r in rows}
+    return render_template("planning/products.html", products=rows, cats=VOORMONTAGE_CATS,
+                           guess=guess, cat_now=cat_now,
                            maatwerk_on=(setting("maatwerk_alerts", "0") == "1"))
 
 
@@ -5121,14 +5216,16 @@ def product_edit(pid):
         return guard
     f = request.form
     conn = db()
-    conn.execute("""UPDATE products SET name=?,display_name=?,weight_kg=?,m1=?,m2=?,m3=?,m4=?,m5=?,
+    conn.execute("""UPDATE products SET name=?,display_name=?,category=?,weight_kg=?,m1=?,m2=?,m3=?,m4=?,m5=?,
                     l1=?,l2=?,l3=?,l4=?,l5=?,active=? WHERE id=?""",
-                 ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(), _flt(f.get("weight_kg")),
+                 ((f.get("name") or "").strip(), (f.get("display_name") or "").strip(),
+                  _cat_choice(f.get("category")), _flt(f.get("weight_kg")),
                   _int(f.get("m1")), _int(f.get("m2")), _int(f.get("m3")), _int(f.get("m4")), _int(f.get("m5")),
                   _int(f.get("l1")), _int(f.get("l2")), _int(f.get("l3")), _int(f.get("l4")), _int(f.get("l5")),
                   1 if f.get("active") else 0, pid))
     conn.commit()
     conn.close()
+    _invalidate_gcache()
     flash("Artikel bijgewerkt.")
     return redirect(url_for("planning.products"))
 
@@ -5142,6 +5239,7 @@ def product_delete(pid):
     conn.execute("DELETE FROM products WHERE id=?", (pid,))
     conn.commit()
     conn.close()
+    _invalidate_gcache()
     flash("Artikel verwijderd.")
     return redirect(url_for("planning.products"))
 

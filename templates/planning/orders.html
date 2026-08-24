@@ -10,6 +10,9 @@
   .rowacts{white-space:nowrap}
   .rowacts form{display:inline;margin-left:6px}
   .btn.del{color:#b23a1e;border-color:#e6b8ac}
+  .dellog{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 15px}
+  .dellog>summary{cursor:pointer;font-size:13.5px;font-weight:700;color:var(--accent)}
+  .dellog table{margin-top:12px;font-size:13px}
 {% endblock %}
 {% block content %}
 <div class="filters">
@@ -61,6 +64,26 @@
   </tbody>
 </table>
 </div>
+{% if deleted %}
+<details class="dellog">
+  <summary>Verwijderlogboek <span class="muted">· laatste {{ deleted|length }} verwijderde order(s)</span></summary>
+  <table>
+    <thead><tr><th>#Order</th><th>Klant</th><th>Status bij verwijderen</th><th>Door</th><th>Wanneer</th></tr></thead>
+    <tbody>
+      {% for d in deleted %}
+      <tr>
+        <td><b>#{{ d.order_number }}</b>{% if d.was_fulfilled %} <span class="pill green">was afgeleverd</span>{% endif %}</td>
+        <td>{{ d.client or '-' }}{% if d.city %} <span class="muted">· {{ d.city }}</span>{% endif %}</td>
+        <td class="muted">{{ d.status or '-' }}{% if d.source=='shopify' %} · Shopify{% endif %}</td>
+        <td>{{ d.deleted_by or 'onbekend' }}</td>
+        <td class="muted">{{ d.deleted_at|replace('T',' ') }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:12px;margin:10px 2px 2px">Alleen een spoor van wat er weg is; de order zelf is niet terug te halen.</p>
+</details>
+{% endif %}
 {% if is_admin %}
 <div style="margin-top:16px;border:1px solid #f0cf9a;background:#fdf3e6;border-radius:12px;padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
   <div style="font-size:13px;color:#8a5a12"><b>Testdata opruimen.</b> Verwijder alle demo-/testorders (en bijbehorende planning, magazijn- en pickdata). Handig nu de echte Shopify-orders live gaan binnenkomen.</div>

@@ -20,7 +20,7 @@
   .addf .grp .ins input{width:50px;text-align:center;padding:8px 4px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px}
   .tblcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
   .tblwrap{overflow-x:auto}
-  table.pr{width:100%;border-collapse:collapse;font-size:13px;min-width:1040px}
+  table.pr{width:100%;border-collapse:collapse;font-size:13px;min-width:1190px}
   table.pr th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:2px solid var(--line);background:var(--soft)}
   table.pr th.mt{text-align:center;width:50px}
   table.pr th.grp{text-align:center;border-left:2px solid var(--line)}
@@ -30,6 +30,10 @@
   table.pr td.divL{border-left:2px solid var(--line)}
   table.pr input[type=text],table.pr input[type=number]{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px;box-sizing:border-box}
   table.pr input[type=number]{text-align:center}
+  table.pr th .thsub{font-size:9.5px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted)}
+  table.pr select{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;background:#fff;box-sizing:border-box}
+  .catcell{min-width:150px}
+  .addf .f select{padding:9px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13.5px;background:#fff;box-sizing:border-box}
   .mtcell{width:52px}
   .rowact{display:flex;gap:6px;white-space:nowrap}
   .muted{color:var(--muted)}
@@ -42,6 +46,8 @@
   Het systeem kiest automatisch de juiste tijd op basis van of de order <b>montage (M)</b> of <b>levering (L)</b> is.
   Bij grotere aantallen rekenen we door (10 st = 2× de tijd van 5 st). De <b>herkenningsnaam</b> koppelt orderregels aan dit artikel
   (bv. <i>Fuse</i> herkent “Fuse RobEik/Zwart/160”). Laat je de ongemonteerd-tijden op 0, dan gebruiken we de montagetijd.
+  Met <b>Categorie</b> bepaal je onder welke kop het artikel bij <b>Voormonteren</b> komt te staan; op “automatisch” leidt de app
+  het af uit de naam en zie je achter de pijl waar hij hem nu zet.
 </div>
 
 <form method="post" class="panel" style="display:flex;align-items:center;gap:10px;font-size:13.5px;padding:12px 16px">
@@ -64,6 +70,12 @@
     <input type="hidden" name="action" value="add">
     <div class="f"><label>Herkenningsnaam</label><input type="text" name="name" placeholder="bv. Fuse of Japandi" required></div>
     <div class="f"><label>Weergavenaam (optioneel)</label><input type="text" name="display_name" placeholder="leeg = automatisch"></div>
+    <div class="f"><label>Categorie (voormonteren)</label>
+      <select name="category">
+        <option value="">automatisch</option>
+        {% for c in cats %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+    </div>
     <div class="f"><label>Gewicht (kg/st)</label><input type="number" step="0.1" min="0" name="weight_kg" value="0"></div>
     <div class="grp">
       <span class="glbl mont">Gemonteerd - min per aantal</span>
@@ -95,6 +107,7 @@
       <thead>
         <tr>
           <th rowspan="2">Herkenningsnaam</th><th rowspan="2">Weergavenaam</th>
+          <th rowspan="2">Categorie<div class="thsub">voormonteren</div></th>
           <th class="mt" rowspan="2">kg/st</th>
           <th class="grp mont" colspan="5">Gemonteerd (min)</th>
           <th class="grp lev" colspan="5">Ongemonteerd (min)</th>
@@ -110,6 +123,12 @@
         <tr>
           <td><input type="text" name="name" value="{{ p.name }}" form="ef-{{ p.id }}"></td>
           <td><input type="text" name="display_name" value="{{ p.display_name or '' }}" placeholder="automatisch" form="ef-{{ p.id }}"></td>
+          <td class="catcell">
+            <select name="category" form="ef-{{ p.id }}">
+              <option value="" {{ 'selected' if not cat_now.get(p.id) }}>automatisch &rarr; {{ guess.get(p.id) }}</option>
+              {% for c in cats %}<option value="{{ c }}" {{ 'selected' if cat_now.get(p.id)==c }}>{{ c }}</option>{% endfor %}
+            </select>
+          </td>
           <td class="mtcell"><input type="number" step="0.1" name="weight_kg" min="0" value="{{ p.weight_kg or 0 }}" form="ef-{{ p.id }}"></td>
           <td class="mtcell divL"><input type="number" name="m1" min="0" value="{{ p.m1 }}" form="ef-{{ p.id }}"></td>
           <td class="mtcell"><input type="number" name="m2" min="0" value="{{ p.m2 }}" form="ef-{{ p.id }}"></td>
@@ -128,7 +147,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="15" class="muted" style="text-align:center;padding:26px">Nog geen artikelen. Voeg er hierboven één toe, of klik “Standaard bureaus toevoegen”.</td></tr>
+        <tr><td colspan="16" class="muted" style="text-align:center;padding:26px">Nog geen artikelen. Voeg er hierboven één toe, of klik “Standaard bureaus toevoegen”.</td></tr>
         {% endfor %}
       </tbody>
     </table>
