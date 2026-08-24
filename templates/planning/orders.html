@@ -7,6 +7,9 @@
   .filters a.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .src{font-size:11px;font-weight:700;border-radius:6px;padding:2px 7px}
   .src.shopify{background:#e4f1e8;color:#2f7d4f}.src.manual{background:#ece9e2;color:#74705f}
+  .rowacts{white-space:nowrap}
+  .rowacts form{display:inline;margin-left:6px}
+  .btn.del{color:#b23a1e;border-color:#e6b8ac}
 {% endblock %}
 {% block content %}
 <div class="filters">
@@ -42,7 +45,15 @@
         {% elif o.status=='afgerond' %}<span class="pill green">afgerond</span>
         {% else %}<span class="pill gray">{{ o.status }}</span>{% endif %}
       </td>
-      <td><a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a></td>
+      <td class="rowacts">
+        <a class="btn ghost sm" href="{{ url_for('planning.order_detail', oid=o.id) }}">Bekijk</a>
+        {% if p_has_perm('delete_orders') %}
+        <form method="post" action="{{ url_for('planning.order_delete', oid=o.id) }}"
+              onsubmit="return confirm('Order #{{ o.order_number }} definitief verwijderen?\n\nPlanning, magazijnstatus, leveringsdocumenten en afleverbewijs gaan mee. Dit kan niet ongedaan worden gemaakt.');">
+          <button class="btn ghost sm del" type="submit" title="Order verwijderen"><svg class="ico"><use href="#ic-trash"/></svg></button>
+        </form>
+        {% endif %}
+      </td>
     </tr>
   {% else %}
     <tr><td colspan="8" class="muted" style="padding:24px;text-align:center">Geen orders in deze weergave.</td></tr>

@@ -360,6 +360,7 @@ PERMISSIONS = [
     ("view_emails",        "E-mails bekijken",           "Klant"),
     ("view_invoices",      "Factuurinformatie",          "Financieel"),
     ("complete_deliveries","Leveringen afronden",        "Orders"),
+    ("delete_orders",      "Orders verwijderen",         "Orders"),
     ("view_preassembly",   "Voormontage (magazijn)",     "Magazijn"),
     ("view_magazijn",      "Magazijn live-status inzien","Magazijn"),
     ("magazijn_app",       "Magazijn-app gebruiken",     "Magazijn"),
@@ -2798,11 +2799,51 @@ def order_detail(oid):
         pand_ind = dict(_rec) if _rec else None
     if pand_ind:
         pand_ind["functie"] = _bag_functie(pand_ind.get("gebruiksdoel"))
+    _ok = set(o.keys())
+    fulfilled = int((o["fulfilled"] if "fulfilled" in _ok else 0) or 0)
     return render_template("planning/order_detail.html", o=o, items=items, plan=plan,
                            needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload,
                            leverdoc_reasons=leverdoc_reasons, leverdocs=leverdocs,
                            leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE,
-                           pand_ind=pand_ind, bag_ready=_bag_key_set)
+                           pand_ind=pand_ind, bag_ready=_bag_key_set, fulfilled=fulfilled)
+
+
+ORDER_CHILD_TABLES = ("order_items", "planning", "order_magazijn", "deliveries",
+                      "leverdoc", "team_questions")
+
+
+@bp.route("/orders/<int:oid>/verwijderen", methods=["POST"])
+def order_delete(oid):
+    """Verwijder één order plus alles wat eraan hangt (planning, magazijnstatus,
+    leveringsdocumenten, afleverbewijs, ordervragen).
+
+    Bij een order die al is afgeleverd verdwijnt ook het afleverbewijs met handtekening;
+    daarom moet daar eerst het ordernummer worden ingetypt.
+    """
+    guard = login_required("delete_orders")
+    if guard:
+        return guard
+    conn = db()
+    o = conn.execute("SELECT * FROM orders WHERE id=?", (oid,)).fetchone()
+    if not o:
+        conn.close(); abort(404)
+    onum = o["order_number"] or str(oid)
+    _ok = set(o.keys())
+    fulfilled = int((o["fulfilled"] if "fulfilled" in _ok else 0) or 0)
+    if fulfilled and (request.form.get("confirm") or "").strip() != onum:
+        conn.close()
+        flash("Order %s is al afgeleverd. Typ op de orderpagina het ordernummer om het "
+              "verwijderen te bevestigen; het afleverbewijs met handtekening gaat namelijk mee." % onum)
+        return redirect(url_for("planning.order_detail", oid=oid))
+    for t in ORDER_CHILD_TABLES:
+        try:
+            conn.execute("DELETE FROM %s WHERE order_id=?" % t, (oid,))
+        except Exception:
+            pass
+    conn.execute("DELETE FROM orders WHERE id=?", (oid,))
+    conn.commit(); conn.close()
+    flash("Order %s is verwijderd, samen met de planning, magazijnstatus en bijbehorende documenten." % onum)
+    return redirect(url_for("planning.orders"))
 
 
 @bp.route("/orders/<int:oid>/pand-indicatie", methods=["POST"])
