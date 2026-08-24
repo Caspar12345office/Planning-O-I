@@ -2724,8 +2724,10 @@ def api_mail():
                      (o["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
         conn.commit()
     conn.close()
+    _from = (_email_cfg().get("from_email") or "").strip()
     return jsonify(ok=True, mail_live=_mail_live(),
-                   message=("Verzonden vanuit planning@office-interior.com en bewaard in het klantdossier."
+                   message=(("Verzonden vanuit %s en bewaard in het klantdossier." % _from if _from else
+                             "Verzonden en bewaard in het klantdossier.")
                             if sent_ok else
                             "Opgeslagen in het klantdossier. Er is nog NIETS verstuurd - zet 'E-mails écht versturen' aan onder Koppelingen → Klantmail om live te gaan."))
 
