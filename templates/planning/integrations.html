@@ -12,6 +12,14 @@
   .integ summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:15px;padding:18px 20px}
   .integ summary::-webkit-details-marker{display:none}
   .integ .ico{width:46px;height:46px;border-radius:13px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+  /* Beeldmerk-tegel: wit met een dun randje, zodat merkkleuren eruit springen (net als op het commandocentrum). */
+  .integ .ico.brand{background:#fff;border:1px solid var(--line)}
+  .integ .ico .lg{width:25px;height:25px;background:var(--c,#0f3d3e);
+    -webkit-mask:var(--m) center/contain no-repeat;mask:var(--m) center/contain no-repeat}
+  .integ .ico .filelogo{width:28px;height:28px;object-fit:contain;border-radius:6px}
+  .integ .ico .appimg{width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
+  .integ .ico.appn{border:0;overflow:hidden;background:transparent}
+  .integ .ico .si{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:1.8}
   .integ .nm{flex:1;min-width:0}
   .integ .nm b{font-size:16px;color:var(--accent);display:block}
   .integ .nm span{font-size:13px;color:var(--muted)}
@@ -57,7 +65,17 @@
   {% set st = statuses[integ.key] %}
   <details class="integ" id="{{ integ.key }}" {{ 'open' if request.url.endswith('#'+integ.key) }}>
     <summary>
-      <span class="ico">{{ integ.icon }}</span>
+      <span class="ico {{ 'brand ' if (integ.logo or integ.img or integ.app or integ.sicon) }}{{ 'appn' if integ.app }}">
+        {%- if integ.app -%}
+          <img class="appimg" src="{{ url_for('static', filename='logos/' + integ.app + '.svg') }}" alt="{{ integ.name }}">
+        {%- elif integ.img -%}
+          <img class="filelogo" src="{{ url_for('static', filename='logos/' + integ.img) }}" alt="{{ integ.name }}">
+        {%- elif integ.logo -%}
+          <span class="lg" style="--m:url('{{ url_for('static', filename='logos/' + integ.logo + '.svg') }}');--c:{{ integ.c or '#0f3d3e' }}"></span>
+        {%- elif integ.sicon -%}
+          <svg class="si" style="color:{{ integ.c or '#0f3d3e' }}"><use href="#{{ integ.sicon }}"/></svg>
+        {%- else -%}{{ integ.icon }}{%- endif -%}
+      </span>
       <span class="nm"><b>{{ integ.name }}</b><span>{{ integ.desc }}</span></span>
       <span class="st {{ st }}">{% if st=='verbonden' %}Klaar{% elif st=='deels' %}Deels ingevuld{% else %}Niet gekoppeld{% endif %}</span>
       <span class="chev">▾</span>

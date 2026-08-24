@@ -409,7 +409,10 @@ OFFICE_STAFF = ["Aleks", "Caspar", "Chris", "Jorik", "Stijn Pas", "Thom", "Yelit
 #  Koppelingen (integraties)
 # --------------------------------------------------------------------------- #
 INTEGRATIONS = [
-    {"key": "shopify", "name": "Shopify", "icon": "🛍",
+    # logo/img/app + c: hetzelfde beeldmerk als op het commandocentrum.
+    # logo = eenkleurig beeldmerk in de merkkleur (CSS-mask), img = bestand zoals het is,
+    # app = eigen app-logo. Zonder een van de drie valt de kaart terug op "icon".
+    {"key": "shopify", "name": "Shopify", "icon": "🛍", "logo": "shopify", "c": "#7AB55C",
      "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'. Ordernummers komen overeen met Shopify.",
      "fields": [
         {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
@@ -425,17 +428,18 @@ INTEGRATIONS = [
         {"key": "import_drafts", "label": "Draft orders importeren", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Beveiligd: draft orders worden NOOIT automatisch geïmporteerd."},
         {"key": "auto_sync", "label": "Automatisch synchroniseren", "type": "toggle", "default": "1"}]},
-    {"key": "gmail", "name": "Gmail (centrale mailbox)", "icon": "✉",
+    {"key": "gmail", "name": "Gmail (centrale mailbox)", "icon": "✉", "logo": "google", "c": "#EA4335",
      "desc": "Toon volledige e-mailhistorie per klant vanuit één centrale mailbox.",
      "fields": [
         {"key": "mailbox", "label": "Centrale mailbox", "type": "text", "placeholder": "planning@office-interior.nl"},
         {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
         {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
         {"key": "label_filter", "label": "Labelfilter (optioneel)", "type": "text", "placeholder": "Bezorging"}]},
-    {"key": "google_maps", "name": "Google Maps", "icon": "🗺",
+    {"key": "google_maps", "name": "Google Maps", "icon": "🗺", "logo": "googlemaps", "c": "#1A73E8",
      "desc": "Kaarten, live locatie en navigatie in de monteur-app en op het dashboard.",
      "fields": [{"key": "api_key", "label": "Maps API-sleutel", "type": "password"}]},
-    {"key": "route_api", "name": "Route Optimization", "icon": "🧭",
+    # Geen eigen beeldmerk (provider is instelbaar) - sprite-icoon in de huisstijlkleur.
+    {"key": "route_api", "name": "Route Optimization", "icon": "🧭", "sicon": "ic-map", "c": "#0f3d3e",
      "desc": "Automatische routeoptimalisatie (afstand, verkeer, capaciteit, werktijd).",
      "fields": [
         {"key": "provider", "label": "Provider", "type": "select",
@@ -443,28 +447,28 @@ INTEGRATIONS = [
         {"key": "api_key", "label": "API-sleutel", "type": "password"},
         {"key": "max_worktime", "label": "Max. werktijd per dag (uur)", "type": "text", "placeholder": "9"},
         {"key": "depot", "label": "Eindpunt (depot)", "type": "text", "default": HOME_BASE}]},
-    {"key": "gps", "name": "Live GPS-tracking", "icon": "📍",
+    {"key": "gps", "name": "Live GPS-tracking", "icon": "📍", "app": "monteurs",
      "desc": "Realtime locatie van monteurs op het dashboard en veilige klant-trackinglink (Uber/Picnic-stijl). De monteur-app deelt de live locatie via de telefoon.",
      "fields": [
         {"key": "provider", "label": "GPS-bron", "type": "text", "placeholder": "App-GPS (telefoon monteur) / Samsara / Webfleet"},
         {"key": "api_key", "label": "API-sleutel (optioneel)", "type": "password"},
         {"key": "share_precise", "label": "Exacte locatie delen met klant", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Klant ziet altijd alleen een veilige benadering, nooit exacte GPS."}]},
-    {"key": "velocity", "name": "VeloCity (busregistratie)", "icon": "🚐",
+    {"key": "velocity", "name": "VeloCity (busregistratie)", "icon": "🚐", "img": "velocity.svg",
      "desc": "Koppeling met VeloCity voor voertuig- en kilometerregistratie van de bussen. Kilometers en ritten worden automatisch ingelezen per voertuig.",
      "fields": [
         {"key": "account_id", "label": "VeloCity account-ID", "type": "text"},
         {"key": "api_key", "label": "API-sleutel", "type": "password"},
         {"key": "fleet_id", "label": "Wagenpark-ID (fleet)", "type": "text", "placeholder": "bv. OI-FLEET-01"},
         {"key": "auto_import_km", "label": "Kilometers automatisch importeren", "type": "toggle", "default": "1"}]},
-    {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐",
+    {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐", "logo": "google", "c": "#4285F4",
      "desc": "Inloggen met Google en verplichte multi-factor authenticatie.",
      "fields": [
         {"key": "client_id", "label": "OAuth client-ID", "type": "password"},
         {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
         {"key": "require_mfa", "label": "MFA verplicht", "type": "toggle", "default": "1"},
         {"key": "allowed_domain", "label": "Toegestaan domein", "type": "text", "placeholder": "office-interior.nl"}]},
-    {"key": "email", "name": "Klantmail & tracking", "icon": "📨",
+    {"key": "email", "name": "Klantmail & tracking", "icon": "📨", "logo": "resend", "c": "#1f1f1f",
      "desc": "Klantmails via de Resend-API (werkt op Render; SMTP wordt door Render geblokkeerd).",
      "fields": [
         {"key": "resend_api_key", "label": "Resend API-sleutel", "type": "password",
@@ -480,13 +484,13 @@ INTEGRATIONS = [
         {"key": "send_live", "label": "E-mails écht versturen", "type": "toggle", "default": "0",
          "help": "UIT = testmodus: er wordt NIETS echt verstuurd (alleen opgeslagen/gelogd; 2FA-code op het scherm). Zet pas AAN als je live wilt."},
         {"key": "send_delay_updates", "label": "Automatische vertraging-updates", "type": "toggle", "default": "1"}]},
-    {"key": "bag", "name": "BAG (pand-indicatie)", "icon": "🏠",
+    {"key": "bag", "name": "BAG (pand-indicatie)", "icon": "🏠", "img": "kadaster.png",
      "desc": "Herkent per leveradres of het waarschijnlijk een eengezinswoning of een flat is en schat het aantal verdiepingen (lift-inschatting). Gebruikt de gratis BAG API van het Kadaster + de 3D-BAG-hoogtedata.",
      "fields": [
         {"key": "api_key", "label": "BAG API-sleutel (Kadaster)", "type": "password",
          "help": "Gratis aan te vragen bij het Kadaster → BAG API Individuele Bevragingen. Wordt als X-Api-Key meegestuurd."},
         {"key": "lift_floors", "label": "Lift waarschijnlijk vanaf meer dan … verdiepingen", "type": "text", "default": "4"}]},
-    {"key": "backup", "name": "Back-ups", "icon": "💾",
+    {"key": "backup", "name": "Back-ups", "icon": "💾", "logo": "postgresql", "c": "#336791",
      "desc": "Automatische dagelijkse back-up van de volledige database.",
      "fields": [
         {"key": "enabled", "label": "Automatische back-up", "type": "toggle", "default": "1"},
