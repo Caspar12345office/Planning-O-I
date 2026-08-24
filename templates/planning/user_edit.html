@@ -13,6 +13,9 @@
   .acctgrid label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
   .acctgrid input,.acctgrid select{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff}
   @media(max-width:640px){.acctgrid{grid-template-columns:1fr}}
+  .lockcard.on{border-color:var(--red);box-shadow:0 0 0 2px rgba(192,83,63,.14)}
+  .lockstate{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.55;color:var(--red);margin:0 0 12px}
+  .lockstate .ico{width:17px;height:17px;flex:0 0 auto;margin-top:1px}
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle gebruikers</a>
@@ -56,6 +59,19 @@
     {% endfor %}
   </div>
 </form>
+
+<div class="card lockcard {{ 'on' if locked }}" style="margin-top:18px">
+  <h4 style="margin:0 0 6px">Inloggen &amp; blokkade</h4>
+  {% if locked %}
+  <p class="lockstate"><svg class="ico"><use href="#ic-lock"/></svg> Dit account is <b>geblokkeerd</b> na {{ login_fails }} mislukte inlogpogingen. Inloggen op de monteur-app, magazijn-app en de hub is niet mogelijk zolang de blokkade actief is.</p>
+  {% else %}
+  <p class="muted" style="font-size:12.5px;margin:0 0 12px">Niet geblokkeerd{% if login_fails %} · {{ login_fails }} mislukte poging(en) sinds de laatste geslaagde login{% endif %}. Na vijf mislukte pogingen blokkeert het account zichzelf; met de knop hieronder hef je dat op en zet je de teller terug op nul.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('planning.user_unlock', uid=u.id) }}"
+        onsubmit="return confirm('Blokkade opheffen voor {{ u.name }}?');">
+    <button class="btn {{ 'primary' if locked else 'ghost' }} sm" type="submit"><svg class="ico"><use href="#ic-lock"/></svg> Blokkade opheffen</button>
+  </form>
+</div>
 
 <form method="post" action="{{ url_for('planning.user_reset_2fa', uid=u.id) }}" style="margin-top:18px"
       onsubmit="return confirm('2FA-koppeling resetten voor {{ u.name }}?\n\nBij de eerstvolgende login moet deze persoon opnieuw een authenticator-app koppelen. Doe dit alleen bij een nieuwe/verloren telefoon.');">

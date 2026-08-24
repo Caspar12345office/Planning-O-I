@@ -684,7 +684,11 @@ def init_db():
                  "ALTER TABLE planning ADD COLUMN gps_arrival_at TEXT",
                  "ALTER TABLE planning ADD COLUMN gps_departure_at TEXT",
                  "ALTER TABLE planning ADD COLUMN arrival_backfilled INTEGER DEFAULT 0",
-                 "ALTER TABLE users ADD COLUMN totp_secret TEXT"):
+                 "ALTER TABLE users ADD COLUMN totp_secret TEXT",
+                 # De monteur-, magazijn- en hub-app blokkeren een account na 5 mislukte
+                 # inlogpogingen. Hier ook aanmaken zodat het ontgrendelen altijd werkt.
+                 "ALTER TABLE users ADD COLUMN login_fails INTEGER DEFAULT 0",
+                 "ALTER TABLE users ADD COLUMN locked INTEGER DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -5626,8 +5630,13 @@ def user_edit(uid):
     groups = {}
     for k, label, grp in PERMISSIONS:
         groups.setdefault(grp, []).append((k, label))
+    # Blokkade-status (kolommen komen uit de monteur-/magazijn-/hub-app; kunnen ontbreken)
+    _uk = set(u.keys())
+    locked = int((u["locked"] if "locked" in _uk else 0) or 0)
+    login_fails = int((u["login_fails"] if "login_fails" in _uk else 0) or 0)
     return render_template("planning/user_edit.html", u=u, groups=groups, current=current,
-                           roles=ROLE_LABELS, role_defaults=ROLE_DEFAULTS, monteurs=monteurs)
+                           roles=ROLE_LABELS, role_defaults=ROLE_DEFAULTS, monteurs=monteurs,
+                           locked=locked, login_fails=login_fails)
 
 
 @bp.route("/users/<int:uid>/reset-2fa", methods=["POST"])
@@ -5643,6 +5652,30 @@ def user_reset_2fa(uid):
     conn.execute("UPDATE users SET totp_secret=NULL WHERE id=?", (uid,))
     conn.commit(); conn.close()
     flash("2FA-koppeling gereset voor %s. Bij de eerstvolgende login koppelt deze persoon opnieuw een authenticator-app." % u["name"])
+    return redirect(url_for("planning.user_edit", uid=uid))
+
+
+@bp.route("/users/<int:uid>/ontgrendelen", methods=["POST"])
+def user_unlock(uid):
+    """Blokkade na 5 mislukte inlogpogingen opheffen.
+
+    De monteur-, magazijn- en hub-app zetten `locked=1` na vijf mislukte pogingen en
+    verwijzen de medewerker naar een beheerder. Dit is de plek waar dat kan.
+    """
+    guard = login_required("manage_users")
+    if guard:
+        return guard
+    conn = db()
+    u = conn.execute("SELECT id,name FROM users WHERE id=?", (uid,)).fetchone()
+    if not u:
+        conn.close(); abort(404)
+    try:
+        conn.execute("UPDATE users SET login_fails=0, locked=0 WHERE id=?", (uid,))
+        conn.commit()
+        flash("Account van %s is ontgrendeld. Inloggen kan weer." % u["name"])
+    except Exception:
+        flash("Ontgrendelen is niet gelukt.")
+    conn.close()
     return redirect(url_for("planning.user_edit", uid=uid))
 
 
