@@ -684,6 +684,9 @@ def init_db():
                  "ALTER TABLE products ADD COLUMN l4 INTEGER DEFAULT 0",
                  "ALTER TABLE products ADD COLUMN l5 INTEGER DEFAULT 0",
                  "ALTER TABLE order_items ADD COLUMN montage_custom INTEGER",
+                 # Originele (Engelse) Shopify-regel. 'name' is de NL-weergavenaam die
+                 # monteur/magazijn/klant zien; src_name blijft de herkenningssleutel.
+                 "ALTER TABLE order_items ADD COLUMN src_name TEXT",
                  "ALTER TABLE busses ADD COLUMN empty_weight REAL DEFAULT 0",
                  "ALTER TABLE busses ADD COLUMN brandstof TEXT DEFAULT 'diesel'",
                  "ALTER TABLE busses ADD COLUMN verbruik_l100 REAL DEFAULT 0",
@@ -696,6 +699,9 @@ def init_db():
                  "ALTER TABLE users ADD COLUMN totp_secret TEXT",
                  # Categorie voor de voormontage-indeling (Bureaus/Bureaustoelen/...)
                  "ALTER TABLE products ADD COLUMN category TEXT",
+                 # Originele Shopify-titel (vaak Engels): alleen om dubbele imports te
+                 # herkennen en om te zien welk product het is. De weergavenaam is NL.
+                 "ALTER TABLE products ADD COLUMN shopify_title TEXT",
                  # De monteur-, magazijn- en hub-app blokkeren een account na 5 mislukte
                  # inlogpogingen. Hier ook aanmaken zodat het ontgrendelen altijd werkt.
                  "ALTER TABLE users ADD COLUMN login_fails INTEGER DEFAULT 0",
@@ -2149,8 +2155,8 @@ def planning():
     if jobs:
         _oids = [j["order_id"] for j in jobs]
         _by_o = {}
-        for r in conn.execute("SELECT order_id,name,qty,montage_custom FROM order_items WHERE order_id IN (%s)"
-                              % ",".join("?" * len(_oids)), tuple(_oids)).fetchall():
+        for r in conn.execute("SELECT order_id,%s AS name,qty,montage_custom FROM order_items WHERE order_id IN (%s)"
+                              % (_mkey(), ",".join("?" * len(_oids))), tuple(_oids)).fetchall():
             _by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]})
         for j in jobs:
             montage_map[j["order_id"]] = _order_montage(_by_o.get(j["order_id"], []), _prods,
@@ -2376,9 +2382,9 @@ def api_autoplan():
         if not oids:
             return {}
         ph = ",".join(["?"] * len(oids))
-        rows = conn.execute("SELECT oi.order_id AS oid, oi.name AS name, oi.qty AS qty, oi.montage_custom AS mc, "
+        rows = conn.execute("SELECT oi.order_id AS oid, %s AS name, oi.qty AS qty, oi.montage_custom AS mc, "
                             "o.service_type AS svc, o.weight AS ow FROM order_items oi JOIN orders o ON o.id=oi.order_id "
-                            "WHERE oi.order_id IN (%s)" % ph, tuple(oids)).fetchall()
+                            "WHERE oi.order_id IN (%s)" % (_mkey("oi."), ph), tuple(oids)).fetchall()
         items, svc, ow = {}, {}, {}
         for r in rows:
             items.setdefault(r["oid"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["mc"]})
@@ -3532,13 +3538,13 @@ def voormonteren():
     conn = db()
     today = _today_iso()
     rows = conn.execute("""
-        SELECT p.date AS date, oi.name AS name, oi.qty AS qty
+        SELECT p.date AS date, oi.name AS name, %s AS mkey, oi.qty AS qty
         FROM planning p
         JOIN orders o ON o.id = p.order_id
         JOIN order_items oi ON oi.order_id = o.id
         WHERE p.date >= ? AND p.status != 'afgerond'
         ORDER BY p.date, oi.name
-    """, (today,)).fetchall()
+    """ % _mkey("oi."), (today,)).fetchall()
     prods = _load_products(conn)
     conn.close()
 
@@ -3550,7 +3556,7 @@ def voormonteren():
         d = r["date"]
         day = days.setdefault(d, {"date": d, "label": _nl_date(d),
                                   "cats": {c: {} for c in VOORMONTAGE_CATS}})
-        cat = _voormontage_cat(nm, prods)
+        cat = _voormontage_cat(r["mkey"] or nm, prods)
         if cat == "Overige":
             overig.add(nm)
         day["cats"][cat][nm] = day["cats"][cat].get(nm, 0) + qty
@@ -4602,7 +4608,7 @@ def _shopify_cfg():
     return cfg
 
 
-DESK_MODELS = ["Fuse", "Pinta", "Duo", "Now", "Aero", "Rosa"]
+DESK_MODELS = ["Fuse", "Pinta", "Duo", "Now", "Aero", "Rosa", "Jorka"]
 DESK_WORDS = {m.lower() for m in DESK_MODELS}   # voor de voormontage-indeling
 _BLAD_SHORT = {
     "robuust eiken": "RobEik", "bruin eiken": "BruinEik", "midden eiken": "MidEik",
@@ -4704,19 +4710,26 @@ def _shopify_access_token(shop, sc):
 
 
 def _shopify_products_import(conn, shop, token):
-    """Importeer alle ACTIEVE Shopify-producten als artikelen (titel = weergavenaam,
-    eerste woord = herkenningsnaam, montagetijden op 0). Dedupe op naam/weergavenaam.
+    """Importeer alle ACTIEVE Shopify-producten als artikelen (eerste woord van de titel
+    = herkenningsnaam, montagetijden op 0). De titel komt in shopify_title, NIET in de
+    weergavenaam: die vul je zelf in het Nederlands in, want dat is wat monteur, magazijn
+    en klant te zien krijgen. Dedupe op naam/weergavenaam/Shopify-titel.
     Retourneert (toegevoegd, overgeslagen, foutmelding-of-None)."""
     shop = (shop or "").strip().replace("https://", "").replace("http://", "").strip("/")
     token = (token or "").strip()
     if not shop or not token:
         return (0, 0, "Vul eerst de Shop-URL én het Admin API-token in bij Koppelingen → Shopify.")
     existing = set()
-    for r in conn.execute("SELECT name, display_name FROM products").fetchall():
-        if r["name"]:
-            existing.add(r["name"].strip().lower())
-        if r["display_name"]:
-            existing.add(r["display_name"].strip().lower())
+    try:
+        _rows = conn.execute("SELECT name, display_name, shopify_title FROM products").fetchall()
+    except Exception:
+        _rows = conn.execute("SELECT name, display_name FROM products").fetchall()
+    for r in _rows:
+        ks = set(r.keys())
+        for fld in ("name", "display_name", "shopify_title"):
+            v = r[fld] if fld in ks else None
+            if v:
+                existing.add(v.strip().lower())
     url = "https://%s/admin/api/2024-04/products.json?status=active&limit=250" % shop
     added = skipped = 0
     try:
@@ -4741,7 +4754,7 @@ def _shopify_products_import(conn, shop, token):
                         grams = v["grams"]
                         break
                 wkg = round(grams / 1000.0, 1) if grams else 0
-                conn.execute("INSERT INTO products(name,display_name,weight_kg,active,created_at) VALUES(?,?,?,1,?)",
+                conn.execute("INSERT INTO products(name,shopify_title,weight_kg,active,created_at) VALUES(?,?,?,1,?)",
                              (rec, title, wkg, _today_iso()))
                 existing.add(title.lower())
                 added += 1
@@ -4790,13 +4803,100 @@ def _load_products(conn):
 
 
 def _match_product(item_name, products):
+    """Koppel een orderregel aan een artikel uit de catalogus.
+
+    De herkenningsnaam mag uit meerdere woorden bestaan, bv. 'Jorka Zwart' naast
+    'Jorka Wit' om twee framevarianten met een eigen gewicht uit elkaar te houden.
+    Alle woorden moeten dan als heel woord in de regel staan; het artikel met de MEESTE
+    woorden wint, zodat een specifieke variant het altijd wint van het algemene model.
+    Een herkenningsnaam van één woord mag ook nog aan het begin van de regel plakken
+    (oud gedrag: 'kast' herkent 'Kastenwand'). Bij meerdere woorden mag dat juist NIET,
+    anders zou 'Jorka Zwart' ook 'Jorka ZwartEik/Grijs/180' opeisen.
+    """
     nl = (item_name or "").lower()
-    words = nl.replace("/", " ").split()
+    flat = nl.replace("/", " ")
+    words = set(flat.split())
+    best, best_n = None, 0
     for p in products:
         pn = p["name"]
-        if pn and (pn in words or nl.startswith(pn)):
-            return p
-    return None
+        if not pn:
+            continue
+        pw = pn.replace("/", " ").split()
+        if not pw:
+            continue
+        hit = all(w in words for w in pw) or (len(pw) == 1 and flat.startswith(pw[0]))
+        if hit and len(pw) > best_n:
+            best, best_n = p, len(pw)
+    return best
+
+
+def _mkey(pfx=""):
+    """SQL-expressie voor de sleutel waarop orderregels aan artikelen gekoppeld worden.
+
+    De getoonde naam (order_items.name) is Nederlands en dus vrij te kiezen; de
+    herkenning draait op de originele Shopify-regel in src_name. Oude regels van
+    vóór die kolom hebben geen src_name en vallen terug op name.
+    """
+    return "COALESCE(NULLIF(%ssrc_name,''), %sname)" % (pfx, pfx)
+
+
+def _order_item_label(raw, products):
+    """Naam zoals monteur, magazijn en klant hem zien.
+
+    Heeft het gekoppelde artikel een weergavenaam, dan die (Nederlands) met het
+    variantdeel uit de orderregel erachter, bv. 'Zit-sta bureau Jorka RobEik/Zwart/160'.
+    Geen artikel of geen weergavenaam ingevuld = de originele regel blijft staan, zodat
+    je de catalogus artikel voor artikel kunt invullen zonder dat er iets omvalt.
+    """
+    raw = (raw or "").strip()
+    p = _match_product(raw, products)
+    disp = ((p.get("display") or "").strip() if p else "")
+    if not disp:
+        return raw
+    var = " ".join(w for w in raw.split() if "/" in w)
+    return (disp + " " + var).strip()
+
+
+def _relabel_open_items(conn):
+    """Zet de namen van orderregels opnieuw volgens de weergavenamen uit de catalogus.
+
+    Voor orders die nog niet afgerond zijn, zodat artikelen die je vandaag invult ook
+    doorwerken in orders die al binnen zijn. Regels van vóór de src_name-kolom krijgen
+    hun huidige naam als herkenningssleutel. Idempotent: nog eens draaien verandert niets.
+    """
+    prods = _load_products(conn)
+    rows = conn.execute("""SELECT oi.id AS id, oi.name AS name, oi.src_name AS src
+                           FROM order_items oi JOIN orders o ON o.id=oi.order_id
+                           WHERE COALESCE(o.status,'') != 'afgerond'""").fetchall()
+    n = 0
+    for r in rows:
+        raw = ((r["src"] or "") or (r["name"] or "")).strip()
+        if not raw:
+            continue
+        label = _order_item_label(raw, prods)
+        if label != (r["name"] or "") or not (r["src"] or "").strip():
+            conn.execute("UPDATE order_items SET name=?, src_name=? WHERE id=?", (label, raw, r["id"]))
+            if label != (r["name"] or ""):
+                _rename_voormontage(conn, r["name"], label)
+                n += 1
+    conn.commit()
+    return n
+
+
+def _rename_voormontage(conn, old, new):
+    """Afgevinkte voormontage volgt de hernoemde artikelnaam mee, anders staat een
+    afgevinkt artikel na het bijwerken opeens weer open."""
+    old = (old or "").strip()
+    if not old or not new or old == new:
+        return
+    try:
+        conn.execute("UPDATE voormontage_done SET item_name=? WHERE item_name=?", (new, old))
+    except Exception:
+        # Die dag staat de nieuwe naam er al: de oude regel vervalt.
+        try:
+            conn.execute("DELETE FROM voormontage_done WHERE item_name=?", (old,))
+        except Exception:
+            pass
 
 
 def _montage_for_qty(tiers, qty):
@@ -4872,8 +4972,8 @@ def _orders_needing_custom():
             return []
         oids = [r["oid"] for r in rows]
         by = {}
-        for it in conn.execute("SELECT order_id,name,montage_custom FROM order_items WHERE order_id IN (%s)"
-                               % ",".join("?" * len(oids)), tuple(oids)).fetchall():
+        for it in conn.execute("SELECT order_id,%s AS name,montage_custom FROM order_items WHERE order_id IN (%s)"
+                               % (_mkey(), ",".join("?" * len(oids))), tuple(oids)).fetchall():
             by.setdefault(it["order_id"], []).append(it)
         out = []
         for r in rows:
@@ -5184,6 +5284,9 @@ def products():
                     n += 1
             conn.commit()
             flash("%d standaard bureaus toegevoegd - vul de montagetijden nog aan." % n)
+        elif act == "relabel":
+            n = _relabel_open_items(conn)
+            flash("Namen bijgewerkt: %d orderregel(s) staan nu op de weergavenaam." % n)
         elif act == "toggle_maatwerk":
             val = "1" if request.form.get("maatwerk_alerts") else "0"
             _save_setting(conn, "maatwerk_alerts", val)
@@ -5200,18 +5303,21 @@ def products():
             if err:
                 flash("Shopify-import: " + err)
             else:
-                flash("Shopify-import klaar: %d actieve artikelen toegevoegd, %d al aanwezig. Vul nu de tijden aan." % (added, skipped))
+                flash("Shopify-import klaar: %d actieve artikelen toegevoegd, %d al aanwezig. "
+                      "Vul nu de tijden en de Nederlandse weergavenamen aan." % (added, skipped))
         conn.close()
         _invalidate_gcache()
         return redirect(url_for("planning.products"))
     rows = conn.execute("SELECT * FROM products ORDER BY active DESC, name").fetchall()
     conn.close()
     # Voorstel per artikel, zodat je ziet waar de app hem nu zelf indeelt.
-    guess = {r["id"]: (_cat_from_name(r["display_name"]) or _cat_from_name(r["name"]) or "Overige")
-             for r in rows}
+    def _sft(r):
+        return ((r["shopify_title"] if "shopify_title" in set(r.keys()) else "") or "").strip()
+    guess = {r["id"]: (_cat_from_name(r["display_name"]) or _cat_from_name(_sft(r))
+                       or _cat_from_name(r["name"]) or "Overige") for r in rows}
     cat_now = {r["id"]: ((r["category"] if "category" in set(r.keys()) else "") or "") for r in rows}
     return render_template("planning/products.html", products=rows, cats=VOORMONTAGE_CATS,
-                           guess=guess, cat_now=cat_now,
+                           guess=guess, cat_now=cat_now, shop_title={r["id"]: _sft(r) for r in rows},
                            maatwerk_on=(setting("maatwerk_alerts", "0") == "1"))
 
 
@@ -5262,11 +5368,11 @@ def order_maatwerk(oid):
         conn.close()
         abort(404)
     prods = _load_products(conn)
-    items = conn.execute("SELECT id,name,qty,montage_custom FROM order_items WHERE order_id=? ORDER BY id",
-                         (oid,)).fetchall()
+    items = conn.execute("SELECT id,name,%s AS mkey,qty,montage_custom FROM order_items WHERE order_id=? ORDER BY id"
+                         % _mkey(), (oid,)).fetchall()
     if request.method == "POST":
         for it in items:
-            if not _match_product(it["name"], prods):
+            if not _match_product(it["mkey"], prods):
                 val = request.form.get("m_%d" % it["id"])
                 mv = _int(val, 0) if (val is not None and val.strip() != "") else None
                 conn.execute("UPDATE order_items SET montage_custom=? WHERE id=?", (mv, it["id"]))
@@ -5277,7 +5383,7 @@ def order_maatwerk(oid):
     lev = (o["service_type"] or "montage") != "montage"
     custom, known, known_total = [], [], 0
     for it in items:
-        p = _match_product(it["name"], prods)
+        p = _match_product(it["mkey"], prods)
         if p:
             tiers = p.get("tiers_lev") if lev else p["tiers"]
             if not tiers or not any(tiers):
@@ -5345,12 +5451,16 @@ def _shopify_import_order(o):
                  (onum, cid, "shopify", 0, "in_te_plannen", full, city, postal, full, phone, email,
                   amount, note, service, gid, _new_track_token(), _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    prods = _load_products(conn)
     for li in (o.get("line_items") or []):
         qty = int(li.get("quantity") or 1)
-        conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,?)", (oid, _clean_item_name(li), qty))
+        # Origineel bewaren als herkenningssleutel, tonen doen we de NL-weergavenaam.
+        raw = _clean_item_name(li)
+        conn.execute("INSERT INTO order_items(order_id,name,src_name,qty) VALUES(?,?,?,?)",
+                     (oid, _order_item_label(raw, prods), raw, qty))
     # Montagetijd (workload) uit de artikelcatalogus afleiden.
-    prods = _load_products(conn)
-    itr = conn.execute("SELECT name,qty,montage_custom FROM order_items WHERE order_id=?", (oid,)).fetchall()
+    itr = conn.execute("SELECT %s AS name,qty,montage_custom FROM order_items WHERE order_id=?"
+                       % _mkey(), (oid,)).fetchall()
     mm = _order_montage([{"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]} for r in itr], prods, fallback=0, service_type=service)
     if mm:
         conn.execute("UPDATE orders SET montage_min=? WHERE id=?", (mm, oid))
@@ -6091,8 +6201,8 @@ def _learn_now(conn):
         dur = _klus_duur_min(r["aangekomen_at"], r["afgerond_at"])
         if dur is None:
             continue
-        items = conn.execute("SELECT name, qty, montage_custom FROM order_items WHERE order_id=?",
-                             (r["order_id"],)).fetchall()
+        items = conn.execute("SELECT %s AS name, qty, montage_custom FROM order_items WHERE order_id=?"
+                             % _mkey(), (r["order_id"],)).fetchall()
         weights = []    # (product_key, qty, cataloguswaarde-voor-die-regel)
         for it in items:
             qty = int(it["qty"] or 1)
@@ -6184,8 +6294,8 @@ def _duur_flags(conn, days=90):
                 reasons.append("Start %d min later gemeld dan GPS-aankomst" % round(gap))
         if r["arrival_backfilled"]:
             reasons.append("Aankomst handmatig ingevuld")
-        items = conn.execute("SELECT name, qty, montage_custom FROM order_items WHERE order_id=?",
-                             (r["order_id"],)).fetchall()
+        items = conn.execute("SELECT %s AS name, qty, montage_custom FROM order_items WHERE order_id=?"
+                             % _mkey(), (r["order_id"],)).fetchall()
         cat = _order_montage([{"name": it["name"], "qty": it["qty"], "montage_custom": it["montage_custom"]}
                               for it in items], prods, fallback=(r["montage_min"] or 0),
                              service_type=r["service_type"])

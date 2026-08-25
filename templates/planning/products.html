@@ -55,6 +55,8 @@
   .rowact{display:flex;gap:6px;white-space:nowrap}
   .muted{color:var(--muted)}
   .seed{margin-left:auto}
+  /* Shopify-titel als geheugensteun onder de weergavenaam (vaak Engels). */
+  .shoptitle{margin-top:3px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
 {% endblock %}
 {% block content %}
 <div class="intro">
@@ -62,7 +64,10 @@
   één keer voor <b>gemonteerd leveren</b> (bv. bureau in elkaar zetten = 20 min) en één keer voor <b>ongemonteerd leveren</b> (bv. alleen neerzetten = 5 min).
   Het systeem kiest automatisch de juiste tijd op basis van of de order <b>montage (M)</b> of <b>levering (L)</b> is.
   Bij grotere aantallen rekenen we door (10 st = 2× de tijd van 5 st). De <b>herkenningsnaam</b> koppelt orderregels aan dit artikel
-  (bv. <i>Fuse</i> herkent “Fuse RobEik/Zwart/160”). Laat je de ongemonteerd-tijden op 0, dan gebruiken we de montagetijd.
+  (bv. <i>Fuse</i> herkent “Fuse RobEik/Zwart/160”). Meerdere woorden mag: <i>Jorka Zwart</i> en <i>Jorka Wit</i> zijn twee artikelen met
+  een eigen gewicht, en de meest specifieke naam wint. De <b>weergavenaam</b> is wat monteur, magazijn en klant op hun scherm zien; vul
+  hem in het Nederlands in en de Engelse Shopify-titel verdwijnt van de orderregel (de herkenning blijft op het origineel draaien).
+  Met <b>Namen bijwerken</b> pas je dat ook toe op orders die al binnen zijn. Laat je de ongemonteerd-tijden op 0, dan gebruiken we de montagetijd.
   Met <b>Categorie</b> bepaal je onder welke kop het artikel bij <b>Voormonteren</b> komt te staan; op “automatisch” leidt de app
   het af uit de naam en zie je achter de pijl waar hij hem nu zet.
 </div>
@@ -80,7 +85,8 @@
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><h3 style="margin:0">Nieuw artikel</h3>
     <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
       <form method="post"><input type="hidden" name="action" value="import_shopify"><button class="btn primary sm" type="submit" title="Haalt alle actieve producten uit Shopify" onclick="return confirm('Alle ACTIEVE artikelen uit Shopify importeren? Bestaande worden overgeslagen; de tijden vul je daarna zelf aan.')"><svg class="ico"><use href="#ic-download"/></svg> Importeer uit Shopify</button></form>
-      <form method="post"><input type="hidden" name="action" value="seed_desks"><button class="btn ghost sm" type="submit" title="Voeg Fuse, Pinta, Duo, Now, Aero en Rosa toe">Standaard bureaus</button></form>
+      <form method="post"><input type="hidden" name="action" value="seed_desks"><button class="btn ghost sm" type="submit" title="Voeg Fuse, Pinta, Duo, Now, Aero, Rosa en Jorka toe">Standaard bureaus</button></form>
+      <form method="post"><input type="hidden" name="action" value="relabel"><button class="btn ghost sm" type="submit" title="Zet de artikelnamen op openstaande orders om naar de weergavenamen hieronder" onclick="return confirm('De orderregels van alle nog niet afgeronde orders bijwerken naar de weergavenamen? De herkenning blijft op de originele Shopify-regel draaien.')">Namen bijwerken</button></form>
     </div>
   </div>
   <form method="post" class="addf">
@@ -139,7 +145,8 @@
         {% for p in products %}
         <tr>
           <td class="namecell"><input type="text" name="name" value="{{ p.name }}" form="ef-{{ p.id }}"></td>
-          <td><input type="text" name="display_name" value="{{ p.display_name or '' }}" placeholder="automatisch" form="ef-{{ p.id }}"></td>
+          <td><input type="text" name="display_name" value="{{ p.display_name or '' }}" placeholder="{{ 'Nederlandse naam' if shop_title.get(p.id) else 'automatisch' }}" form="ef-{{ p.id }}">
+            {% if shop_title.get(p.id) %}<div class="shoptitle" title="Titel in Shopify">{{ shop_title.get(p.id) }}</div>{% endif %}</td>
           <td class="catcell">
             <select name="category" form="ef-{{ p.id }}">
               <option value="" {{ 'selected' if not cat_now.get(p.id) }}>automatisch &rarr; {{ guess.get(p.id) }}</option>
