@@ -64,6 +64,10 @@
         {% for m in monteurs %}<option value="{{ m.id }}" {{ 'selected' if sel_monteur==m.id|string }}>{{ m.name }}</option>{% endfor %}
       </select>
     </form>
+    <a class="btn ghost sm" href="{{ url_for('planning.urenregister_export', van=van, tot=tot, monteur=sel_monteur) }}"
+       title="Deze periode als Excel-bestand, met een tabblad totalen per monteur">
+      <svg class="ico"><use href="#ic-download"/></svg> Export Excel
+    </a>
   </div>
   {% if warn_count %}
   <div class="notice">

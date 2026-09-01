@@ -3155,6 +3155,93 @@ def monteur_edit(mid):
 # --------------------------------------------------------------------------- #
 #  Urenregister - uren die monteurs vanuit de app doorgeven (inhoud alleen met recht)
 # --------------------------------------------------------------------------- #
+def _uren_period():
+    """Gekozen periode: standaard de huidige week, met van/tot een vrij datumbereik."""
+    van = request.args.get("van") or ""
+    tot = request.args.get("tot") or ""
+    try:
+        if van and tot:
+            sd = datetime.strptime(van, "%Y-%m-%d").date()
+            ed = datetime.strptime(tot, "%Y-%m-%d").date()
+            if ed < sd:
+                sd, ed = ed, sd
+            return sd, ed, True
+    except Exception:
+        pass
+    base = request.args.get("d") or _today_iso()
+    try:
+        bd = datetime.strptime(base, "%Y-%m-%d").date()
+    except Exception:
+        bd = datetime.now().date()
+    start = bd - timedelta(days=bd.weekday())
+    return start, start + timedelta(days=6), False
+
+
+def _uren_label(start, end, custom):
+    """Leesbare periodenaam voor kop en bestandsnaam."""
+    if custom:
+        return "%d %s - %d %s %d" % (start.day, _NL_MONTHS[start.month][:3],
+                                     end.day, _NL_MONTHS[end.month][:3], end.year)
+    return "Week %d · %d %s - %d %s" % (start.isocalendar()[1], start.day,
+                                        _NL_MONTHS[start.month][:3], end.day, _NL_MONTHS[end.month][:3])
+
+
+def _uren_entries(start, end, sel_monteur):
+    """Urenregels in de periode, het aantal afwijkende regels en de monteurslijst.
+
+    Gedeeld door de pagina en de Excel-export, zodat beide exact hetzelfde tonen.
+    """
+    entries, warn_count = [], 0
+    conn = db()
+    monteurs_list = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
+    q = ("""SELECT w.*, COALESCE(m.name, w.user_name) AS monteur_name FROM work_hours w
+            LEFT JOIN monteurs m ON m.id=w.monteur_id
+            WHERE w.work_date>=? AND w.work_date<=?""")
+    params = [start.isoformat(), end.isoformat()]
+    if sel_monteur:
+        q += " AND w.monteur_id=?"; params.append(int(sel_monteur))
+    q += " ORDER BY w.work_date, monteur_name"
+    rows = conn.execute(q, tuple(params)).fetchall()
+    ws, we = start.isoformat(), end.isoformat()
+    # GPS-thuiskomst per monteur/dag (leidend) + route-afsluiting (terugval)
+    gps = {(r["monteur_id"], r["date"]): r["home_since"] for r in
+           conn.execute("SELECT monteur_id,date,home_since FROM monteur_day_gps WHERE date>=? AND date<=?",
+                        (ws, we)).fetchall() if r["home_since"]}
+    try:
+        closed = {(r["monteur_id"], r["date"]): r["ts"] for r in
+                  conn.execute("SELECT monteur_id,date,ts FROM route_closed WHERE date>=? AND date<=?",
+                               (ws, we)).fetchall()}
+    except Exception:
+        closed = {}
+    conn.close()
+
+    def _mn(hm):
+        try:
+            h, mm = hm.split(":")[:2]
+            return int(h) * 60 + int(mm)
+        except Exception:
+            return None
+
+    for r in rows:
+        key = (r["monteur_id"], r["work_date"])
+        gt, ct = gps.get(key), closed.get(key)
+        ref = gt or ct
+        warn, warn_text, warn_over = False, "", 0
+        if ref and r["end_time"]:
+            rt = ref.split("T")[1][:5] if "T" in ref else ref[:5]
+            emin, rmin = _mn(r["end_time"]), _mn(rt)
+            if emin is not None and rmin is not None and emin - rmin >= 30:
+                warn, warn_over = True, emin - rmin
+                src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
+                warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], warn_over)
+                warn_count += 1
+        entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "-",
+                        "start": r["start_time"], "end": r["end_time"],
+                        "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
+                        "note": r["note"] or "", "warn": warn, "warn_text": warn_text, "warn_over": warn_over})
+    return entries, warn_count, monteurs_list
+
+
 @bp.route("/urenregister")
 def urenregister():
     guard = login_required()          # inloggen volstaat om de tab te openen
@@ -3163,84 +3250,14 @@ def urenregister():
     can_view = has_perm("view_hours")  # inhoud alleen voor wie het recht heeft (standaard beheerder)
     entries, monteurs_list, range_total, range_ot, warn_count = [], [], 0, 0, 0
     sel_monteur = request.args.get("monteur") or ""
-    van = request.args.get("van") or ""
-    tot = request.args.get("tot") or ""
-    # Periode: standaard de huidige week; met van/tot een vrij datumbereik.
-    custom, start, end = False, None, None
-    try:
-        if van and tot:
-            sd = datetime.strptime(van, "%Y-%m-%d").date()
-            ed = datetime.strptime(tot, "%Y-%m-%d").date()
-            if ed < sd:
-                sd, ed = ed, sd
-            start, end, custom = sd, ed, True
-    except Exception:
-        custom = False
-    if not custom:
-        base = request.args.get("d") or _today_iso()
-        try:
-            bd = datetime.strptime(base, "%Y-%m-%d").date()
-        except Exception:
-            bd = datetime.now().date()
-        start = bd - timedelta(days=bd.weekday())
-        end = start + timedelta(days=6)
+    start, end, custom = _uren_period()
     prev_week = (start - timedelta(days=7)).isoformat()
     next_week = (start + timedelta(days=7)).isoformat()
-    if custom:
-        range_label = "%d %s - %d %s %d" % (start.day, _NL_MONTHS[start.month][:3],
-                                            end.day, _NL_MONTHS[end.month][:3], end.year)
-    else:
-        range_label = "Week %d · %d %s - %d %s" % (start.isocalendar()[1], start.day,
-                                                   _NL_MONTHS[start.month][:3], end.day, _NL_MONTHS[end.month][:3])
-    van_val, tot_val = (van or start.isoformat()), (tot or end.isoformat())
+    range_label = _uren_label(start, end, custom)
+    van_val = request.args.get("van") or start.isoformat()
+    tot_val = request.args.get("tot") or end.isoformat()
     if can_view:
-        conn = db()
-        monteurs_list = conn.execute("SELECT id,name FROM monteurs ORDER BY name").fetchall()
-        q = ("""SELECT w.*, COALESCE(m.name, w.user_name) AS monteur_name FROM work_hours w
-                LEFT JOIN monteurs m ON m.id=w.monteur_id
-                WHERE w.work_date>=? AND w.work_date<=?""")
-        params = [start.isoformat(), end.isoformat()]
-        if sel_monteur:
-            q += " AND w.monteur_id=?"; params.append(int(sel_monteur))
-        q += " ORDER BY w.work_date, monteur_name"
-        rows = conn.execute(q, tuple(params)).fetchall()
-        ws, we = start.isoformat(), end.isoformat()
-        # GPS-thuiskomst per monteur/dag (leidend) + route-afsluiting (terugval)
-        gps = {(r["monteur_id"], r["date"]): r["home_since"] for r in
-               conn.execute("SELECT monteur_id,date,home_since FROM monteur_day_gps WHERE date>=? AND date<=?",
-                            (ws, we)).fetchall() if r["home_since"]}
-        try:
-            closed = {(r["monteur_id"], r["date"]): r["ts"] for r in
-                      conn.execute("SELECT monteur_id,date,ts FROM route_closed WHERE date>=? AND date<=?",
-                                   (ws, we)).fetchall()}
-        except Exception:
-            closed = {}
-        conn.close()
-
-        def _mn(hm):
-            try:
-                h, mm = hm.split(":")[:2]
-                return int(h) * 60 + int(mm)
-            except Exception:
-                return None
-
-        for r in rows:
-            key = (r["monteur_id"], r["work_date"])
-            gt, ct = gps.get(key), closed.get(key)
-            ref = gt or ct
-            warn, warn_text, warn_over = False, "", 0
-            if ref and r["end_time"]:
-                rt = ref.split("T")[1][:5] if "T" in ref else ref[:5]
-                emin, rmin = _mn(r["end_time"]), _mn(rt)
-                if emin is not None and rmin is not None and emin - rmin >= 30:
-                    warn, warn_over = True, emin - rmin
-                    src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
-                    warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], warn_over)
-                    warn_count += 1
-            entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "-",
-                            "start": r["start_time"], "end": r["end_time"],
-                            "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
-                            "note": r["note"] or "", "warn": warn, "warn_text": warn_text, "warn_over": warn_over})
+        entries, warn_count, monteurs_list = _uren_entries(start, end, sel_monteur)
         range_total = sum(e["worked_min"] for e in entries)
         range_ot = sum(e["overtime_min"] for e in entries)
     u = current_user()
@@ -3249,6 +3266,92 @@ def urenregister():
                            prev_week=prev_week, next_week=next_week, range_total=range_total,
                            range_ot=range_ot, warn_count=warn_count, nl_date=_nl_date, custom=custom,
                            van=van_val, tot=tot_val, is_admin=bool(u and u["role"] == "beheerder"))
+
+
+def _uren_xlsx(start, end, sel_monteur):
+    """Urenregister als .xlsx voor de loonverwerking; geeft (bytes, bestandsnaam) terug.
+
+    Twee tabbladen: alle regels, en een totaal per monteur (dat is wat er in de
+    loonadministratie wordt overgenomen). Minuten staan er ook decimaal bij,
+    want de meeste loonpakketten rekenen met uren als getal.
+    """
+    entries, warn_count, _ = _uren_entries(start, end, sel_monteur)
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    def _hm(m):
+        return "%d:%02d" % (m // 60, m % 60)
+
+    def _dec(m):
+        return round(m / 60.0, 2)
+
+    periode = "%s t/m %s" % (start.isoformat(), end.isoformat())
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Uren"
+    ws.append(["Urenregister OfficeRoute", periode])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([])
+    ws.append(["Datum", "Monteur", "Start", "Eind", "Gewerkt (uu:mm)", "Gewerkt (uren)",
+               "Overuren (uu:mm)", "Overuren (uren)", "Opmerking", "Signaal"])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for e in entries:
+        ws.append([e["date"], e["monteur"], e["start"] or "", e["end"] or "",
+                   _hm(e["worked_min"]), _dec(e["worked_min"]),
+                   _hm(e["overtime_min"]), _dec(e["overtime_min"]),
+                   e["note"], e["warn_text"]])
+    tot_w = sum(e["worked_min"] for e in entries)
+    tot_o = sum(e["overtime_min"] for e in entries)
+    ws.append([])
+    ws.append(["Totaal", "", "", "", _hm(tot_w), _dec(tot_w), _hm(tot_o), _dec(tot_o), "", ""])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for col, width in zip("ABCDEFGHIJ", (12, 22, 8, 8, 16, 15, 17, 16, 34, 52)):
+        ws.column_dimensions[col].width = width
+
+    per = {}
+    for e in entries:
+        p = per.setdefault(e["monteur"], {"w": 0, "o": 0, "d": set(), "warn": 0})
+        p["w"] += e["worked_min"]
+        p["o"] += e["overtime_min"]
+        p["d"].add(e["date"])
+        if e["warn"]:
+            p["warn"] += 1
+    ws2 = wb.create_sheet("Totalen per monteur")
+    ws2.append(["Totalen per monteur", periode])
+    ws2["A1"].font = Font(bold=True, size=13)
+    ws2.append([])
+    ws2.append(["Monteur", "Dagen", "Gewerkt (uu:mm)", "Gewerkt (uren)",
+                "Overuren (uu:mm)", "Overuren (uren)", "Regels met signaal"])
+    for cell in ws2[ws2.max_row]:
+        cell.font = Font(bold=True)
+    for naam in sorted(per):
+        p = per[naam]
+        ws2.append([naam, len(p["d"]), _hm(p["w"]), _dec(p["w"]),
+                    _hm(p["o"]), _dec(p["o"]), p["warn"] or ""])
+    ws2.append([])
+    ws2.append(["Totaal", "", _hm(tot_w), _dec(tot_w), _hm(tot_o), _dec(tot_o), warn_count or ""])
+    for cell in ws2[ws2.max_row]:
+        cell.font = Font(bold=True)
+    for col, width in zip("ABCDEFG", (24, 8, 16, 15, 17, 16, 18)):
+        ws2.column_dimensions[col].width = width
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue(), "urenregister_%s_%s.xlsx" % (start.isoformat(), end.isoformat())
+
+
+@bp.route("/urenregister/export.xlsx")
+def urenregister_export():
+    guard = login_required("view_hours")
+    if guard:
+        return guard
+    start, end, _ = _uren_period()
+    data, fname = _uren_xlsx(start, end, request.args.get("monteur") or "")
+    return Response(data,
+                    mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": "attachment; filename=%s" % fname})
 
 
 @bp.route("/urenregister/demo", methods=["POST"])
