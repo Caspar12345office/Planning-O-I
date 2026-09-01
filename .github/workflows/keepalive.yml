@@ -15,5 +15,5 @@ jobs:
     steps:
       - name: Ping OfficeRoute-services
         run: |
-          echo "Kantoor:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://planning-o-i.onrender.com/version)"
-          echo "Monteur:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://officeroute-mobile-app.onrender.com/version)"
+          echo "Kantoor:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://planning-o-i-fra.onrender.com/version)"
+          echo "Monteur:  $(curl -s -m 30 -o /dev/null -w '%{http_code}' https://officeroute-monteur-fra.onrender.com/version)"

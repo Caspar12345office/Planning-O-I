@@ -4007,7 +4007,7 @@ def documenten_delete(did):
 #  Leveringsdocumenten: sjablonen beheren, versturen (beveiligde link),
 #  automatische ontvangst-detectie + doorzoekbare lijst.
 # --------------------------------------------------------------------------- #
-LEVERDOC_BASE = os.environ.get("PUBLIC_BASE_URL", "https://planning-o-i.onrender.com")  # publieke basis-URL voor track/leverdoc-links; zet PUBLIC_BASE_URL bij verhuizing/domein
+LEVERDOC_BASE = os.environ.get("PUBLIC_BASE_URL", "https://planning-o-i-fra.onrender.com")  # publieke basis-URL voor track/leverdoc-links; zet PUBLIC_BASE_URL bij verhuizing/domein
 
 
 @bp.route("/leveringsdocumenten", methods=["GET", "POST"])
