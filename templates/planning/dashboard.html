@@ -252,9 +252,11 @@ function planOrder(btn, oid){
 (function(){
   if(typeof L==='undefined'){return;}
   // gecentreerd tussen NL en BE
-  var map=L.map('map',{zoomControl:true, attributionControl:false}).setView([51.7,4.9],7);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
-    maxZoom:18, subdomains:'abcd'}).addTo(map);
+  var map=L.map('map',{zoomControl:true}).setView([51.7,4.9],7);
+  // OpenStreetMap i.p.v. CARTO: die eist sinds kort een API-sleutel en zette
+  // anders "API KEY REQUIRED" dwars over de kaart. Bronvermelding is verplicht.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
   function dot(color, letter){
     return L.divIcon({className:'', iconSize:[28,28], iconAnchor:[14,14],
       html:'<div style="width:28px;height:28px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center">'+letter+'</div>'});

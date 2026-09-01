@@ -337,8 +337,9 @@ function showRouteMap(ev, mid, name){
 }
 function drawRoute(mid){
   if(typeof L==='undefined'){ document.getElementById('rmInfo').textContent='Kaart kon niet laden.'; return; }
-  if(!rmMap){ rmMap=L.map('rmMap',{attributionControl:false});
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{maxZoom:18,subdomains:'abcd'}).addTo(rmMap);
+  if(!rmMap){ rmMap=L.map('rmMap');
+    // Zie dashboard.html: CARTO eist een API-sleutel, OpenStreetMap niet.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(rmMap);
   } else { rmMap.eachLayer(function(l){ if(l instanceof L.Polyline || l instanceof L.CircleMarker || l instanceof L.Marker) rmMap.removeLayer(l); }); }
   fetch('{{ url_for("planning.api_route_geo", mid=0) }}'.slice(0,-1)+mid+'?day={{ day }}')
     .then(function(r){return r.json();}).then(function(d){
