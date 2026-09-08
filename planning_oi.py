@@ -1475,13 +1475,18 @@ def _resend_request(path, key, payload=None):
     return urllib.request.Request(RESEND_API + path, data=data, headers=headers)
 
 
-def _api_send(to, subject, text, html=None):
-    """Verstuur via Resend HTTPS-API (werkt op Render); anders SMTP (lokaal). Respecteert testmodus."""
+def _api_send(to, subject, text, html=None, force=False):
+    """Verstuur via Resend HTTPS-API (werkt op Render); anders SMTP (lokaal). Respecteert testmodus.
+
+    force=True gaat langs de testmodus-gate en is UITSLUITEND bedoeld voor mail
+    aan de ingelogde gebruiker zelf (test- en voorbeeldknoppen). Nooit gebruiken
+    voor een adres dat van een klant of uit een formulier komt.
+    """
     recips = [r for r in (to if isinstance(to, list) else [to]) if r]
     if not recips:
         return False
     c = _email_cfg()
-    if (c.get("send_live") or "0") != "1":
+    if not force and (c.get("send_live") or "0") != "1":
         return False   # testmodus: niets echt versturen
     from_email = (c.get("from_email") or c.get("smtp_user") or "").strip()
     if not from_email:
@@ -2684,6 +2689,99 @@ def api_correspondence(oid):
     return jsonify(ok=True, items=items)
 
 
+MAIL_PREVIEW_BLOCKS = [
+    ("confirm", "Bevestiging - automatisch ná het inplannen"),
+    ("today", "Wij komen vandaag langs"),
+    ("near", "Onze monteur is er bijna"),
+    ("delay", "Update over uw levertijd"),
+]
+
+
+def _preview_mails():
+    """De vier automatische klantmails, opgebouwd met voorbeeldgegevens.
+
+    Eén bron voor zowel het voorbeeld op de pagina als de knop 'mail naar
+    mijzelf', zodat je mailbox exact toont wat de pagina laat zien.
+    """
+    cur = {k: _mailtxt(k) for k in MAIL_TEXT_DEFAULTS}
+    greet = "Beste Voorbeeldklant,"
+
+    def one(key, subject, info, button=None, note=None):
+        hk, bk = "mailtxt_%s_h" % key, "mailtxt_%s_b" % key
+        html = _brand_email(cur[hk], _paras(greet, cur[bk]),
+                            info=info, button=button, note=note)
+        lines = [greet, "", cur[bk], ""]
+        lines += ["%s: %s" % (label, value) for label, value in info]
+        if note:
+            lines += ["", note]
+        return {"subject": subject, "text": "\n".join(lines), "html": html}
+
+    # De onderwerpregels zijn overgenomen uit de echte verzendcode, zodat een
+    # voorbeeld in de inbox er ook in de berichtenlijst hetzelfde uitziet.
+    # 'near' komt uit de monteur-app en heeft daar bewust geen ordernummer.
+    return {
+        "confirm": one("confirm", "Uw bestelling is ingepland #36399",
+                       [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 - 12:00"),
+                        ("Ordernummer", "#36399")],
+                       note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur."),
+        "today": one("today", "Uw levering vandaag #36399",
+                     [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30-10:30"),
+                      ("Ordernummer", "#36399")],
+                     button=("Volg uw levering & bericht doorgeven", "#")),
+        "near": one("near", "Onze monteur is er bijna",
+                    [("Monteur", "Tom"), ("Verwachte aankomst", "rond 09:55"),
+                     ("Ordernummer", "#36399")],
+                    button=("Volg live op de kaart", "#")),
+        "delay": one("delay", "Update levertijd #36399",
+                     [("Nieuwe verwachte tijd", "rond 10:40"), ("Ordernummer", "#36399")],
+                     button=("Volg uw levering", "#")),
+    }
+
+
+@bp.route("/email-templates/proefmail/<key>", methods=["POST"])
+def email_template_proef(key):
+    """Mail een voorbeeld van een klantmail naar de ingelogde gebruiker zelf.
+
+    Gaat bewust LANGS de testmodus-gate, net als de Test-knop bij Koppelingen,
+    zodat je het echte resultaat in een mailbox kunt bekijken zonder dat er iets
+    naar klanten gaat. De ontvanger is altijd het eigen adres van de ingelogde
+    gebruiker en komt nooit uit het formulier.
+    """
+    if not has_perm("manage_settings"):
+        return jsonify(ok=False, message="Geen rechten"), 403
+
+    mails = _preview_mails()
+    wanted = [k for k, _ in MAIL_PREVIEW_BLOCKS] if key == "alle" else [key]
+    if any(k not in mails for k in wanted):
+        return jsonify(ok=False, message="Onbekende mailsoort"), 404
+
+    u = current_user()
+    to = (u["email"] or "").strip() if u else ""
+    if not to:
+        return jsonify(ok=False, message="Je account heeft geen e-mailadres.")
+
+    cfg = _email_cfg()
+    if not (cfg.get("resend_api_key") or "").strip():
+        return jsonify(ok=False, message="Vul eerst de Resend-sleutel in bij Koppelingen.")
+    if not (cfg.get("from_email") or "").strip():
+        return jsonify(ok=False, message="Vul eerst het afzenderadres in bij Koppelingen.")
+
+    sent, failed = [], []
+    for k in wanted:
+        m = mails[k]
+        ok = _api_send(to, "[VOORBEELD] " + m["subject"], m["text"], m["html"],
+                       force=True)
+        (sent if ok else failed).append(k)
+
+    if failed and not sent:
+        return jsonify(ok=False, message="Versturen mislukt. Controleer de logs in Resend.")
+    msg = "%d voorbeeld%s verstuurd naar %s." % (
+        len(sent), "" if len(sent) == 1 else "mails", to)
+    if failed:
+        msg += " Mislukt: %s." % ", ".join(failed)
+    return jsonify(ok=True, message=msg)
+
+
 @bp.route("/email-templates", methods=["GET", "POST"])
 def email_templates():
     """Bewerk de teksten van de klantmails (kop + body) met live voorbeeld in de huisstijl."""
@@ -2700,31 +2798,9 @@ def email_templates():
         flash("E-mailteksten opgeslagen.")
         return redirect(url_for("planning.email_templates"))
     cur = {k: _mailtxt(k) for k in keys}
-
-    def prev(hk, bk, info, button=None, note=None):
-        return _brand_email(cur[hk], _paras("Beste Voorbeeldklant,", cur[bk]), info=info, button=button, note=note)
-
-    previews = {
-        "confirm": prev("mailtxt_confirm_h", "mailtxt_confirm_b",
-                        [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 - 12:00"), ("Ordernummer", "#36399")],
-                        note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur."),
-        "today": prev("mailtxt_today_h", "mailtxt_today_b",
-                      [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30-10:30"), ("Ordernummer", "#36399")],
-                      button=("Volg uw levering & bericht doorgeven", "#")),
-        "near": prev("mailtxt_near_h", "mailtxt_near_b",
-                     [("Monteur", "Tom"), ("Verwachte aankomst", "rond 09:55"), ("Ordernummer", "#36399")],
-                     button=("Volg live op de kaart", "#")),
-        "delay": prev("mailtxt_delay_h", "mailtxt_delay_b",
-                      [("Nieuwe verwachte tijd", "rond 10:40"), ("Ordernummer", "#36399")],
-                      button=("Volg uw levering", "#")),
-    }
-    blocks = [
-        ("confirm", "Bevestiging - automatisch ná het inplannen"),
-        ("today", "Wij komen vandaag langs"),
-        ("near", "Onze monteur is er bijna"),
-        ("delay", "Update over uw levertijd"),
-    ]
-    return render_template("planning/email_templates.html", cur=cur, previews=previews, blocks=blocks)
+    previews = {k: m["html"] for k, m in _preview_mails().items()}
+    return render_template("planning/email_templates.html", cur=cur, previews=previews,
+                           blocks=MAIL_PREVIEW_BLOCKS, mail_live=_mail_live())
 
 
 @bp.route("/api/mail", methods=["POST"])

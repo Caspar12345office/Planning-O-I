@@ -10,9 +10,26 @@
   .etcard textarea{min-height:170px;resize:vertical;line-height:1.5}
   .etcard .hint{font-size:12px;color:var(--muted);margin:6px 0 0}
   .etprev{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:580px}
+  .etbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+  .etnote{font-size:13px;color:var(--muted);margin:0}
+  .etprevhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .etsend{background:none;border:none;padding:0;font:inherit;font-size:12.5px;font-weight:600;
+           color:var(--accent);text-decoration:underline;cursor:pointer}
+  .etsend[disabled]{opacity:.5;cursor:default}
+  #etmsg{font-size:13px}
   @media(max-width:900px){.etgrid{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
+<div class="etbar">
+  <p class="etnote">
+    Wil je zien hoe de mails er in een echte mailbox uitzien? Mail ze naar jezelf.
+    Ze gaan altijd alleen naar <b>je eigen adres</b>, ook met de testmodus aan.
+    <b>Sla eerst op</b>, want er wordt verstuurd wat is opgeslagen.
+    {% if not mail_live %}<br><b>Testmodus staat aan:</b> naar klanten gaat er nog niets.{% endif %}
+  </p>
+  <button class="btn" type="button" onclick="etSend('alle',this)">Mail alle vier naar mijzelf</button>
+</div>
+<p id="etmsg"></p>
 <form method="post">
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn primary" type="submit">Opslaan</button></div>
   {% for key,title in blocks %}
@@ -27,7 +44,10 @@
         <div class="hint">Een lege regel = nieuwe alinea. <b>"Beste {klant},"</b> en de gegevens (datum, tijdvak, ordernummer, knop) worden automatisch toegevoegd - die hoef je hier niet te typen.</div>
       </div>
       <div>
-        <label>Voorbeeld</label>
+        <div class="etprevhead">
+          <label>Voorbeeld</label>
+          <button class="etsend" type="button" onclick="etSend('{{ key }}',this)">mail naar mijzelf</button>
+        </div>
         <div class="etprev">{{ previews[key]|safe }}</div>
       </div>
     </div>
@@ -35,4 +55,26 @@
   {% endfor %}
   <div style="display:flex;justify-content:flex-end"><button class="btn primary" type="submit">Opslaan</button></div>
 </form>
+<script>
+function etSend(key, btn) {
+  var msg = document.getElementById('etmsg');
+  var was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'versturen...';
+  msg.textContent = '';
+  msg.style.color = '';
+  fetch('{{ url_for("planning.email_template_proef", key="__KEY__") }}'.replace('__KEY__', key),
+        {method: 'POST', headers: {'X-Requested-With': 'fetch'}})
+    .then(function (r) { return r.json().catch(function () { return {ok: false, message: 'Onverwacht antwoord van de server (HTTP ' + r.status + ').'}; }); })
+    .then(function (d) {
+      msg.textContent = d.message || (d.ok ? 'Verstuurd.' : 'Mislukt.');
+      msg.style.color = d.ok ? '#2f9e54' : '#b3261e';
+    })
+    .catch(function (e) {
+      msg.textContent = 'Versturen mislukt: ' + e;
+      msg.style.color = '#b3261e';
+    })
+    .then(function () { btn.disabled = false; btn.textContent = was; });
+}
+</script>
 {% endblock %}
