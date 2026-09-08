@@ -1657,47 +1657,68 @@ def _purge_old_customer_notes(conn):
 
 def _brand_email(heading, paragraphs, info=None, button=None, note=None):
     """Nette HTML-klantmail in de OFFICE-INTERIOR-huisstijl (teal/goud).
-    paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok."""
+    paragraphs: tekstalinea's; info: (label, waarde)-rijen; button: (tekst, url); note: melding-blok.
+
+    Kleuren staan hieronder bij elkaar; dat is de enige plek waar de opmaak van
+    ALLE klantmail vandaan komt. Het buitenvlak is wit en de kaart crème (was
+    omgekeerd), omdat dat in de webversie van mail beter staat.
+
+    De muted-tint is bewust donkerder dan de oude #8a948f: die haalde met 3.13
+    de leesbaarheidseis van 4.5 zelfs op wit niet, en op crème werd het 2.81.
+    Bij het wijzigen van kleuren de contrasten opnieuw narekenen.
+    """
     ff = "font-family:Arial,Helvetica,sans-serif;"
+    c_page = "#ffffff"       # buitenvlak
+    c_card = "#f7f2ea"       # de kaart zelf
+    c_edge = "#e8dcc6"       # rand van de kaart + scheidingslijn voet
+    c_ink = "#111111"        # wordmark
+    c_teal = "#0f3d3e"       # koppen, waarden, knop
+    c_text = "#5a6b64"       # alinea's        (5.06 op crème)
+    c_muted = "#66706b"      # labels + voet   (4.60 op crème)
+    c_note_bg = "#ffffff"    # meldingsblok, wit tegen de crème kaart
+    c_note_edge = "#e3d5b7"
+    c_note_ink = "#6b4e15"   # (7.70 op wit)
     paras = ""
     for p in (paragraphs or []):
         if p:
-            paras += ('<p style="margin:0 0 14px;' + ff + 'font-size:14px;color:#5a6b64;line-height:1.6;">'
+            paras += ('<p style="margin:0 0 14px;' + ff + 'font-size:14px;color:' + c_text + ';line-height:1.6;">'
                       + _esc(p).replace("\n", "<br>") + '</p>')
     info_html = ""
     if info:
         parts = " &nbsp;&middot;&nbsp; ".join(
-            '<span style="color:#8a948f;">' + _esc(label) + ':</span> '
-            '<b style="color:#0f3d3e;">' + _esc(value) + '</b>' for label, value in info)
-        info_html = ('<p style="margin:2px 0 18px;' + ff + 'font-size:13px;color:#5a6b64;line-height:2;">'
+            '<span style="color:' + c_muted + ';">' + _esc(label) + ':</span> '
+            '<b style="color:' + c_teal + ';">' + _esc(value) + '</b>' for label, value in info)
+        info_html = ('<p style="margin:2px 0 18px;' + ff + 'font-size:13px;color:' + c_text + ';line-height:2;">'
                      + parts + '</p>')
     note_html = ""
     if note:
         note_html = ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 16px;">'
-                     '<tr><td style="background:#f7efe0;border:1px solid #e7d3a6;border-radius:10px;padding:11px 14px;'
-                     + ff + 'font-size:12.5px;color:#6b4e15;line-height:1.55;text-align:center;">'
+                     '<tr><td bgcolor="' + c_note_bg + '" style="background:' + c_note_bg + ';border:1px solid '
+                     + c_note_edge + ';border-radius:10px;padding:11px 14px;'
+                     + ff + 'font-size:12.5px;color:' + c_note_ink + ';line-height:1.55;text-align:center;">'
                      + _esc(note) + '</td></tr></table>')
     btn_html = ""
     if button:
         btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:4px auto 6px;">'
-                    '<tr><td align="center" bgcolor="#0f3d3e" style="border-radius:10px;">'
+                    '<tr><td align="center" bgcolor="' + c_teal + '" style="border-radius:10px;">'
                     '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:13px 26px;color:#ffffff;'
                     + ff + 'font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;">'
                     + _esc(button[0]) + '</a></td></tr></table>')
-    return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f7f2ea" '
-            'style="background:#f7f2ea;margin:0;padding:26px 12px;"><tr><td align="center">'
-            '<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;'
-            'background:#ffffff;border:1px solid #eadfce;border-radius:14px;overflow:hidden;">'
+    return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c_page + '" '
+            'style="background:' + c_page + ';margin:0;padding:26px 12px;"><tr><td align="center">'
+            '<table role="presentation" width="480" cellpadding="0" cellspacing="0" bgcolor="' + c_card + '" '
+            'style="max-width:480px;width:100%;'
+            'background:' + c_card + ';border:1px solid ' + c_edge + ';border-radius:14px;overflow:hidden;">'
             '<tr><td align="center" style="padding:28px 30px 6px;">'
             '<div style="font-family:\'Montserrat\',Arial,Helvetica,sans-serif;font-size:17px;font-weight:500;'
-            'letter-spacing:3.5px;color:#111111;">OFFICE-INTERIOR</div></td></tr>'
+            'letter-spacing:3.5px;color:' + c_ink + ';">OFFICE-INTERIOR</div></td></tr>'
             '<tr><td align="center" style="padding:16px 30px 8px;">'
-            '<h1 style="margin:0 0 12px;' + ff + 'font-size:21px;color:#0f3d3e;font-weight:bold;letter-spacing:-.01em;">'
+            '<h1 style="margin:0 0 12px;' + ff + 'font-size:21px;color:' + c_teal + ';font-weight:bold;letter-spacing:-.01em;">'
             + _esc(heading) + '</h1>'
             + paras + info_html + note_html + btn_html +
             '</td></tr>'
-            '<tr><td style="border-top:1px solid #eef0ec;padding:14px 30px 24px;text-align:center;'
-            + ff + 'font-size:11.5px;color:#8a948f;line-height:1.6;">'
+            '<tr><td style="border-top:1px solid ' + c_edge + ';padding:14px 30px 24px;text-align:center;'
+            + ff + 'font-size:11.5px;color:' + c_muted + ';line-height:1.6;">'
             'Vragen? planning@office-interior.com &nbsp;&middot;&nbsp; 085-0481444</td></tr>'
             '</table></td></tr></table>')
 
