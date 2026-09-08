@@ -1623,7 +1623,8 @@ MAIL_TEXT_DEFAULTS = {
     "mailtxt_today_h": "Wij komen vandaag langs",
     "mailtxt_today_b": ("Vandaag bezorgen wij uw bestelling. Gekozen voor montage? Dan doen we dat natuurlijk ook! "
                         "Hieronder vindt u de details. Onze monteur stuurt onderweg nog een bericht zodra hij naar u toe komt.\n\n"
-                        "Wilt u iets aan de chauffeur doorgeven (bijv. \"bel doet het niet\")? Dat kan via de knop hieronder."),
+                        "Via ‘Volg uw levering’ ziet u vanaf een uur voor het tijdvak waar de monteur is. "
+                        "Wilt u iets doorgeven (bijv. \"bel doet het niet\")? Gebruik dan ‘Bericht doorgeven’."),
     "mailtxt_near_h": "Onze monteur is er bijna",
     "mailtxt_near_b": "Onze monteur is er bijna. U kunt hem live volgen via de knop hieronder.",
     "mailtxt_delay_h": "Update over uw levertijd",
@@ -1642,6 +1643,30 @@ def _mailtxt(key):
 
 def _paras(greet, bodytext):
     return [greet] + [p for p in (bodytext or "").split("\n\n") if p.strip()]
+
+
+TRACK_MAP_LEAD_MIN = 60      # hoelang vóór het tijdvak de live kaart aangaat
+
+
+def _track_map_window(date_iso, slot_start):
+    """Mag de klant de monteur nu live op de kaart zien? -> (open, vanaf_tijd)
+
+    Pas vanaf TRACK_MAP_LEAD_MIN minuten voor het begin van het tijdvak, en
+    alleen op de bezorgdag zelf. Zonder die grens kan een klant de monteur de
+    hele dag volgen terwijl hij bij andere klanten langsgaat.
+
+    Geen of een onleesbaar tijdvak: dan niet blokkeren, want dan valt er ook
+    niets uit te leggen en is de mail toch al verstuurd.
+    """
+    if not date_iso or date_iso != _today_iso():
+        return False, None
+    try:
+        h, m = [int(x) for x in str(slot_start).split(":")[:2]]
+        start = datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
+    except Exception:
+        return True, None
+    opens = start - timedelta(minutes=TRACK_MAP_LEAD_MIN)
+    return datetime.now() >= opens, opens.strftime("%H:%M")
 
 
 def _purge_old_customer_notes(conn):
@@ -1769,6 +1794,7 @@ a { color:{{teal}}; text-decoration:none; }
   .copy { font-size:16px !important; }
   .meta-cell { display:block !important; width:100% !important; padding:0 0 18px 0 !important; }
   .meta-sep { display:none !important; }
+  .btn-cell { display:block !important; width:100% !important; padding:0 0 12px 0 !important; }
   .notice td { display:block !important; width:100% !important; text-align:center !important; }
   .notice .small-icon { margin:0 auto 6px auto !important; }
   .notice-text { text-align:center !important; padding:0 14px 16px 14px !important; }
@@ -1884,26 +1910,50 @@ def _mail_notice_block(notice):
             ' padding:18px 18px 18px 8px;">' + _esc(notice) + '</td></tr></table>')
 
 
-def _mail_button_block(button):
-    """Gecentreerde teal knop. button = (tekst, url); geen url = geen knop.
+def _mail_button_block(buttons):
+    """Eén of twee gecentreerde knoppen naast elkaar.
+
+    buttons = (tekst, url) of een lijst daarvan. Een lege url laat die knop weg.
+    De eerste is gevuld teal, een tweede is wit met een teal rand, zodat de
+    hoofdactie duidelijk blijft. Op mobiel stapelen ze onder elkaar (.btn-cell).
 
     De tekst wordt hier ge-escaped, dus geef gewoon '&' mee en niet '&amp;'.
     """
-    if not button or not button[1]:
+    if not buttons:
         return ""
-    text, url = button
+    if isinstance(buttons, tuple):
+        buttons = [buttons]
+    items = [b for b in buttons if b and b[1]]
+    if not items:
+        return ""
+
     c = MAIL_COLORS
+    cells = ""
+    for i, (text, url) in enumerate(items):
+        fill = c["teal"] if i == 0 else "#ffffff"
+        ink = "#ffffff" if i == 0 else c["teal"]
+        pad = ' style="padding-left:10px;"' if i else ""
+        cells += ('<td class="btn-cell" valign="middle"' + pad + '>'
+                  '<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
+                  ' align="center" style="margin:0 auto;"><tr>'
+                  '<td align="center" bgcolor="' + fill + '"'
+                  # zelfde ronding als de link erin, anders lichte hoekjes
+                  ' style="border-radius:10px; border:2px solid ' + c["teal"] + ';">'
+                  '<a href="' + _esc(url) + '" style="display:inline-block; padding:13px 26px;'
+                  ' background:' + fill + '; color:' + ink + ';'
+                  ' font-family:Arial,Helvetica,sans-serif; font-size:16px;'
+                  ' font-weight:700; text-decoration:none; border-radius:10px;">'
+                  + _esc(text) + '</a></td></tr></table></td>')
+
     return ('<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
-            ' align="center" style="margin:34px auto 6px;"><tr>'
-            '<td align="center" bgcolor="' + c["teal"] + '" style="border-radius:12px;">'
-            '<a href="' + _esc(url) + '" style="display:inline-block; padding:15px 30px;'
-            ' color:#ffffff; font-family:Arial,Helvetica,sans-serif; font-size:16px;'
-            ' font-weight:700; text-decoration:none; border-radius:12px;">'
-            + _esc(text) + '</a></td></tr></table>')
+            ' align="center" style="margin:34px auto 6px;"><tr>' + cells + '</tr></table>')
 
 
-def _mail_html(heading, client, intro, cells, button=None, notice=None):
-    """Bouw een klantmail uit het gedeelde sjabloon. Alle tekst loopt door _esc."""
+def _mail_html(heading, client, intro, cells, buttons=None, notice=None):
+    """Bouw een klantmail uit het gedeelde sjabloon. Alle tekst loopt door _esc.
+
+    buttons = (tekst, url) of een lijst daarvan (maximaal twee naast elkaar).
+    """
     blocks = ""
     for para in [p for p in (intro or "").split("\n\n") if p.strip()]:
         blocks += ('<div class="copy" style="font-family:Arial,Helvetica,sans-serif;'
@@ -1918,7 +1968,7 @@ def _mail_html(heading, client, intro, cells, button=None, notice=None):
         "intro_blocks": blocks,
         "meta_row": _mail_meta_row(cells),
         "notice_block": _mail_notice_block(notice),
-        "button_block": _mail_button_block(button),
+        "button_block": _mail_button_block(buttons),
         "logo_url": _mail_asset("logos/office-interior.png"),
         "icon_mail": _mail_asset("mail/icon-mail.png"),
         "contact_email": MAIL_CONTACT_EMAIL,
@@ -2866,18 +2916,21 @@ def track(token):
                      (token,)).fetchone()
     if not o:
         conn.close()
-        return render_template("planning/track.html", found=False, onum=None)
+        return render_template("planning/track.html", found=False, onum=None,
+                               lead_minutes=TRACK_MAP_LEAD_MIN, demo=False)
     p = conn.execute("""SELECT p.*, m.name AS monteur, m.id AS mid FROM planning p
                         LEFT JOIN monteurs m ON m.id=p.monteur_id WHERE p.order_id=?""", (o["id"],)).fetchone()
     status = (p["status"] if p else None) or o["ostatus"] or "in_te_plannen"
     tijdvak = the_date = eta = monteur = None
     m_lat = m_lng = None
+    gate_ok, map_from = False, None
     dcoord = CITY_COORDS.get(o["city"]) or BREDA
     if p:
         the_date = p["date"]
         monteur = p["monteur"]
         if p["slot_start"]:
             tijdvak = (p["slot_start"] or "") + " - " + (p["slot_end"] or "")
+        gate_ok, map_from = _track_map_window(p["date"], p["slot_start"])
         if status == "onderweg" and p["mid"]:
             try:
                 live = _live_loc(conn, p["mid"])
@@ -2896,12 +2949,47 @@ def track(token):
             except Exception:
                 eta = None
     conn.close()
+    # De kaart gaat alleen open als het tijdvak in zicht is EN de monteur echt
+    # een positie doorgeeft. Kan hij nog niet, maar komt de levering nog wel,
+    # dan leggen we uit vanaf wanneer de kaart aangaat.
+    map_open = bool(gate_ok and m_lat is not None)
+    map_later = bool(not map_open and the_date and status in ("gepland", "onderweg"))
     return render_template("planning/track.html", found=True, onum=o["order_number"], token=token,
                            client=o["client"], status=status,
                            tijdvak=tijdvak, the_date=_nl_date(the_date) if the_date else None,
                            eta=eta, monteur=monteur, note=o["customer_note"],
                            can_note=(status in ("gepland", "onderweg")), saved=request.args.get("saved"),
-                           m_lat=m_lat, m_lng=m_lng, d_lat=dcoord[0], d_lng=dcoord[1])
+                           m_lat=m_lat, m_lng=m_lng, d_lat=dcoord[0], d_lng=dcoord[1],
+                           map_open=map_open, map_later=map_later, map_from=map_from,
+                           lead_minutes=TRACK_MAP_LEAD_MIN, demo=False)
+
+
+@bp.route("/volgpagina-voorbeeld")
+def track_demo():
+    """De volgpagina met verzonnen gegevens, zodat kantoor kan zien wat de klant ziet.
+
+    Alleen intern (recht view_planning). De kaart staat hier altijd open, ook al
+    gaat hij bij een echte klant pas een uur voor het tijdvak aan.
+    """
+    guard = login_required("view_planning")
+    if guard:
+        return guard
+    now = datetime.now()
+    # Tijdvak rond het huidige moment, anders klopt de verwachte aankomst niet
+    # met het tijdvak en ziet het voorbeeld er onlogisch uit.
+    return render_template(
+        "planning/track.html", found=True, demo=True, token="voorbeeld",
+        onum="36399", client="Voorbeeldklant", status="onderweg",
+        the_date=_nl_date(_today_iso()),
+        tijdvak="%s - %s" % ((now - timedelta(minutes=30)).strftime("%H:%M"),
+                             (now + timedelta(minutes=90)).strftime("%H:%M")),
+        eta=(now + timedelta(minutes=18)).strftime("%H:%M"), monteur="Tom",
+        note=None, can_note=True, saved=False,
+        # Monteur een paar straten van het leveradres, zodat de route zichtbaar is.
+        m_lat=BREDA[0] + 0.012, m_lng=BREDA[1] - 0.016,
+        d_lat=BREDA[0], d_lng=BREDA[1],
+        map_open=True, map_later=False, map_from=None,
+        lead_minutes=TRACK_MAP_LEAD_MIN)
 
 
 @bp.route("/track/<token>/note", methods=["POST"])
@@ -2948,13 +3036,13 @@ def _preview_mails():
     cur = {k: _mailtxt(k) for k in MAIL_TEXT_DEFAULTS}
     demo_link = "%s/track/voorbeeld" % LEVERDOC_BASE.rstrip("/")
 
-    def one(key, subject, cells, button=None, notice=None, link=None):
+    def one(key, subject, cells, buttons=None, notice=None, link=None):
         hk, bk = "mailtxt_%s_h" % key, "mailtxt_%s_b" % key
         return {"subject": subject,
                 "text": _mail_text("Voorbeeldklant", cur[bk], cells,
                                     notice=notice, link=link),
                 "html": _mail_html(cur[hk], "Voorbeeldklant", cur[bk], cells,
-                                   button=button, notice=notice)}
+                                   buttons=buttons, notice=notice)}
 
     # De onderwerpregels zijn overgenomen uit de echte verzendcode, zodat een
     # voorbeeld in de inbox er ook in de berichtenlijst hetzelfde uitziet.
@@ -2969,17 +3057,18 @@ def _preview_mails():
                      [("calendar", "Bezorgdatum", "vrijdag 4 juli"),
                       ("clock", "Tijdvak", "08:30-10:30"),
                       ("hash", "Ordernummer", "#36399")],
-                     button=("Volg uw levering & bericht doorgeven", demo_link),
+                     buttons=[("Volg uw levering", demo_link),
+                              ("Bericht doorgeven", demo_link + "#bericht")],
                      link=demo_link),
         "near": one("near", "Onze monteur is er bijna",
                     [("user", "Monteur", "Tom"),
                      ("clock", "Verwachte aankomst", "rond 09:55"),
                      ("hash", "Ordernummer", "#36399")],
-                    button=("Volg live op de kaart", demo_link), link=demo_link),
+                    buttons=("Volg live op de kaart", demo_link), link=demo_link),
         "delay": one("delay", "Update levertijd #36399",
                      [("clock", "Nieuwe verwachte tijd", "rond 10:40"),
                       ("hash", "Ordernummer", "#36399")],
-                     button=("Volg uw levering", demo_link), link=demo_link),
+                     buttons=("Volg uw levering", demo_link), link=demo_link),
     }
 
 
@@ -3085,7 +3174,8 @@ def email_templates():
     me = current_user()
     return render_template("planning/email_templates.html", cur=cur, previews=previews,
                            blocks=MAIL_PREVIEW_BLOCKS, mail_live=_mail_live(),
-                           colleagues=_colleagues(), me_id=(me["id"] if me else 0))
+                           colleagues=_colleagues(), me_id=(me["id"] if me else 0),
+                           track_lead=TRACK_MAP_LEAD_MIN)
 
 
 @bp.route("/api/mail", methods=["POST"])
@@ -4613,7 +4703,9 @@ def leverdoc_send(oid):
                  "ondertekenen? Dat kost slechts een minuut." % o["order_number"])
         html = _brand_email("Leveringsdocument invullen", _paras(greet, intro),
                             info=[("Ordernummer", "#" + o["order_number"])],
-                            button=("Document invullen &amp; ondertekenen", link))
+                            # gewone '&': _brand_email escapet zelf, anders
+                            # ziet de klant letterlijk "&amp;" in de knop
+                            button=("Document invullen & ondertekenen", link))
         try:
             mailed = bool(_send_mail(to_email, "Leveringsdocument voor uw order #" + o["order_number"],
                                      greet + "\n\n" + intro + "\n\n" + link, html))
@@ -7255,11 +7347,15 @@ def auto_send_daily_mails():
         cells = [("calendar", "Bezorgdatum", _nl_date(today)),
                  ("clock", "Tijdvak", tijdvak),
                  ("hash", "Ordernummer", "#" + r["order_number"])]
-        button = ("Volg uw levering & bericht doorgeven", link)
+        # Twee losse knoppen: volgen en iets doorgeven. De volgpagina laat de
+        # kaart zelf pas zien vanaf een uur voor het tijdvak; het berichtblok
+        # is de hele dag bereikbaar via de anker-link.
+        buttons = [("Volg uw levering", link),
+                   ("Bericht doorgeven", link + "#bericht")]
         subject = "Uw levering vandaag #" + r["order_number"]
         body = _mail_text(r["client"], intro, cells, link=link)
         html = _mail_html(_mailtxt("mailtxt_today_h"), r["client"], intro, cells,
-                          button=button)
+                          buttons=buttons)
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                      (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
@@ -7285,7 +7381,7 @@ def auto_send_daily_mails():
                 subject = "Update levertijd #" + st["order_number"]
                 body = _mail_text(st["client"], intro, cells, link=link)
                 html = _mail_html(_mailtxt("mailtxt_delay_h"), st["client"], intro, cells,
-                                  button=("Volg uw levering", link))
+                                  buttons=("Volg uw levering", link))
                 _send_mail((st["oemail"] or st["cemail"]), subject, body, html)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                              (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))

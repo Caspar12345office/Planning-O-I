@@ -1,114 +1,156 @@
-<!doctype html>
-<html lang="nl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0f3d3e">
-<title>Uw levering volgen · OFFICE-INTERIOR</title>
-{% if found and m_lat %}
+{% extends 'planning/public_base.html' %}
+{% block title %}Uw levering volgen · OFFICE-INTERIOR{% endblock %}
+
+{% block head %}
+{% if map_open %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 {% endif %}
-<style>
-  *{box-sizing:border-box}
-  body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f1ede5;color:#16302d;min-height:100vh;
-       display:flex;align-items:flex-start;justify-content:center;padding:24px 14px}
-  .card{width:100%;max-width:520px;background:#fff;border:1px solid #e6ebe4;border-radius:16px;overflow:hidden;box-shadow:0 16px 44px rgba(15,61,62,.12)}
-  .hd{background:#0f3d3e;padding:18px 26px}
-  .hd .nm{color:#fff;font-size:18px;font-weight:bold;letter-spacing:2px}
-  .gold{height:3px;background:#cda35a}
-  .body{padding:24px}
-  .hero{text-align:center;margin-bottom:14px}
-  .hero .ic{font-size:38px;line-height:1}
-  .hero h1{font-size:21px;color:#0f3d3e;margin:10px 0 2px}
-  .hero .eta{font-size:15px;color:#3a4a45;margin:0}
-  .hero .eta b{color:#0f3d3e}
-  #map{height:230px;border-radius:13px;border:1px solid #cfe0d7;margin-bottom:16px;z-index:0}
-  .steps{display:flex;align-items:flex-start;margin:22px 4px 20px}
-  .step{flex:1;text-align:center;position:relative;font-size:12px;color:#9aa8a1}
-  .step .dot{width:16px;height:16px;border-radius:50%;background:#d7e0da;margin:0 auto 7px;border:3px solid #fff;box-shadow:0 0 0 1px #d7e0da;position:relative;z-index:2}
-  .step.done .dot{background:#0f6e56;box-shadow:0 0 0 1px #0f6e56}
-  .step.done{color:#0f6e56;font-weight:bold}
-  .step .bar{position:absolute;top:7px;left:-50%;width:100%;height:3px;background:#d7e0da;z-index:1}
-  .step.done .bar{background:#0f6e56}
-  .step:first-child .bar{display:none}
-  .info{background:#eef3ec;border:1px solid #cfe0d7;border-radius:12px;padding:4px 16px}
-  .info .row{display:flex;justify-content:space-between;padding:9px 0;font-size:14px;border-top:1px solid #dce8e0}
-  .info .row:first-child{border-top:0}
-  .info .row .l{color:#6b7a74;font-size:13px}
-  .info .row .v{color:#16302d;font-weight:bold}
-  .foot{padding:15px 26px 20px;border-top:1px solid #eef0ec;color:#8a948f;font-size:12px;line-height:1.6}
-  .nf{text-align:center;padding:30px 10px;color:#6b7a74}
-</style>
-</head>
-<body>
-<div class="card">
-  <div class="hd"><span class="nm">OFFICE-INTERIOR</span></div>
-  <div class="gold"></div>
-  {% if not found %}
-  <div class="body"><div class="nf"><div style="font-size:38px">🔍</div>
-    <h1 style="color:#0f3d3e;font-size:19px">Niet gevonden</h1>
-    <p>We konden deze bestelling niet vinden. Controleer de link uit uw e-mail.</p></div></div>
-  {% else %}
+{% endblock %}
+
+{% block page_css %}
+  #map{height:280px;border-radius:14px;border:1px solid var(--rule);margin-top:34px;z-index:0}
+  .tsteps{display:flex;margin:34px 4px 0}
+  .tstep{flex:1;text-align:center;position:relative;font-size:13px;color:#9aa8a1}
+  .tstep .dot{width:16px;height:16px;border-radius:50%;background:#dfd8c9;margin:0 auto 8px;
+              border:3px solid var(--card);box-shadow:0 0 0 1px #dfd8c9;position:relative;z-index:2}
+  .tstep.done .dot{background:var(--teal);box-shadow:0 0 0 1px var(--teal)}
+  .tstep.done{color:var(--teal);font-weight:700}
+  .tstep .bar{position:absolute;top:7px;left:-50%;width:100%;height:3px;background:#dfd8c9;z-index:1}
+  .tstep.done .bar{background:var(--teal)}
+  .tstep:first-child .bar{display:none}
+
+  .tnote{margin-top:34px;border:1px solid var(--edge);border-radius:14px;padding:20px}
+  .tnote h2{margin:0 0 4px;font-size:19px;color:var(--teal)}
+  .tnote p.sub{margin:0 0 14px;font-size:14px;color:var(--label)}
+  .tnote input{width:100%;padding:13px;border:1px solid var(--rule);border-radius:10px;
+               font:inherit;font-size:15px}
+  .tnote .row{display:flex;justify-content:space-between;align-items:center;
+              gap:10px;margin-top:12px;flex-wrap:wrap}
+  .tnote .cnt{font-size:12px;color:var(--label)}
+  .tnote button{padding:13px 24px;border:0;border-radius:12px;background:var(--teal);
+                color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+  .tok{background:#e7f2e2;color:#2f6b23;border-radius:10px;padding:11px 13px;
+       font-size:14px;margin-bottom:12px}
+  .tprev{background:#f7f3eb;color:var(--notice-ink);border-radius:10px;padding:11px 13px;
+         font-size:14px;margin-bottom:12px}
+  .tdemo{margin:0 0 22px;background:#f7efe0;border:1px solid #e3c98f;border-radius:12px;
+         padding:12px 15px;font-size:14px;color:#6b4e15;text-align:center}
+{% endblock %}
+
+{% block content %}
+{% if demo %}
+<p class="tdemo"><b>Voorbeeldweergave.</b> Dit is wat de klant ziet, met verzonnen gegevens.
+  De kaart staat hier bewust open; bij een echte klant gaat hij pas
+  {{ lead_minutes }} minuten voor het tijdvak aan.</p>
+{% endif %}
+
+{% if not found %}
+  <h1 class="ph1">Deze link werkt niet</h1>
+  <p class="pcopy">We konden geen levering bij deze link vinden. Mogelijk is de link
+    onvolledig gekopieerd of is de levering al afgerond.</p>
+  <p class="pcopy">Gebruik de knop uit de meest recente e-mail, of mail ons even.</p>
+{% else %}
   {% set step = {'gepland':1,'onderweg':2,'afgerond':3}.get(status, 0) %}
-  <div class="body">
-    <div class="hero">
-      {% if status=='afgerond' %}<div class="ic">✅</div><h1>Geleverd</h1><p class="eta">Bedankt - uw bestelling is afgerond.</p>
-      {% elif status=='onderweg' %}<div class="ic">🚚</div><h1>Onze monteur is onderweg</h1>
-        {% if eta %}<p class="eta">Verwachte aankomst rond <b>{{ eta }}</b></p>{% else %}<p class="eta">U krijgt zo bericht zodra de monteur er bijna is.</p>{% endif %}
-      {% elif status=='gepland' %}<div class="ic">📦</div><h1>Uw levering is ingepland</h1><p class="eta">We zien u {% if the_date %}op <b>{{ the_date }}</b>{% endif %}{% if tijdvak %} tussen <b>{{ tijdvak }}</b>{% endif %}.</p>
-      {% else %}<div class="ic">🗓</div><h1>Wordt ingepland</h1><p class="eta">Zodra uw levering gepland is, ziet u hier de datum en het tijdvak.</p>{% endif %}
-    </div>
 
-    {% if m_lat %}<div id="map"></div>{% endif %}
+  {% if status=='afgerond' %}
+    <h1 class="ph1">Uw levering is afgerond</h1>
+    <p class="pcopy">Bedankt voor uw bestelling. Wij hopen dat u er lang plezier van heeft.</p>
+  {% elif status=='onderweg' %}
+    <h1 class="ph1">Onze monteur is onderweg</h1>
+    {% if eta %}<p class="pcopy">De verwachte aankomst is rond <b>{{ eta }}</b>.</p>
+    {% else %}<p class="pcopy">U krijgt bericht zodra de monteur er bijna is.</p>{% endif %}
+  {% elif status=='gepland' %}
+    <h1 class="ph1">Uw levering is ingepland</h1>
+    <p class="pcopy">We zien u{% if the_date %} op <b>{{ the_date }}</b>{% endif %}{% if tijdvak %}
+      tussen <b>{{ tijdvak }}</b>{% endif %}.</p>
+  {% else %}
+    <h1 class="ph1">Uw levering wordt ingepland</h1>
+    <p class="pcopy">Zodra de datum bekend is, ziet u hier het bezorgmoment.</p>
+  {% endif %}
 
-    <div class="steps">
-      <div class="step {{ 'done' if step>=1 }}"><div class="bar"></div><div class="dot"></div>Ingepland</div>
-      <div class="step {{ 'done' if step>=2 }}"><div class="bar"></div><div class="dot"></div>Onderweg</div>
-      <div class="step {{ 'done' if step>=3 }}"><div class="bar"></div><div class="dot"></div>Geleverd</div>
-    </div>
-
-    <div class="info">
-      {% if the_date %}<div class="row"><span class="l">Datum</span><span class="v">{{ the_date }}</span></div>{% endif %}
-      {% if tijdvak %}<div class="row"><span class="l">Tijdvak</span><span class="v">{{ tijdvak }}</span></div>{% endif %}
-      {% if monteur %}<div class="row"><span class="l">Monteur</span><span class="v">{{ monteur }}</span></div>{% endif %}
-      <div class="row"><span class="l">Ordernummer</span><span class="v">#{{ onum }}</span></div>
-    </div>
-
-    {% if can_note %}
-    <div style="margin-top:16px;background:#fff;border:1px solid #cfe0d7;border-radius:12px;padding:14px 16px">
-      <div style="font-size:13px;font-weight:bold;color:#0f3d3e;margin-bottom:6px">Iets doorgeven aan de chauffeur?</div>
-      {% if saved %}<div style="background:#e3f3da;color:#3c7a2c;border-radius:8px;padding:8px 10px;font-size:13px;margin-bottom:8px">Bedankt! Uw bericht is doorgegeven aan de monteur.</div>{% endif %}
-      {% if note and not saved %}<div style="font-size:13px;color:#3a4a45;margin-bottom:8px">Eerder doorgegeven: <b>“{{ note }}”</b></div>{% endif %}
-      <form method="post" action="{{ url_for('planning.track_note', token=token) }}">
-        <input name="note" maxlength="100" value="{{ note or '' }}" placeholder="bijv. bel doet het niet, graag aanbellen bij de buren"
-               style="width:100%;padding:11px;border:1px solid #cfe0d7;border-radius:9px;font:inherit;font-size:14px;box-sizing:border-box">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
-          <span style="font-size:11px;color:#8a948f">Max. 100 tekens</span>
-          <button type="submit" style="background:#0f3d3e;color:#fff;border:0;border-radius:9px;padding:9px 16px;font:inherit;font-size:13px;font-weight:bold;cursor:pointer">Doorgeven aan chauffeur</button>
-        </div>
-      </form>
+  <div class="pmeta">
+    {% if the_date %}
+    <div>
+      <img src="{{ url_for('static', filename='mail/icon-calendar.png') }}" alt="">
+      <div class="l">Bezorgdatum</div><div class="v">{{ the_date }}</div>
     </div>
     {% endif %}
+    {% if tijdvak %}
+    <div>
+      <img src="{{ url_for('static', filename='mail/icon-clock.png') }}" alt="">
+      <div class="l">Tijdvak</div><div class="v">{{ tijdvak }}</div>
+    </div>
+    {% endif %}
+    {% if monteur %}
+    <div>
+      <img src="{{ url_for('static', filename='mail/icon-user.png') }}" alt="">
+      <div class="l">Monteur</div><div class="v">{{ monteur }}</div>
+    </div>
+    {% endif %}
+    <div>
+      <img src="{{ url_for('static', filename='mail/icon-hash.png') }}" alt="">
+      <div class="l">Ordernummer</div><div class="v">#{{ onum }}</div>
+    </div>
+  </div>
+
+  {% if map_open %}
+    <div id="map"></div>
+  {% elif map_later %}
+    <div class="pnotice">
+      <img src="{{ url_for('static', filename='mail/icon-truck.png') }}" alt="">
+      <p>De live kaart gaat {{ lead_minutes }} minuten voor uw tijdvak open{% if map_from %},
+        dus vanaf ongeveer <b>{{ map_from }}</b>{% endif %}. Zo ziet u de monteur zodra hij
+        richting u onderweg is.</p>
+    </div>
+  {% endif %}
+
+  <div class="tsteps">
+    <div class="tstep {{ 'done' if step>=1 }}"><div class="bar"></div><div class="dot"></div>Ingepland</div>
+    <div class="tstep {{ 'done' if step>=2 }}"><div class="bar"></div><div class="dot"></div>Onderweg</div>
+    <div class="tstep {{ 'done' if step>=3 }}"><div class="bar"></div><div class="dot"></div>Geleverd</div>
+  </div>
+
+  {% if can_note %}
+  <div class="tnote" id="bericht">
+    <h2>Iets doorgeven aan de monteur?</h2>
+    <p class="sub">Bijvoorbeeld dat de bel niet werkt of waar hij het beste kan laden.</p>
+    {% if saved %}<div class="tok">Bedankt, uw bericht staat klaar voor de monteur.</div>{% endif %}
+    {% if note and not saved %}<div class="tprev">Eerder doorgegeven: <b>&ldquo;{{ note }}&rdquo;</b></div>{% endif %}
+    <form method="post" action="{{ url_for('planning.track_note', token=token) }}">
+      <input name="note" maxlength="100" value="{{ note or '' }}"
+             placeholder="bijv. bel doet het niet, graag aanbellen bij de buren">
+      <div class="row">
+        <span class="cnt">Maximaal 100 tekens</span>
+        <button type="submit">Doorgeven aan de monteur</button>
+      </div>
+    </form>
   </div>
   {% endif %}
-  <div class="foot">Vragen over uw levering? Mail planning@office-interior.com of bel 085-0481444.</div>
-</div>
+{% endif %}
+{% endblock %}
 
-{% if found and m_lat %}
+{% block scripts %}
+{% if map_open %}
 <script>
-(function(){
-  if(typeof L==='undefined'){return;}
-  var d=[{{ d_lat }},{{ d_lng }}], m=[{{ m_lat }},{{ m_lng }}];
-  var map=L.map('map',{zoomControl:true,attributionControl:true});
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
-  function di(html){return L.divIcon({html:html,className:'',iconSize:[34,34],iconAnchor:[17,17]});}
-  L.marker(d,{icon:di('<div style="font-size:28px;line-height:1">📍</div>')}).addTo(map).bindPopup('Uw adres');
-  L.marker(m,{icon:di('<div style="background:#0f3d3e;color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.4)">🚐</div>')}).addTo(map).bindPopup('Monteur {{ monteur }}');
-  L.polyline([m,d],{color:'#0f6e56',weight:5,opacity:.85}).addTo(map);
-  map.fitBounds([m,d],{padding:[45,45]});
+(function () {
+  if (typeof L === 'undefined') { return; }
+  var d = [{{ d_lat }}, {{ d_lng }}], m = [{{ m_lat }}, {{ m_lng }}];
+  var map = L.map('map', {zoomControl: true, attributionControl: true});
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              {maxZoom: 19, attribution: '&copy; OpenStreetMap'}).addTo(map);
+  function pin(html) {
+    return L.divIcon({html: html, className: '', iconSize: [34, 34], iconAnchor: [17, 17]});
+  }
+  L.marker(d, {icon: pin('<div style="font-size:26px;line-height:1">\u{1F4CD}</div>')})
+    .addTo(map).bindPopup('Uw adres');
+  L.marker(m, {icon: pin('<div style="background:#053f44;color:#fff;border-radius:50%;width:30px;'
+      + 'height:30px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;'
+      + 'box-shadow:0 1px 5px rgba(0,0,0,.35);font-size:15px">\u{1F690}</div>')})
+    .addTo(map).bindPopup({{ (monteur or 'Monteur')|tojson }});
+  L.polyline([m, d], {color: '#053f44', weight: 5, opacity: .8}).addTo(map);
+  map.fitBounds([m, d], {padding: [45, 45]});
 })();
 </script>
 {% endif %}
-</body>
-</html>
+{% endblock %}

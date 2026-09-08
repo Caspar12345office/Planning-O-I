@@ -54,6 +54,14 @@
     <button class="etlink" type="button" onclick="etPick(false)">alleen mijzelf</button>
     <span id="etmsg"></span>
   </div>
+  <p class="etnote" style="margin:16px 0 0">
+    De knoppen in de mails gaan naar de volgpagina.
+    <a href="{{ url_for('planning.track_demo') }}" target="_blank" rel="noopener"
+       style="color:var(--accent);font-weight:600">Bekijk die pagina zoals de klant hem ziet</a>,
+    met de live kaart. Bij een echte klant gaat die kaart pas
+    {{ track_lead }} minuten voor het tijdvak open, zodat niemand de monteur de
+    hele dag kan volgen.
+  </p>
 </div>
 <form method="post">
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn primary" type="submit">Opslaan</button></div>
