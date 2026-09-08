@@ -1724,10 +1724,13 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
                      + _esc(note) + '</td></tr></table>')
     btn_html = ""
     if button:
+        # Alleen de link draagt achtergrond en ronding; zet je die ook op de cel,
+        # dan verschijnt er een vierkante rand om de ronde knop.
         btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:4px auto 6px;">'
-                    '<tr><td align="center" bgcolor="' + c_teal + '" style="border-radius:10px;">'
-                    '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:13px 26px;color:#ffffff;'
-                    + ff + 'font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;">'
+                    '<tr><td align="center">'
+                    '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:13px 26px;'
+                    'background:' + c_teal + ';color:#ffffff;border-radius:12px;'
+                    + ff + 'font-size:14px;font-weight:bold;text-decoration:none;white-space:nowrap;">'
                     + _esc(button[0]) + '</a></td></tr></table>')
     return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c_page + '" '
             'style="background:' + c_page + ';margin:0;padding:26px 12px;"><tr><td align="center">'
@@ -1932,18 +1935,18 @@ def _mail_button_block(buttons):
     for i, (text, url) in enumerate(items):
         fill = c["teal"] if i == 0 else "#ffffff"
         ink = "#ffffff" if i == 0 else c["teal"]
-        pad = ' style="padding-left:10px;"' if i else ""
-        cells += ('<td class="btn-cell" valign="middle"' + pad + '>'
-                  '<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
-                  ' align="center" style="margin:0 auto;"><tr>'
-                  '<td align="center" bgcolor="' + fill + '"'
-                  # zelfde ronding als de link erin, anders lichte hoekjes
-                  ' style="border-radius:10px; border:2px solid ' + c["teal"] + ';">'
-                  '<a href="' + _esc(url) + '" style="display:inline-block; padding:13px 26px;'
-                  ' background:' + fill + '; color:' + ink + ';'
+        pad = "0 0 0 10px" if i else "0"
+        # ÉÉN element bepaalt de vorm: de link draagt de achtergrond, de rand en
+        # de ronding. Zet je die ook op de tabelcel, dan zie je bij de gevulde
+        # knop de vierkante celrand om de ronde link heen.
+        cells += ('<td class="btn-cell" align="center" valign="middle"'
+                  ' style="padding:' + pad + ';">'
+                  '<a href="' + _esc(url) + '" style="display:inline-block;'
+                  ' padding:13px 26px; background:' + fill + '; color:' + ink + ';'
+                  ' border:2px solid ' + c["teal"] + '; border-radius:12px;'
                   ' font-family:Arial,Helvetica,sans-serif; font-size:16px;'
-                  ' font-weight:700; text-decoration:none; border-radius:10px;">'
-                  + _esc(text) + '</a></td></tr></table></td>')
+                  ' font-weight:700; text-decoration:none; white-space:nowrap;">'
+                  + _esc(text) + '</a></td>')
 
     return ('<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
             ' align="center" style="margin:34px auto 6px;"><tr>' + cells + '</tr></table>')
