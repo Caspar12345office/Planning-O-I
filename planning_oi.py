@@ -1724,18 +1724,20 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
 
 
 # --------------------------------------------------------------------------- #
-#  Bevestigingsmail "Uw bestelling is ingepland" - eigen sjabloon
+#  Sjabloon voor de automatische klantmails
 #
-#  Los van _brand_email, want dit ontwerp is breder (640), heeft iconen bij de
-#  drie gegevens en een tweedelige voet. De andere drie klantmails gebruiken
-#  nog _brand_email; als dit ontwerp bevalt kunnen die er later achteraan.
+#  Breed (640), met iconen bij de gegevens en een gecentreerde voet. Gebruikt
+#  door alle vier de klantmails: bevestiging, vandaag, monteur bijna (die wordt
+#  door de MONTEUR-app verstuurd, met een eigen kopie van dit sjabloon) en
+#  vertraging. _brand_email blijft voor de losse mails: leveringsdocument,
+#  handmatige klantmail en de testmail.
 #
 #  Vullen gaat met .replace() op {{...}}, NIET met % of .format(): de CSS zit
 #  vol accolades en procenttekens (width:100%) en die zouden dan klappen.
 #  Afbeeldingen moeten absolute HTTPS-URL's zijn; relatieve paden werken niet
 #  in e-mail. Bestanden staan in static/mail/ (iconen) en static/logos/.
 # --------------------------------------------------------------------------- #
-CONFIRM_MAIL_COLORS = {
+MAIL_COLORS = {
     "outer": "#f6f1e8",     # buitenvlak
     "card": "#ffffff",      # de kaart
     "card_edge": "#eee4d7",
@@ -1748,7 +1750,7 @@ CONFIRM_MAIL_COLORS = {
     "foot_rule": "#e8ebe9",
 }
 
-CONFIRM_MAIL_TEMPLATE = """<!doctype html>
+MAIL_TEMPLATE = """<!doctype html>
 <html lang="nl">
 <head>
 <meta charset="utf-8">
@@ -1790,34 +1792,9 @@ a { color:{{teal}}; text-decoration:none; }
 
 {{intro_blocks}}
 
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:38px;">
-<tr>
-<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
-<img src="{{icon_calendar}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Bezorgdatum</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">{{delivery_date}}</div>
-</td>
-<td class="meta-sep" width="1" style="width:1px; border-left:1px solid {{rule}};">&nbsp;</td>
-<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
-<img src="{{icon_clock}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Verwachte tijd</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">{{delivery_window}}</div>
-</td>
-<td class="meta-sep" width="1" style="width:1px; border-left:1px solid {{rule}};">&nbsp;</td>
-<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
-<img src="{{icon_hash}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Ordernummer</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">#{{order_number}}</div>
-</td>
-</tr></table>
-
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="notice" bgcolor="{{notice_bg}}" style="width:100%; margin-top:34px; background:{{notice_bg}}; border-radius:14px;">
-<tr>
-<td width="90" align="center" style="width:90px; padding:18px 4px 18px 18px;">
-<img src="{{icon_truck}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
-</td>
-<td class="notice-text" style="font-family:Arial,Helvetica,sans-serif; font-size:16px; line-height:1.45; color:{{notice_text}}; padding:18px 18px 18px 8px;">{{notice}}</td>
-</tr></table>
+{{meta_row}}
+{{notice_block}}
+{{button_block}}
 
 </td></tr>
 
@@ -1857,51 +1834,128 @@ def _mail_asset(path):
     return "%s/static/%s" % (LEVERDOC_BASE.rstrip("/"), path.lstrip("/"))
 
 
-def _confirm_mail_html(client, date_nl, window, order_number,
-                       heading=None, intro=None, notice=CONFIRM_NOTICE):
-    """Vul het bevestigingssjabloon. Alle tekst loopt door _esc."""
-    if intro is None:
-        intro = _mailtxt("mailtxt_confirm_b")
+MAIL_ICONS = {"calendar": "icon-calendar.png", "clock": "icon-clock.png",
+              "hash": "icon-hash.png", "user": "icon-user.png"}
+
+
+def _mail_meta_row(cells):
+    """De rij gegevens met iconen, gescheiden door verticale lijntjes.
+
+    cells = lijst van (icoonnaam, label, waarde). Eén tot drie stuks; de
+    vertraging-mail heeft er maar twee. Op mobiel stapelen ze via .meta-cell.
+    """
+    if not cells:
+        return ""
+    c = MAIL_COLORS
+    width = "%.4f" % (100.0 / len(cells))
+    out = ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0" '
+           'border="0" style="margin-top:38px;"><tr>')
+    for i, (icon, label, value) in enumerate(cells):
+        if i:
+            out += ('<td class="meta-sep" width="1" style="width:1px; border-left:1px solid '
+                    + c["rule"] + ';">&nbsp;</td>')
+        out += ('<td class="meta-cell" align="center" style="width:' + width + '%;'
+                ' padding:0 10px; text-align:center; vertical-align:top;">'
+                '<img src="' + _mail_asset("mail/" + MAIL_ICONS[icon]) + '" width="72"'
+                ' height="72" alt="" class="icon"'
+                ' style="width:72px; height:72px; margin:0 auto 10px auto;">'
+                '<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:'
+                + c["label"] + ';">' + _esc(label) + '</div>'
+                '<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px;'
+                ' line-height:1.3; color:' + c["teal"] + '; font-weight:700; margin-top:4px;">'
+                + _esc(value) + '</div></td>')
+    return out + '</tr></table>'
+
+
+def _mail_notice_block(notice):
+    """Het zachte blok met de vrachtwagen ernaast."""
+    if not notice:
+        return ""
+    c = MAIL_COLORS
+    return ('<table role="presentation" width="100%" cellspacing="0" cellpadding="0"'
+            ' border="0" class="notice" bgcolor="' + c["notice_bg"] + '"'
+            ' style="width:100%; margin-top:34px; background:' + c["notice_bg"] + ';'
+            ' border-radius:14px;"><tr>'
+            '<td width="90" align="center" style="width:90px; padding:18px 4px 18px 18px;">'
+            '<img src="' + _mail_asset("mail/icon-truck.png") + '" width="56" height="56"'
+            ' alt="" class="small-icon" style="width:56px; height:56px;"></td>'
+            '<td class="notice-text" style="font-family:Arial,Helvetica,sans-serif;'
+            ' font-size:16px; line-height:1.45; color:' + c["notice_text"] + ';'
+            ' padding:18px 18px 18px 8px;">' + _esc(notice) + '</td></tr></table>')
+
+
+def _mail_button_block(button):
+    """Gecentreerde teal knop. button = (tekst, url); geen url = geen knop.
+
+    De tekst wordt hier ge-escaped, dus geef gewoon '&' mee en niet '&amp;'.
+    """
+    if not button or not button[1]:
+        return ""
+    text, url = button
+    c = MAIL_COLORS
+    return ('<table role="presentation" cellspacing="0" cellpadding="0" border="0"'
+            ' align="center" style="margin:34px auto 6px;"><tr>'
+            '<td align="center" bgcolor="' + c["teal"] + '" style="border-radius:12px;">'
+            '<a href="' + _esc(url) + '" style="display:inline-block; padding:15px 30px;'
+            ' color:#ffffff; font-family:Arial,Helvetica,sans-serif; font-size:16px;'
+            ' font-weight:700; text-decoration:none; border-radius:12px;">'
+            + _esc(text) + '</a></td></tr></table>')
+
+
+def _mail_html(heading, client, intro, cells, button=None, notice=None):
+    """Bouw een klantmail uit het gedeelde sjabloon. Alle tekst loopt door _esc."""
     blocks = ""
     for para in [p for p in (intro or "").split("\n\n") if p.strip()]:
         blocks += ('<div class="copy" style="font-family:Arial,Helvetica,sans-serif;'
-                   'font-size:17px; line-height:1.55; color:%s; text-align:center;'
-                   'padding-top:18px;">%s</div>'
-                   % (CONFIRM_MAIL_COLORS["text"], _esc(para).replace("\n", "<br>")))
+                   ' font-size:17px; line-height:1.55; color:' + MAIL_COLORS["text"] + ';'
+                   ' text-align:center; padding-top:18px;">'
+                   + _esc(para).replace("\n", "<br>") + '</div>')
 
-    values = dict(CONFIRM_MAIL_COLORS)
+    values = dict(MAIL_COLORS)
     values.update({
-        "heading": _esc(heading or _mailtxt("mailtxt_confirm_h")),
+        "heading": _esc(heading or ""),
         "greeting": "Beste %s," % _esc(client or "klant"),
         "intro_blocks": blocks,
-        "delivery_date": _esc(date_nl),
-        "delivery_window": _esc(window),
-        "order_number": _esc(str(order_number)),
-        "notice": _esc(notice or ""),
+        "meta_row": _mail_meta_row(cells),
+        "notice_block": _mail_notice_block(notice),
+        "button_block": _mail_button_block(button),
         "logo_url": _mail_asset("logos/office-interior.png"),
-        "icon_calendar": _mail_asset("mail/icon-calendar.png"),
-        "icon_clock": _mail_asset("mail/icon-clock.png"),
-        "icon_hash": _mail_asset("mail/icon-hash.png"),
-        "icon_truck": _mail_asset("mail/icon-truck.png"),
         "icon_mail": _mail_asset("mail/icon-mail.png"),
         "contact_email": MAIL_CONTACT_EMAIL,
     })
-    html = CONFIRM_MAIL_TEMPLATE
+    html = MAIL_TEMPLATE
     for k, v in values.items():
         html = html.replace("{{%s}}" % k, v)
     return html
 
 
+def _mail_text(client, intro, cells, notice=None, link=None):
+    """Platte-tekstversie. Bevat de gegevens EN de link.
+
+    Belangrijk: als een client de HTML of de afbeeldingen blokkeert, is dit wat
+    de klant leest. De knop bestaat dan niet, dus de link moet er los in staan.
+    """
+    lines = ["Beste %s," % (client or "klant"), "", (intro or ""), ""]
+    lines += ["%s: %s" % (label, value) for _, label, value in cells]
+    if notice:
+        lines += ["", notice]
+    if link:
+        lines += ["", link]
+    lines += ["", "Met vriendelijke groet,", "Office-Interior"]
+    return "\n".join(lines)
+
+
 def _planning_confirmation_mail(client, date_iso, slot_start, slot_end, order_number):
     """Bevestiging die automatisch ná het inplannen gaat (ruim tijdvak, geen live ETA)."""
-    greet = "Beste %s," % (client or "klant")
     intro = _mailtxt("mailtxt_confirm_b")
-    subject = "Uw bestelling is ingepland #%s" % order_number
     tijd = _wide_window(slot_start, slot_end)
-    body = "%s\n\n%s\n\nBezorgdatum: %s\nVerwachte tijd: %s\nOrdernummer: #%s\n\n%s" % (
-        greet, intro, _nl_date(date_iso), tijd, order_number, CONFIRM_NOTICE)
-    html = _confirm_mail_html(client, _nl_date(date_iso), tijd, order_number,
-                              heading=_mailtxt("mailtxt_confirm_h"), intro=intro)
+    cells = [("calendar", "Bezorgdatum", _nl_date(date_iso)),
+             ("clock", "Verwachte tijd", tijd),
+             ("hash", "Ordernummer", "#%s" % order_number)]
+    subject = "Uw bestelling is ingepland #%s" % order_number
+    body = _mail_text(client, intro, cells, notice=CONFIRM_NOTICE)
+    html = _mail_html(_mailtxt("mailtxt_confirm_h"), client, intro, cells,
+                      notice=CONFIRM_NOTICE)
     return subject, body, html
 
 
@@ -2892,46 +2946,40 @@ def _preview_mails():
     mijzelf', zodat je mailbox exact toont wat de pagina laat zien.
     """
     cur = {k: _mailtxt(k) for k in MAIL_TEXT_DEFAULTS}
-    greet = "Beste Voorbeeldklant,"
+    demo_link = "%s/track/voorbeeld" % LEVERDOC_BASE.rstrip("/")
 
-    def one(key, subject, info, button=None, note=None):
+    def one(key, subject, cells, button=None, notice=None, link=None):
         hk, bk = "mailtxt_%s_h" % key, "mailtxt_%s_b" % key
-        html = _brand_email(cur[hk], _paras(greet, cur[bk]),
-                            info=info, button=button, note=note)
-        lines = [greet, "", cur[bk], ""]
-        lines += ["%s: %s" % (label, value) for label, value in info]
-        if note:
-            lines += ["", note]
-        return {"subject": subject, "text": "\n".join(lines), "html": html}
+        return {"subject": subject,
+                "text": _mail_text("Voorbeeldklant", cur[bk], cells,
+                                    notice=notice, link=link),
+                "html": _mail_html(cur[hk], "Voorbeeldklant", cur[bk], cells,
+                                   button=button, notice=notice)}
 
     # De onderwerpregels zijn overgenomen uit de echte verzendcode, zodat een
     # voorbeeld in de inbox er ook in de berichtenlijst hetzelfde uitziet.
     # 'near' komt uit de monteur-app en heeft daar bewust geen ordernummer.
-    # 'confirm' heeft zijn eigen sjabloon (breder, met iconen); de andere drie
-    # gebruiken nog _brand_email.
-    confirm_text = "\n".join(
-        ["Beste Voorbeeldklant,", "", cur["mailtxt_confirm_b"], "",
-         "Bezorgdatum: vrijdag 4 juli", "Verwachte tijd: 09:00 - 12:00",
-         "Ordernummer: #36399", "", CONFIRM_NOTICE])
-
     return {
-        "confirm": {"subject": "Uw bestelling is ingepland #36399",
-                    "text": confirm_text,
-                    "html": _confirm_mail_html("Voorbeeldklant", "vrijdag 4 juli",
-                                               "09:00 - 12:00", "36399",
-                                               heading=cur["mailtxt_confirm_h"],
-                                               intro=cur["mailtxt_confirm_b"])},
+        "confirm": one("confirm", "Uw bestelling is ingepland #36399",
+                       [("calendar", "Bezorgdatum", "vrijdag 4 juli"),
+                        ("clock", "Verwachte tijd", "09:00 - 12:00"),
+                        ("hash", "Ordernummer", "#36399")],
+                       notice=CONFIRM_NOTICE),
         "today": one("today", "Uw levering vandaag #36399",
-                     [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30-10:30"),
-                      ("Ordernummer", "#36399")],
-                     button=("Volg uw levering & bericht doorgeven", "#")),
+                     [("calendar", "Bezorgdatum", "vrijdag 4 juli"),
+                      ("clock", "Tijdvak", "08:30-10:30"),
+                      ("hash", "Ordernummer", "#36399")],
+                     button=("Volg uw levering & bericht doorgeven", demo_link),
+                     link=demo_link),
         "near": one("near", "Onze monteur is er bijna",
-                    [("Monteur", "Tom"), ("Verwachte aankomst", "rond 09:55"),
-                     ("Ordernummer", "#36399")],
-                    button=("Volg live op de kaart", "#")),
+                    [("user", "Monteur", "Tom"),
+                     ("clock", "Verwachte aankomst", "rond 09:55"),
+                     ("hash", "Ordernummer", "#36399")],
+                    button=("Volg live op de kaart", demo_link), link=demo_link),
         "delay": one("delay", "Update levertijd #36399",
-                     [("Nieuwe verwachte tijd", "rond 10:40"), ("Ordernummer", "#36399")],
-                     button=("Volg uw levering", "#")),
+                     [("clock", "Nieuwe verwachte tijd", "rond 10:40"),
+                      ("hash", "Ordernummer", "#36399")],
+                     button=("Volg uw levering", demo_link), link=demo_link),
     }
 
 
@@ -7203,14 +7251,15 @@ def auto_send_daily_mails():
     for r in rows:
         tijdvak = (r["slot_start"] or "08:00") + "-" + (r["slot_end"] or "17:00")
         link = "%s/track/%s" % (LEVERDOC_BASE, r["track_token"])
-        greet = "Beste %s," % (r["client"] or "klant")
         intro = _mailtxt("mailtxt_today_b")
-        body = greet + "\n\n" + intro
+        cells = [("calendar", "Bezorgdatum", _nl_date(today)),
+                 ("clock", "Tijdvak", tijdvak),
+                 ("hash", "Ordernummer", "#" + r["order_number"])]
+        button = ("Volg uw levering & bericht doorgeven", link)
         subject = "Uw levering vandaag #" + r["order_number"]
-        html = _brand_email(_mailtxt("mailtxt_today_h"), _paras(greet, intro),
-                            info=[("Bezorgdatum", _nl_date(today)), ("Tijdvak", tijdvak),
-                                  ("Ordernummer", "#" + r["order_number"])],
-                            button=("Volg uw levering &amp; bericht doorgeven", link))
+        body = _mail_text(r["client"], intro, cells, link=link)
+        html = _mail_html(_mailtxt("mailtxt_today_h"), r["client"], intro, cells,
+                          button=button)
         _send_mail((r["oemail"] or r["cemail"]), subject, body, html)
         conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                      (r["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
@@ -7229,14 +7278,14 @@ def auto_send_daily_mails():
         arrivals, _ = compute_arrivals(stops, m, live, True)
         for st, a in zip(stops, arrivals):
             if a["status"] in ("late",) and (a["delta"] or 0) >= ALERT_THRESHOLD and not st["delay_mailed"]:
-                greet = "Beste %s," % (st["client"] or "klant")
                 intro = _mailtxt("mailtxt_delay_b")
-                body = greet + "\n\n" + intro
+                link = "%s/track/%s" % (LEVERDOC_BASE, st["track_token"])
+                cells = [("clock", "Nieuwe verwachte tijd", a["at"]),
+                         ("hash", "Ordernummer", "#" + st["order_number"])]
                 subject = "Update levertijd #" + st["order_number"]
-                html = _brand_email(_mailtxt("mailtxt_delay_h"), _paras(greet, intro),
-                                    info=[("Nieuwe verwachte tijd", a["at"]), ("Ordernummer", "#" + st["order_number"])],
-                                    button=("Volg uw levering",
-                                            "%s/track/%s" % (LEVERDOC_BASE, st["track_token"])))
+                body = _mail_text(st["client"], intro, cells, link=link)
+                html = _mail_html(_mailtxt("mailtxt_delay_h"), st["client"], intro, cells,
+                                  button=("Volg uw levering", link))
                 _send_mail((st["oemail"] or st["cemail"]), subject, body, html)
                 conn.execute("""INSERT INTO email_log(client_id,direction,subject,body,ts,has_attachment) VALUES(?,?,?,?,?,0)""",
                              (st["client_id"], "out", subject, body, datetime.now().isoformat(timespec="minutes")))
