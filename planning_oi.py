@@ -1454,6 +1454,27 @@ def _twofa_email_html(name, code, subtitle="Planning"):
     return html.replace("__SUB__", _esc(subtitle)).replace("__NAME__", _esc(name) or "collega").replace("__CODE__", _esc(code))
 
 
+RESEND_API = "https://api.resend.com"
+
+
+def _resend_request(path, key, payload=None):
+    """Bouw een verzoek naar de Resend-API.
+
+    De User-Agent is NIET optioneel. Zonder eigen user-agent vertrekt het
+    verzoek als 'Python-urllib/3.x' en blokkeert de Cloudflare-laag voor
+    api.resend.com het met HTTP 403 en 'error code: 1010'
+    (browser signature banned).
+    """
+    headers = {"Authorization": "Bearer " + key,
+               "Accept": "application/json",
+               "User-Agent": "OfficeRoute/1.0 (+https://office-interior.nl)"}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    return urllib.request.Request(RESEND_API + path, data=data, headers=headers)
+
+
 def _api_send(to, subject, text, html=None):
     """Verstuur via Resend HTTPS-API (werkt op Render); anders SMTP (lokaal). Respecteert testmodus."""
     recips = [r for r in (to if isinstance(to, list) else [to]) if r]
@@ -1473,10 +1494,7 @@ def _api_send(to, subject, text, html=None):
             body = {"from": frm, "to": recips, "subject": subject, "text": text, "html": html or text}
             if reply_to:
                 body["reply_to"] = reply_to
-            payload = json.dumps(body).encode("utf-8")
-            req = urllib.request.Request("https://api.resend.com/emails", data=payload,
-                                         headers={"Authorization": "Bearer " + key,
-                                                  "Content-Type": "application/json"})
+            req = _resend_request("/emails", key, body)
             urllib.request.urlopen(req, timeout=10).read()
             return True
         except Exception:
@@ -4435,8 +4453,7 @@ def _resend_domain_ok(key, from_email):
     if not dom:
         return False, "Ongeldig afzendadres"
     try:
-        req = urllib.request.Request("https://api.resend.com/domains",
-                                     headers={"Authorization": "Bearer " + key})
+        req = _resend_request("/domains", key)
         data = json.loads(urllib.request.urlopen(req, timeout=6).read().decode("utf-8"))
         doms = data.get("data") or data.get("domains") or []
         for d in doms:
@@ -5826,9 +5843,7 @@ def integration_test(ikey):
                 _body = {"from": frm, "to": [test_to], "subject": "OfficeRoute - testmail", "text": text, "html": html}
                 if reply_to:
                     _body["reply_to"] = reply_to
-                payload = json.dumps(_body).encode("utf-8")
-                req = urllib.request.Request("https://api.resend.com/emails", data=payload,
-                                             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                req = _resend_request("/emails", key, _body)
                 urllib.request.urlopen(req, timeout=10).read()
                 return jsonify(ok=True, message="Testmail verstuurd naar %s via Resend - controleer de inbox." % test_to)
             except urllib.error.HTTPError as e:
