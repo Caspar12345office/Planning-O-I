@@ -1798,9 +1798,15 @@ a { color:{{teal}}; text-decoration:none; }
   .meta-cell { display:block !important; width:100% !important; padding:0 0 18px 0 !important; }
   .meta-sep { display:none !important; }
   .btn-cell { display:block !important; width:100% !important; padding:0 0 12px 0 !important; }
-  .notice td { display:block !important; width:100% !important; text-align:center !important; }
+  /* width:auto i.p.v. 100%: bij een blok-cel met padding komt die padding er
+     BOVENOP en liep de tekst 28px buiten de tegel. Met auto blijft hij erin. */
+  .notice td { display:block !important; width:auto !important;
+               box-sizing:border-box !important; text-align:center !important; }
+  .notice .icon-cell { padding:18px 18px 2px 18px !important; }
   .notice .small-icon { margin:0 auto 6px auto !important; }
-  .notice-text { text-align:center !important; padding:0 14px 16px 14px !important; }
+  .notice-text { text-align:center !important; padding:0 18px 18px 18px !important; }
+  /* anders breekt planning@office-interior.com op 375px over twee regels */
+  .foot-mail { font-size:14px !important; }
 }
 </style>
 </head>
@@ -1834,7 +1840,7 @@ a { color:{{teal}}; text-decoration:none; }
 </td>
 <td style="vertical-align:middle; text-align:left;">
 <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Vragen over de levering?</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:{{teal}}; font-weight:700; margin-top:3px;">
+<div class="foot-mail" style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:{{teal}}; font-weight:700; margin-top:3px;">
 <a href="mailto:{{contact_email}}" style="color:{{teal}}; text-decoration:none;">{{contact_email}}</a></div>
 </td></tr></table>
 </td></tr>
@@ -1905,7 +1911,8 @@ def _mail_notice_block(notice):
             ' border="0" class="notice" bgcolor="' + c["notice_bg"] + '"'
             ' style="width:100%; margin-top:34px; background:' + c["notice_bg"] + ';'
             ' border-radius:14px;"><tr>'
-            '<td width="90" align="center" style="width:90px; padding:18px 4px 18px 18px;">'
+            '<td class="icon-cell" width="90" align="center"'
+            ' style="width:90px; padding:18px 4px 18px 18px;">'
             '<img src="' + _mail_asset("mail/icon-truck.png") + '" width="56" height="56"'
             ' alt="" class="small-icon" style="width:56px; height:56px;"></td>'
             '<td class="notice-text" style="font-family:Arial,Helvetica,sans-serif;'
