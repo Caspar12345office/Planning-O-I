@@ -1723,18 +1723,203 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
             '</table></td></tr></table>')
 
 
+# --------------------------------------------------------------------------- #
+#  Bevestigingsmail "Uw bestelling is ingepland" - eigen sjabloon
+#
+#  Los van _brand_email, want dit ontwerp is breder (640), heeft iconen bij de
+#  drie gegevens en een tweedelige voet. De andere drie klantmails gebruiken
+#  nog _brand_email; als dit ontwerp bevalt kunnen die er later achteraan.
+#
+#  Vullen gaat met .replace() op {{...}}, NIET met % of .format(): de CSS zit
+#  vol accolades en procenttekens (width:100%) en die zouden dan klappen.
+#  Afbeeldingen moeten absolute HTTPS-URL's zijn; relatieve paden werken niet
+#  in e-mail. Bestanden staan in static/mail/ (iconen) en static/logos/.
+# --------------------------------------------------------------------------- #
+CONFIRM_MAIL_COLORS = {
+    "outer": "#f6f1e8",     # buitenvlak
+    "card": "#ffffff",      # de kaart
+    "card_edge": "#eee4d7",
+    "teal": "#053f44",
+    "text": "#31464e",
+    "label": "#6c7b80",
+    "notice_bg": "#f7f3eb",
+    "notice_text": "#233d44",
+    "rule": "#e1e5e3",
+    "foot_rule": "#e8ebe9",
+}
+
+CONFIRM_MAIL_TEMPLATE = """<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<title>{{heading}}</title>
+<style>
+html, body { margin:0 !important; padding:0 !important; width:100% !important; }
+table, td { border-collapse:collapse !important; }
+img { border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic; display:block; }
+a { color:{{teal}}; text-decoration:none; }
+@media screen and (max-width: 560px) {
+  .card { border-radius:0 !important; border-left:0 !important; border-right:0 !important; }
+  .body-pad { padding:30px 20px 24px 20px !important; }
+  .headline { font-size:28px !important; }
+  .copy { font-size:16px !important; }
+  .meta-cell { display:block !important; width:100% !important; padding:0 0 18px 0 !important; }
+  .meta-sep { display:none !important; }
+  .contact-cell { display:block !important; width:100% !important; padding:8px 0 !important; text-align:left !important; }
+  .notice td { display:block !important; width:100% !important; text-align:center !important; }
+  .notice .small-icon { margin:0 auto 6px auto !important; }
+  .notice-text { text-align:center !important; padding:0 14px 16px 14px !important; }
+}
+</style>
+</head>
+<body style="margin:0; padding:0; background:{{outer}};">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; background:{{outer}};">
+<tr><td align="center" style="padding:28px 12px;">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" class="card" bgcolor="{{card}}" style="width:100%; max-width:640px; background:{{card}}; border:1px solid {{card_edge}}; border-radius:22px;">
+<tr><td class="body-pad" style="padding:44px 42px 32px 42px;">
+
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr><td align="center" style="padding:8px 0 46px 0;">
+<img src="{{logo_url}}" width="360" alt="OFFICE-INTERIOR" style="width:100%; max-width:360px; height:auto;">
+</td></tr></table>
+
+<h1 class="headline" style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:34px; line-height:1.15; color:{{teal}}; font-weight:700; text-align:center;">{{heading}}</h1>
+
+<div class="copy" style="font-family:Arial,Helvetica,sans-serif; font-size:17px; line-height:1.55; color:{{text}}; text-align:center; padding-top:34px;">{{greeting}}</div>
+
+{{intro_blocks}}
+
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:38px;">
+<tr>
+<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
+<img src="{{icon_calendar}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Bezorgdatum</div>
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">{{delivery_date}}</div>
+</td>
+<td class="meta-sep" width="1" style="width:1px; border-left:1px solid {{rule}};">&nbsp;</td>
+<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
+<img src="{{icon_clock}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Verwachte tijd</div>
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">{{delivery_window}}</div>
+</td>
+<td class="meta-sep" width="1" style="width:1px; border-left:1px solid {{rule}};">&nbsp;</td>
+<td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
+<img src="{{icon_box}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Ordernummer</div>
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">#{{order_number}}</div>
+</td>
+</tr></table>
+
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="notice" bgcolor="{{notice_bg}}" style="width:100%; margin-top:34px; background:{{notice_bg}}; border-radius:14px;">
+<tr>
+<td width="90" align="center" style="width:90px; padding:18px 4px 18px 18px;">
+<img src="{{icon_truck}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
+</td>
+<td class="notice-text" style="font-family:Arial,Helvetica,sans-serif; font-size:16px; line-height:1.45; color:{{notice_text}}; padding:18px 18px 18px 8px;">{{notice}}</td>
+</tr></table>
+
+</td></tr>
+
+<tr><td style="border-top:1px solid {{foot_rule}}; padding:24px 42px 28px 42px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td class="contact-cell" width="57%" style="width:57%; padding-right:12px; vertical-align:middle;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+<td width="62" style="width:62px; vertical-align:middle;">
+<img src="{{icon_mail}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
+</td>
+<td style="vertical-align:middle;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Vragen over de levering?</div>
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; color:{{teal}}; font-weight:700; margin-top:3px;">
+<a href="mailto:{{contact_email}}" style="color:{{teal}}; text-decoration:none;">{{contact_email}}</a></div>
+</td></tr></table>
+</td>
+<td class="contact-cell" width="43%" style="width:43%; padding-left:12px; vertical-align:middle;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+<td width="62" style="width:62px; vertical-align:middle;">
+<img src="{{icon_phone}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
+</td>
+<td style="vertical-align:middle;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Liever telefonisch?</div>
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:{{teal}}; font-weight:700; margin-top:3px;">
+<a href="tel:{{contact_phone_href}}" style="color:{{teal}}; text-decoration:none;">{{contact_phone}}</a></div>
+</td></tr></table>
+</td>
+</tr></table>
+</td></tr>
+
+</table>
+</td></tr></table>
+</body>
+</html>"""
+
+MAIL_CONTACT_EMAIL = "planning@office-interior.com"
+MAIL_CONTACT_PHONE = "085-0481444"
+MAIL_CONTACT_PHONE_HREF = "+31850481444"
+
+CONFIRM_NOTICE = ("Op de dag zelf ontvangt u een mail met een live volglink en de "
+                  "verwachte aankomsttijd van de monteur.")
+
+
+def _mail_asset(path):
+    """Absolute URL naar een bestand in static/, want e-mail kan niets relatief laden.
+
+    LEVERDOC_BASE staat verderop in dit bestand; die wordt pas bij het aanroepen
+    opgezocht, dus de volgorde maakt niet uit.
+    """
+    return "%s/static/%s" % (LEVERDOC_BASE.rstrip("/"), path.lstrip("/"))
+
+
+def _confirm_mail_html(client, date_nl, window, order_number,
+                       heading=None, intro=None, notice=CONFIRM_NOTICE):
+    """Vul het bevestigingssjabloon. Alle tekst loopt door _esc."""
+    if intro is None:
+        intro = _mailtxt("mailtxt_confirm_b")
+    blocks = ""
+    for para in [p for p in (intro or "").split("\n\n") if p.strip()]:
+        blocks += ('<div class="copy" style="font-family:Arial,Helvetica,sans-serif;'
+                   'font-size:17px; line-height:1.55; color:%s; text-align:center;'
+                   'padding-top:18px;">%s</div>'
+                   % (CONFIRM_MAIL_COLORS["text"], _esc(para).replace("\n", "<br>")))
+
+    values = dict(CONFIRM_MAIL_COLORS)
+    values.update({
+        "heading": _esc(heading or _mailtxt("mailtxt_confirm_h")),
+        "greeting": "Beste %s," % _esc(client or "klant"),
+        "intro_blocks": blocks,
+        "delivery_date": _esc(date_nl),
+        "delivery_window": _esc(window),
+        "order_number": _esc(str(order_number)),
+        "notice": _esc(notice or ""),
+        "logo_url": _mail_asset("logos/office-interior.png"),
+        "icon_calendar": _mail_asset("mail/icon-calendar.png"),
+        "icon_clock": _mail_asset("mail/icon-clock.png"),
+        "icon_box": _mail_asset("mail/icon-box.png"),
+        "icon_truck": _mail_asset("mail/icon-truck.png"),
+        "icon_mail": _mail_asset("mail/icon-mail.png"),
+        "icon_phone": _mail_asset("mail/icon-phone.png"),
+        "contact_email": MAIL_CONTACT_EMAIL,
+        "contact_phone": MAIL_CONTACT_PHONE,
+        "contact_phone_href": MAIL_CONTACT_PHONE_HREF,
+    })
+    html = CONFIRM_MAIL_TEMPLATE
+    for k, v in values.items():
+        html = html.replace("{{%s}}" % k, v)
+    return html
+
+
 def _planning_confirmation_mail(client, date_iso, slot_start, slot_end, order_number):
     """Bevestiging die automatisch ná het inplannen gaat (ruim tijdvak, geen live ETA)."""
     greet = "Beste %s," % (client or "klant")
     intro = _mailtxt("mailtxt_confirm_b")
     subject = "Uw bestelling is ingepland #%s" % order_number
     tijd = _wide_window(slot_start, slot_end)
-    body = "%s\n\n%s\n\nBezorgdatum: %s\nVerwachte tijd: %s\nOrdernummer: #%s" % (
-        greet, intro, _nl_date(date_iso), tijd, order_number)
-    html = _brand_email(_mailtxt("mailtxt_confirm_h"), _paras(greet, intro),
-                        info=[("Bezorgdatum", _nl_date(date_iso)), ("Verwachte tijd", tijd),
-                              ("Ordernummer", "#" + str(order_number))],
-                        note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur.")
+    body = "%s\n\n%s\n\nBezorgdatum: %s\nVerwachte tijd: %s\nOrdernummer: #%s\n\n%s" % (
+        greet, intro, _nl_date(date_iso), tijd, order_number, CONFIRM_NOTICE)
+    html = _confirm_mail_html(client, _nl_date(date_iso), tijd, order_number,
+                              heading=_mailtxt("mailtxt_confirm_h"), intro=intro)
     return subject, body, html
 
 
@@ -2740,11 +2925,20 @@ def _preview_mails():
     # De onderwerpregels zijn overgenomen uit de echte verzendcode, zodat een
     # voorbeeld in de inbox er ook in de berichtenlijst hetzelfde uitziet.
     # 'near' komt uit de monteur-app en heeft daar bewust geen ordernummer.
+    # 'confirm' heeft zijn eigen sjabloon (breder, met iconen); de andere drie
+    # gebruiken nog _brand_email.
+    confirm_text = "\n".join(
+        ["Beste Voorbeeldklant,", "", cur["mailtxt_confirm_b"], "",
+         "Bezorgdatum: vrijdag 4 juli", "Verwachte tijd: 09:00 - 12:00",
+         "Ordernummer: #36399", "", CONFIRM_NOTICE])
+
     return {
-        "confirm": one("confirm", "Uw bestelling is ingepland #36399",
-                       [("Bezorgdatum", "vrijdag 4 juli"), ("Verwachte tijd", "09:00 - 12:00"),
-                        ("Ordernummer", "#36399")],
-                       note="Op de dag zelf ontvangt u een mail met een live volglink en de verwachte aankomsttijd van de monteur."),
+        "confirm": {"subject": "Uw bestelling is ingepland #36399",
+                    "text": confirm_text,
+                    "html": _confirm_mail_html("Voorbeeldklant", "vrijdag 4 juli",
+                                               "09:00 - 12:00", "36399",
+                                               heading=cur["mailtxt_confirm_h"],
+                                               intro=cur["mailtxt_confirm_b"])},
         "today": one("today", "Uw levering vandaag #36399",
                      [("Bezorgdatum", "vrijdag 4 juli"), ("Tijdvak", "08:30-10:30"),
                       ("Ordernummer", "#36399")],
