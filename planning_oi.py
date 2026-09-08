@@ -1767,7 +1767,6 @@ a { color:{{teal}}; text-decoration:none; }
   .copy { font-size:16px !important; }
   .meta-cell { display:block !important; width:100% !important; padding:0 0 18px 0 !important; }
   .meta-sep { display:none !important; }
-  .contact-cell { display:block !important; width:100% !important; padding:8px 0 !important; text-align:left !important; }
   .notice td { display:block !important; width:100% !important; text-align:center !important; }
   .notice .small-icon { margin:0 auto 6px auto !important; }
   .notice-text { text-align:center !important; padding:0 14px 16px 14px !important; }
@@ -1806,7 +1805,7 @@ a { color:{{teal}}; text-decoration:none; }
 </td>
 <td class="meta-sep" width="1" style="width:1px; border-left:1px solid {{rule}};">&nbsp;</td>
 <td class="meta-cell" width="33.33%" align="center" style="width:33.33%; padding:0 10px; text-align:center; vertical-align:top;">
-<img src="{{icon_box}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
+<img src="{{icon_hash}}" width="72" height="72" alt="" class="icon" style="width:72px; height:72px; margin:0 auto 10px auto;">
 <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Ordernummer</div>
 <div style="font-family:Arial,Helvetica,sans-serif; font-size:18px; line-height:1.3; color:{{teal}}; font-weight:700; margin-top:4px;">#{{order_number}}</div>
 </td>
@@ -1822,32 +1821,16 @@ a { color:{{teal}}; text-decoration:none; }
 
 </td></tr>
 
-<tr><td style="border-top:1px solid {{foot_rule}}; padding:24px 42px 28px 42px;">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
-<tr>
-<td class="contact-cell" width="57%" style="width:57%; padding-right:12px; vertical-align:middle;">
-<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+<tr><td align="center" style="border-top:1px solid {{foot_rule}}; padding:24px 42px 30px 42px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"><tr>
 <td width="62" style="width:62px; vertical-align:middle;">
 <img src="{{icon_mail}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
 </td>
-<td style="vertical-align:middle;">
+<td style="vertical-align:middle; text-align:left;">
 <div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Vragen over de levering?</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:15px; color:{{teal}}; font-weight:700; margin-top:3px;">
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:{{teal}}; font-weight:700; margin-top:3px;">
 <a href="mailto:{{contact_email}}" style="color:{{teal}}; text-decoration:none;">{{contact_email}}</a></div>
 </td></tr></table>
-</td>
-<td class="contact-cell" width="43%" style="width:43%; padding-left:12px; vertical-align:middle;">
-<table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
-<td width="62" style="width:62px; vertical-align:middle;">
-<img src="{{icon_phone}}" width="56" height="56" alt="" class="small-icon" style="width:56px; height:56px;">
-</td>
-<td style="vertical-align:middle;">
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:{{label}};">Liever telefonisch?</div>
-<div style="font-family:Arial,Helvetica,sans-serif; font-size:16px; color:{{teal}}; font-weight:700; margin-top:3px;">
-<a href="tel:{{contact_phone_href}}" style="color:{{teal}}; text-decoration:none;">{{contact_phone}}</a></div>
-</td></tr></table>
-</td>
-</tr></table>
 </td></tr>
 
 </table>
@@ -1855,9 +1838,11 @@ a { color:{{teal}}; text-decoration:none; }
 </body>
 </html>"""
 
+# Bewust GEEN telefoonnummer in de klantmail: Caspar wil dat klanten mailen en
+# niet bellen. De iconen icon-phone.png en icon-box.png blijven in static/mail/
+# staan maar worden niet meer gebruikt (het hekje verving de doos bij het
+# ordernummer, want ordernummers beginnen altijd met een #).
 MAIL_CONTACT_EMAIL = "planning@office-interior.com"
-MAIL_CONTACT_PHONE = "085-0481444"
-MAIL_CONTACT_PHONE_HREF = "+31850481444"
 
 CONFIRM_NOTICE = ("Op de dag zelf ontvangt u een mail met een live volglink en de "
                   "verwachte aankomsttijd van de monteur.")
@@ -1896,13 +1881,10 @@ def _confirm_mail_html(client, date_nl, window, order_number,
         "logo_url": _mail_asset("logos/office-interior.png"),
         "icon_calendar": _mail_asset("mail/icon-calendar.png"),
         "icon_clock": _mail_asset("mail/icon-clock.png"),
-        "icon_box": _mail_asset("mail/icon-box.png"),
+        "icon_hash": _mail_asset("mail/icon-hash.png"),
         "icon_truck": _mail_asset("mail/icon-truck.png"),
         "icon_mail": _mail_asset("mail/icon-mail.png"),
-        "icon_phone": _mail_asset("mail/icon-phone.png"),
         "contact_email": MAIL_CONTACT_EMAIL,
-        "contact_phone": MAIL_CONTACT_PHONE,
-        "contact_phone_href": MAIL_CONTACT_PHONE_HREF,
     })
     html = CONFIRM_MAIL_TEMPLATE
     for k, v in values.items():
@@ -2953,14 +2935,29 @@ def _preview_mails():
     }
 
 
+def _colleagues():
+    """Actieve accounts met een e-mailadres, voor de voorbeeldmail-knoppen."""
+    conn = db()
+    rows = conn.execute("SELECT id, name, email, role FROM users "
+                        "WHERE active=1 AND email IS NOT NULL AND email<>'' "
+                        "ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @bp.route("/email-templates/proefmail/<key>", methods=["POST"])
 def email_template_proef(key):
-    """Mail een voorbeeld van een klantmail naar de ingelogde gebruiker zelf.
+    """Mail een voorbeeld van een klantmail naar jezelf of naar collega's.
 
     Gaat bewust LANGS de testmodus-gate, net als de Test-knop bij Koppelingen,
     zodat je het echte resultaat in een mailbox kunt bekijken zonder dat er iets
-    naar klanten gaat. De ontvanger is altijd het eigen adres van de ingelogde
-    gebruiker en komt nooit uit het formulier.
+    naar klanten gaat.
+
+    VEILIGHEID: ontvangers worden gekozen uit de ACCOUNTS in de app, nooit als
+    vrij tekstveld. Het formulier stuurt gebruikers-id's, en die worden hier
+    tegen de users-tabel gecontroleerd voordat er iets verstuurd wordt. Zo kan
+    deze route nooit misbruikt worden om buiten de testmodus om een klant te
+    mailen. Bij een leeg verzoek gaat het naar de ingelogde gebruiker zelf.
     """
     if not has_perm("manage_settings"):
         return jsonify(ok=False, message="Geen rechten"), 403
@@ -2971,9 +2968,31 @@ def email_template_proef(key):
         return jsonify(ok=False, message="Onbekende mailsoort"), 404
 
     u = current_user()
-    to = (u["email"] or "").strip() if u else ""
-    if not to:
-        return jsonify(ok=False, message="Je account heeft geen e-mailadres.")
+    if not u:
+        return jsonify(ok=False, message="Niet ingelogd"), 403
+
+    data = request.get_json(silent=True) or {}
+    ids = []
+    for v in (data.get("users") or [])[:25]:
+        try:
+            ids.append(int(v))
+        except (TypeError, ValueError):
+            return jsonify(ok=False, message="Ongeldige ontvanger."), 400
+
+    conn = db()
+    if ids:
+        ph = ",".join("?" * len(ids))
+        rows = conn.execute("SELECT name, email FROM users WHERE active=1 "
+                            "AND email IS NOT NULL AND email<>'' AND id IN (%s)" % ph,
+                            tuple(ids)).fetchall()
+    else:
+        rows = conn.execute("SELECT name, email FROM users WHERE id=?", (u["id"],)).fetchall()
+    conn.close()
+
+    recips = sorted({(r["email"] or "").strip() for r in rows if (r["email"] or "").strip()})
+    if not recips:
+        return jsonify(ok=False, message="Geen geldige ontvanger gekozen. "
+                                         "Kies een collega met een e-mailadres.")
 
     cfg = _email_cfg()
     if not (cfg.get("resend_api_key") or "").strip():
@@ -2984,14 +3003,15 @@ def email_template_proef(key):
     sent, failed = [], []
     for k in wanted:
         m = mails[k]
-        ok = _api_send(to, "[VOORBEELD] " + m["subject"], m["text"], m["html"],
+        ok = _api_send(recips, "[VOORBEELD] " + m["subject"], m["text"], m["html"],
                        force=True)
         (sent if ok else failed).append(k)
 
     if failed and not sent:
         return jsonify(ok=False, message="Versturen mislukt. Controleer de logs in Resend.")
+    wie = recips[0] if len(recips) == 1 else "%d ontvangers" % len(recips)
     msg = "%d voorbeeld%s verstuurd naar %s." % (
-        len(sent), "" if len(sent) == 1 else "mails", to)
+        len(sent), "" if len(sent) == 1 else "mails", wie)
     if failed:
         msg += " Mislukt: %s." % ", ".join(failed)
     return jsonify(ok=True, message=msg)
@@ -3014,8 +3034,10 @@ def email_templates():
         return redirect(url_for("planning.email_templates"))
     cur = {k: _mailtxt(k) for k in keys}
     previews = {k: m["html"] for k, m in _preview_mails().items()}
+    me = current_user()
     return render_template("planning/email_templates.html", cur=cur, previews=previews,
-                           blocks=MAIL_PREVIEW_BLOCKS, mail_live=_mail_live())
+                           blocks=MAIL_PREVIEW_BLOCKS, mail_live=_mail_live(),
+                           colleagues=_colleagues(), me_id=(me["id"] if me else 0))
 
 
 @bp.route("/api/mail", methods=["POST"])
