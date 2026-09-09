@@ -1729,7 +1729,7 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
         btn_html = ('<table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:4px auto 6px;">'
                     '<tr><td align="center">'
                     '<a href="' + _esc(button[1]) + '" style="display:inline-block;padding:13px 26px;'
-                    'background:' + c_teal + ';color:#ffffff;border-radius:12px;'
+                    'background:' + MAIL_COLORS["btn"] + ';color:#ffffff;border-radius:12px;'
                     + ff + 'font-size:14px;font-weight:bold;text-decoration:none;white-space:nowrap;">'
                     + _esc(button[0]) + '</a></td></tr></table>')
     return ('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="' + c_page + '" '
@@ -1778,6 +1778,9 @@ MAIL_COLORS = {
     # wit er ruim boven komen.
     "notice_bg": "#2f9631",
     "notice_text": "#ffffff",
+    # Knoppen in de huiskleur groen. Alleen KNOPPEN; koppen, waarden en links
+    # blijven teal. Wit op dit groen haalt 3.80, zelfde afweging als hierboven.
+    "btn": "#2f9631",
     "rule": "#e1e5e3",
     "foot_rule": "#e8ebe9",
 }
@@ -1947,8 +1950,8 @@ def _mail_button_block(buttons):
     c = MAIL_COLORS
     cells = ""
     for i, (text, url) in enumerate(items):
-        fill = c["teal"] if i == 0 else "#ffffff"
-        ink = "#ffffff" if i == 0 else c["teal"]
+        fill = c["btn"] if i == 0 else "#ffffff"
+        ink = "#ffffff" if i == 0 else c["btn"]
         pad = "0 0 0 10px" if i else "0"
         # ÉÉN element bepaalt de vorm: de link draagt de achtergrond, de rand en
         # de ronding. Zet je die ook op de tabelcel, dan zie je bij de gevulde
@@ -1957,7 +1960,7 @@ def _mail_button_block(buttons):
                   ' style="padding:' + pad + ';">'
                   '<a href="' + _esc(url) + '" style="display:inline-block;'
                   ' padding:13px 26px; background:' + fill + '; color:' + ink + ';'
-                  ' border:2px solid ' + c["teal"] + '; border-radius:12px;'
+                  ' border:2px solid ' + c["btn"] + '; border-radius:12px;'
                   ' font-family:Arial,Helvetica,sans-serif; font-size:16px;'
                   ' font-weight:700; text-decoration:none; white-space:nowrap;">'
                   + _esc(text) + '</a></td>')

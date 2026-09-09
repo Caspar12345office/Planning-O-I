@@ -25,6 +25,8 @@
     --teal:#053f44; --text:#31464e; --label:#6c7b80;
     --rule:#e1e5e3; --notice-bg:#2f9631; --notice-ink:#ffffff;
     --foot-rule:#e8ebe9;
+    /* knoppen in de huiskleur groen; koppen, waarden en links blijven teal */
+    --btn:#2f9631;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--outer);color:var(--text);
@@ -59,9 +61,9 @@
 
   .pbtns{display:flex;gap:12px;justify-content:center;margin-top:34px;flex-wrap:wrap}
   .pbtn{display:inline-block;padding:15px 30px;border-radius:12px;
-        background:var(--teal);color:#fff;font-size:16px;font-weight:700;
-        text-decoration:none;border:2px solid var(--teal);cursor:pointer}
-  .pbtn.sec{background:#fff;color:var(--teal)}
+        background:var(--btn);color:#fff;font-size:16px;font-weight:700;
+        text-decoration:none;border:2px solid var(--btn);cursor:pointer}
+  .pbtn.sec{background:#fff;color:var(--btn)}
 
   .pfoot{border-top:1px solid var(--foot-rule);padding:24px 42px 30px;
          display:flex;justify-content:center}
