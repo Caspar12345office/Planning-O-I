@@ -1766,14 +1766,18 @@ def _brand_email(heading, paragraphs, info=None, button=None, note=None):
 #  in e-mail. Bestanden staan in static/mail/ (iconen) en static/logos/.
 # --------------------------------------------------------------------------- #
 MAIL_COLORS = {
-    "outer": "#f6f1e8",     # buitenvlak
+    "outer": "#efefef",     # buitenvlak, lichtgrijs (was beige #f6f1e8)
     "card": "#ffffff",      # de kaart
-    "card_edge": "#eee4d7",
     "teal": "#053f44",
     "text": "#31464e",
     "label": "#6c7b80",
-    "notice_bg": "#f7f3eb",
-    "notice_text": "#233d44",
+    # Meldingsblok in de huiskleur groen. Tekst en vrachtwagen MOETEN daar wit
+    # zijn: de oude donkere teal komt op dat groen op 3.03 en is onleesbaar.
+    # Wit haalt 3.80; onder de 4.5-norm voor gewone tekst, maar dit blok is
+    # aanvullende info en Caspar wil deze kleur. Bij een donkerder groen zou
+    # wit er ruim boven komen.
+    "notice_bg": "#2f9631",
+    "notice_text": "#ffffff",
     "rule": "#e1e5e3",
     "foot_rule": "#e8ebe9",
 }
@@ -1791,7 +1795,9 @@ table, td { border-collapse:collapse !important; }
 img { border:0; outline:none; text-decoration:none; -ms-interpolation-mode:bicubic; display:block; }
 a { color:{{teal}}; text-decoration:none; }
 @media screen and (max-width: 560px) {
-  .card { border-radius:0 !important; border-left:0 !important; border-right:0 !important; }
+  /* De kaart heeft bewust GEEN rand: met een rand plus border-radius loopt de
+     achtergrond niet mee met de bocht en zie je een harde lijn in de hoek. */
+  .card { border-radius:0 !important; }
   .body-pad { padding:30px 20px 24px 20px !important; }
   .headline { font-size:28px !important; }
   .copy { font-size:16px !important; }
@@ -1813,7 +1819,7 @@ a { color:{{teal}}; text-decoration:none; }
 <body style="margin:0; padding:0; background:{{outer}};">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%; background:{{outer}};">
 <tr><td align="center" style="padding:28px 12px;">
-<table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" class="card" bgcolor="{{card}}" style="width:100%; max-width:640px; background:{{card}}; border:1px solid {{card_edge}}; border-radius:22px;">
+<table role="presentation" width="640" cellspacing="0" cellpadding="0" border="0" class="card" bgcolor="{{card}}" style="width:100%; max-width:640px; background:{{card}}; border-radius:22px;">
 <tr><td class="body-pad" style="padding:44px 42px 32px 42px;">
 
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
@@ -1913,7 +1919,8 @@ def _mail_notice_block(notice):
             ' border-radius:14px;"><tr>'
             '<td class="icon-cell" width="90" align="center"'
             ' style="width:90px; padding:18px 4px 18px 18px;">'
-            '<img src="' + _mail_asset("mail/icon-truck.png") + '" width="56" height="56"'
+            # witte vrachtwagen, want dit blok staat op de groene huiskleur
+            '<img src="' + _mail_asset("mail/icon-truck-white.png") + '" width="56" height="56"'
             ' alt="" class="small-icon" style="width:56px; height:56px;"></td>'
             '<td class="notice-text" style="font-family:Arial,Helvetica,sans-serif;'
             ' font-size:16px; line-height:1.45; color:' + c["notice_text"] + ';'

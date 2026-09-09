@@ -21,17 +21,19 @@
 {% block head %}{% endblock %}
 <style>
   :root{
-    --outer:#f6f1e8; --card:#ffffff; --edge:#eee4d7;
+    --outer:#efefef; --card:#ffffff; --edge:#eee4d7;
     --teal:#053f44; --text:#31464e; --label:#6c7b80;
-    --rule:#e1e5e3; --notice-bg:#f7f3eb; --notice-ink:#233d44;
+    --rule:#e1e5e3; --notice-bg:#2f9631; --notice-ink:#ffffff;
     --foot-rule:#e8ebe9;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--outer);color:var(--text);
        font-family:Arial,Helvetica,sans-serif;padding:28px 12px;
        display:flex;justify-content:center;align-items:flex-start}
+  /* Bewust GEEN rand op de kaart: een rand plus border-radius geeft een harde
+     lijn in de hoek waar wit en grijs samenkomen. */
   .pcard{width:100%;max-width:640px;background:var(--card);
-         border:1px solid var(--edge);border-radius:22px;overflow:hidden}
+         border-radius:22px;overflow:hidden}
   .pbody{padding:44px 42px 32px}
   .plogo{display:block;width:100%;max-width:360px;height:auto;margin:8px auto 46px}
   .ph1{margin:0;font-size:34px;line-height:1.15;color:var(--teal);
@@ -71,7 +73,7 @@
 
   @media (max-width:560px){
     body{padding:0}
-    .pcard{border-radius:0;border-left:0;border-right:0}
+    .pcard{border-radius:0}
     .pbody{padding:30px 20px 24px}
     .ph1{font-size:28px}
     .pcopy{font-size:16px}

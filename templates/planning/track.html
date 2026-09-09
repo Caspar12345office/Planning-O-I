@@ -98,7 +98,8 @@
     <div id="map"></div>
   {% elif map_later %}
     <div class="pnotice">
-      <img src="{{ url_for('static', filename='mail/icon-truck.png') }}" alt="">
+      {# witte variant: het blok staat op de groene huiskleur #}
+      <img src="{{ url_for('static', filename='mail/icon-truck-white.png') }}" alt="">
       <p>De live kaart gaat {{ lead_minutes }} minuten voor uw tijdvak open{% if map_from %},
         dus vanaf ongeveer <b>{{ map_from }}</b>{% endif %}. Zo ziet u de monteur zodra hij
         richting u onderweg is.</p>
