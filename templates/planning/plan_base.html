@@ -27,7 +27,8 @@
   /* ---------- sidebar rail (licht) ---------- */
   .rail{width:256px;flex-shrink:0;background:var(--rail);border-right:1px solid var(--line);color:var(--railtext);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden}
   .rail-head{padding:20px 18px 14px}
-  .rail-logo{display:flex;align-items:center;gap:11px}
+  .rail-logo{display:flex;align-items:center;gap:11px;border-radius:12px;transition:opacity .14s}
+  .rail-logo:hover{opacity:.75}
   .rail-logo .mark{width:42px;height:42px;border-radius:12px;flex-shrink:0;box-shadow:0 6px 14px rgba(15,61,62,.22)}
   .rail-logo .txt{display:flex;flex-direction:column;gap:1px;min-width:0}
   .rail-logo .wm{font-weight:700;font-size:20px;letter-spacing:.02em;color:var(--accent);line-height:1}
@@ -77,7 +78,13 @@
     background-color:var(--bg);
     background-image:radial-gradient(1000px 820px at 100% 0%, rgba(245,247,243,0) 0%, rgba(245,247,243,0) 18%, rgba(245,247,243,.5) 42%, var(--bg) 68%), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='45.9' height='40.5' viewBox='0 0 34 30'%3E%3Cg fill='none' stroke='%230f3d3e' stroke-opacity='0.2' stroke-width='0.7'%3E%3Cpath d='M17 0 L25.5 5 L25.5 15 L17 20 L8.5 15 L8.5 5 Z'/%3E%3Cpath d='M0 15 L8.5 20 L8.5 30 L0 35 M34 15 L25.5 20 L25.5 30 L34 35'/%3E%3C/g%3E%3C/svg%3E");
     background-repeat:no-repeat,repeat;background-position:top right,top right}
-  .topbar{position:sticky;top:0;z-index:30;background:transparent;padding:14px 30px;display:flex;align-items:center;gap:16px}
+  /* Dekkend, niet doorschijnend: de balk blijft bij scrollen staan en met een
+     transparante achtergrond schoof de paginatekst er zichtbaar dwars door. */
+  .topbar{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);
+          padding:14px 30px;display:flex;align-items:center;gap:16px}
+  /* Sprong naar een anker (#vragen, inhoudsopgave) net onder de vaste balk
+     laten landen in plaats van erachter. */
+  [id]{scroll-margin-top:calc(var(--topbar-h, 80px) + 14px)}
   .topbar .ttl h1{font-size:23px;color:var(--accent)}
   .topbar .ttl p{margin:2px 0 0;font-size:13px;color:var(--muted)}
   .topbar .spacer{flex:1}
@@ -87,7 +94,9 @@
   .topsearch input::placeholder{color:var(--muted)}
   @media(max-width:640px){.topsearch{display:none}}
   .presence-chip{display:inline-block;margin-left:6px;font-size:10.5px;font-weight:700;background:#fbeccd;color:#8a5a12;border:1px solid #f0d49a;border-radius:999px;padding:1px 7px;vertical-align:middle;white-space:nowrap}
-  .presence-here{position:sticky;top:6px;z-index:25;margin:0 0 14px;display:none;align-items:center;gap:9px;background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:12px;padding:10px 14px;font-size:13.5px}
+  /* Blijft plakken ONDER de bovenbalk; --topbar-h wordt met JS gemeten, want de
+     hoogte hangt af van de ondertitel van de pagina. */
+  .presence-here{position:sticky;top:calc(var(--topbar-h, 80px) + 8px);z-index:25;margin:0 0 14px;display:none;align-items:center;gap:9px;background:#fbeccd;border:1px solid #f0d49a;color:#7a5713;border-radius:12px;padding:10px 14px;font-size:13.5px}
   .presence-here .dot{width:9px;height:9px;border-radius:50%;background:#e0a53a;flex-shrink:0;box-shadow:0 0 0 3px rgba(224,165,58,.22)}
   .search{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 13px;color:var(--muted);font-size:13.5px;min-width:210px}
   .search input{border:0;outline:0;background:transparent;font:inherit;color:var(--ink);width:100%}
@@ -198,10 +207,13 @@
 <div class="app">
   <aside class="rail">
     <div class="rail-head">
-      <div class="rail-logo">
+      {# Logo is de snelkoppeling naar huis. Een monteur mag niet op het
+         dashboard komen, die gaat naar zijn eigen route. #}
+      <a class="rail-logo" href="{{ url_for('planning.monteur_app') if (p_user and p_user.role == 'monteur') else url_for('planning.dashboard') }}"
+         title="Naar het dashboard">
         <svg class="mark" viewBox="0 0 512 512" aria-hidden="true"><rect width="512" height="512" rx="104" fill="#0f3d3e"/><circle cx="256" cy="176" r="90" fill="none" stroke="#cda35a" stroke-width="40"/><path d="M178 432 L178 300 L272 300 Q340 300 340 338 Q340 376 272 376 L178 376 M244 380 L332 434" fill="none" stroke="#cda35a" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span class="txt"><span class="wm">Office<span style="color:var(--gold2)">Route</span></span><small>Real-time planning optimalisatie</small></span>
-      </div>
+      </a>
     </div>
     <nav class="rail-nav">
       {% macro nicon(key) %}<svg class="i" aria-hidden="true"><use href="#ic-{{ key }}"/></svg>{% endmacro %}
@@ -279,6 +291,20 @@
     </div>
   </div>
 </div>
+<script>
+// Hoogte van de vaste bovenbalk doorgeven, zodat blokken die eronder blijven
+// plakken (bv. de 'ook hier aan het werk'-melding) niet achter de balk
+// verdwijnen. De hoogte verschilt per pagina: sommige hebben een ondertitel.
+(function () {
+  var bar = document.querySelector('.topbar');
+  if (!bar) { return; }
+  function meet() {
+    document.documentElement.style.setProperty('--topbar-h', bar.offsetHeight + 'px');
+  }
+  meet();
+  window.addEventListener('resize', meet);
+})();
+</script>
 {% if p_user and p_user.role != 'monteur' %}
 <script>
 (function(){

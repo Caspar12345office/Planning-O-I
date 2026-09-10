@@ -1,0 +1,113 @@
+{#
+  Gedeelde kiezer voor proefmails: gebruikt door Automatische e-mails en
+  Leveringsdocumenten.
+
+  Staat in- en uitgeklapt en dicht bij elkaar, want met dertien collega's vulde
+  die vinkjeslijst anders het halve scherm. Het e-mailadres staat als tooltip op
+  het vinkje in plaats van ernaast; daarmee passen de namen op één of twee regels.
+
+  Markup, opmaak en JS staan hier bij elkaar, zodat beide pagina's zeker
+  hetzelfde gedrag hebben. Verwacht: colleagues, me_id, mail_live.
+  De verzendknop van de pagina geef je mee als blokinhoud met {% call %}.
+#}
+{% macro kiezer(colleagues, me_id, mail_live, uitleg='') %}
+<style>
+  .pmbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:16px}
+  .pmbox>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
+                 padding:11px 16px;font-size:13.5px;font-weight:600;color:var(--accent)}
+  .pmbox>summary::-webkit-details-marker{display:none}
+  .pmbox>summary:hover{color:var(--accent2)}
+  .pmcount{margin-left:auto;font-size:12.5px;font-weight:500;color:var(--muted)}
+  .pmcaret{font-size:11px;opacity:.7;transition:transform .15s}
+  .pmbox[open] .pmcaret{transform:rotate(180deg)}
+  .pmbody{padding:0 16px 14px;border-top:1px solid var(--line)}
+  .pmnote{font-size:12.5px;color:var(--muted);line-height:1.55;margin:11px 0 10px}
+  .pmchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .pmchip{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border:1px solid var(--line);
+          border-radius:999px;font-size:12.5px;cursor:pointer;background:var(--panel);white-space:nowrap}
+  /* Formuliervelden zijn hier width:100%; een vinkje mag daar niet in meegaan. */
+  .pmchip input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0;cursor:pointer}
+  .pmchip:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);
+                             color:var(--accent);font-weight:600}
+  .pmact{display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-size:12.5px}
+  .pmlink{background:none;border:0;padding:0;font:inherit;font-size:12.5px;color:var(--muted);
+          text-decoration:underline;cursor:pointer}
+  #pmmsg{font-size:12.5px;line-height:1.45}
+</style>
+
+<details class="pmbox">
+  <summary>
+    <svg class="ico" aria-hidden="true"><use href="#ic-mail"/></svg>
+    <span>Voorbeeld mailen naar mijzelf of collega's</span>
+    <span class="pmcount" id="pmcount"></span>
+    <span class="pmcaret">▾</span>
+  </summary>
+  <div class="pmbody">
+    <p class="pmnote">
+      {% if uitleg %}{{ uitleg }} {% endif %}Je kunt alleen <b>collega's met een account</b>
+      aanvinken, dus er kan nooit per ongeluk een klant tussen zitten. Houd de muis op een naam
+      voor het e-mailadres.
+      {% if not mail_live %}<br><b>Testmodus staat aan:</b> naar klanten gaat er nog niets, een
+      proefmail komt wel aan.{% endif %}
+    </p>
+    <div class="pmchips">
+      {% for c in colleagues %}
+      <label class="pmchip" title="{{ c.email }}">
+        <input type="checkbox" class="pmuser" value="{{ c.id }}" {% if c.id == me_id %}checked{% endif %}>
+        <span>{{ c.name }}{% if c.id == me_id %} (jij){% endif %}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="pmact">
+      {{ caller() if caller else '' }}
+      <button class="pmlink" type="button" onclick="pmPick(true)">alles aanvinken</button>
+      <button class="pmlink" type="button" onclick="pmPick(false)">alleen mijzelf</button>
+      <span id="pmmsg"></span>
+    </div>
+  </div>
+</details>
+
+<script>
+var pmMe = '{{ me_id }}';
+
+// Aantal in de samenvatting, zodat je dichtgeklapt ziet naar wie het gaat.
+function pmCount() {
+  var n = document.querySelectorAll('.pmuser:checked').length;
+  var el = document.getElementById('pmcount');
+  if (!el) { return; }
+  el.textContent = n === 0 ? 'niemand gekozen'
+                 : n === 1 ? '1 persoon gekozen'
+                 : n + ' personen gekozen';
+}
+
+function pmPick(all) {
+  document.querySelectorAll('.pmuser').forEach(function (c) {
+    c.checked = all ? true : (c.value === pmMe);
+  });
+  pmCount();
+}
+
+function pmChecked() {
+  return [].map.call(document.querySelectorAll('.pmuser:checked'), function (c) { return c.value; });
+}
+
+// Uitklappen als er iets te melden is: de melding staat in dit blok, en de
+// verzendknop kan er (bij Leveringsdocumenten) ver vandaan staan.
+function pmOpen() {
+  var b = document.querySelector('.pmbox');
+  if (b && !b.open) { b.open = true; }
+}
+
+function pmMsg(text, ok) {
+  var m = document.getElementById('pmmsg');
+  if (!m) { return; }
+  m.textContent = text;
+  m.style.color = ok ? '#2f9e54' : '#b3261e';
+}
+
+document.addEventListener('change', function (e) {
+  if (e.target && e.target.classList && e.target.classList.contains('pmuser')) { pmCount(); }
+});
+pmCount();
+</script>
+{% endmacro %}

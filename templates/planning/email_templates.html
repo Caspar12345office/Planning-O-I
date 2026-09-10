@@ -11,68 +11,36 @@
   .etcard .hint{font-size:12px;color:var(--muted);margin:6px 0 0}
   .etprev{border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:580px}
   .etnote{font-size:13px;color:var(--muted);margin:0 0 12px;line-height:1.55}
-  .etwho{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-  .etchip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);
-          border-radius:999px;font-size:13px;cursor:pointer;background:var(--panel);white-space:nowrap}
-  /* .etcard input{width:100%} hierboven is voor de tekstvelden; een checkbox
-     mag daar niet in meegaan, anders duwt hij de naam naar de volgende regel */
-  .etchip input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0;cursor:pointer}
-  .etchip em{font-style:normal;color:var(--muted);font-size:12px}
-  .etchip:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
-  .etactions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .etlink{background:none;border:none;padding:0;font:inherit;font-size:12.5px;
-          color:var(--muted);text-decoration:underline;cursor:pointer}
   .etprevhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .etsend{background:none;border:none;padding:0;font:inherit;font-size:12.5px;font-weight:600;
            color:var(--accent);text-decoration:underline;cursor:pointer}
   .etsend[disabled]{opacity:.5;cursor:default}
-  #etmsg{font-size:13px}
   @media(max-width:900px){.etgrid{grid-template-columns:1fr}}
 {% endblock %}
 {% block content %}
-<div class="etcard">
-  <h3>Voorbeeld in een echte mailbox bekijken</h3>
-  <p class="etnote">
-    Kies wie het voorbeeld krijgt en gebruik dan een van de knoppen hieronder.
-    Je kunt alleen <b>collega's met een account</b> aanvinken, dus er kan nooit
-    per ongeluk een klant tussen zitten.
-    <b>Sla eerst op</b>, want er wordt verstuurd wat is opgeslagen.
-    {% if not mail_live %}<br><b>Testmodus staat aan:</b> naar klanten gaat er nog niets.{% endif %}
-  </p>
-  <div class="etwho">
-    {% for c in colleagues %}
-    <label class="etchip">
-      <input type="checkbox" class="etuser" value="{{ c.id }}" {% if c.id == me_id %}checked{% endif %}>
-      <span>{{ c.name }}{% if c.id == me_id %} (jij){% endif %}</span>
-      <em>{{ c.email }}</em>
-    </label>
-    {% endfor %}
-  </div>
-  <div class="etactions">
-    <button class="btn" type="button" onclick="etSend('alle',this)">Mail alle voorbeelden</button>
-    <button class="etlink" type="button" onclick="etPick(true)">alles aanvinken</button>
-    <button class="etlink" type="button" onclick="etPick(false)">alleen mijzelf</button>
-    <span id="etmsg"></span>
-  </div>
-  <p class="etnote" style="margin:16px 0 0">
-    De knoppen in de mails gaan naar de volgpagina.
-    <a href="{{ url_for('planning.track_demo') }}" target="_blank" rel="noopener"
-       style="color:var(--accent);font-weight:600">Bekijk die pagina zoals de klant hem ziet</a>,
-    met de live kaart. Bij een echte klant gaat die kaart pas
-    {{ track_lead }} minuten voor het tijdvak open, zodat niemand de monteur de
-    hele dag kan volgen.
-  </p>
+{% import 'planning/_proefmail.html' as pm %}
+{% call pm.kiezer(colleagues, me_id, mail_live,
+                  "Zo bekijk je een mail in een echte mailbox. Sla eerst op, want er wordt
+                   verstuurd wat is opgeslagen.") %}
+  <button class="btn sm" type="button" onclick="etSend('alle',this)">Mail alle voorbeelden</button>
+{% endcall %}
+
+<p class="etnote">
+  De knoppen in de mails gaan naar de volgpagina.
+  <a href="{{ url_for('planning.track_demo') }}" target="_blank" rel="noopener"
+     style="color:var(--accent);font-weight:600">Bekijk die pagina zoals de klant hem ziet</a>,
+  met de live kaart. Bij een echte klant gaat die kaart pas
+  {{ track_lead }} minuten voor het tijdvak open, zodat niemand de monteur de
+  hele dag kan volgen.
   {% if p_has_perm('view_documents') %}
-  <p class="etnote" style="margin:10px 0 0">
-    De knop in de leveringsdocument-mail gaat naar de vragenlijst.
-    <a href="{{ url_for('planning.leverdoc_demo') }}" target="_blank" rel="noopener"
-       style="color:var(--accent);font-weight:600">Bekijk die pagina zoals de klant hem ziet</a>.
-    De vragen zelf staan niet hier maar in het sjabloon bij
-    <a href="{{ url_for('planning.leveringsdocumenten') }}"
-       style="color:var(--accent);font-weight:600">Leveringsdocumenten</a>.
-  </p>
+  De knop in de leveringsdocument-mail gaat naar de vragenlijst;
+  <a href="{{ url_for('planning.leverdoc_demo') }}" target="_blank" rel="noopener"
+     style="color:var(--accent);font-weight:600">die pagina bekijk je hier</a>.
+  De vragen zelf staan in het sjabloon bij
+  <a href="{{ url_for('planning.leveringsdocumenten') }}"
+     style="color:var(--accent);font-weight:600">Leveringsdocumenten</a>.
   {% endif %}
-</div>
+</p>
 <form method="post">
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn primary" type="submit">Opslaan</button></div>
   {% for key,title in blocks %}
@@ -99,38 +67,25 @@
   <div style="display:flex;justify-content:flex-end"><button class="btn primary" type="submit">Opslaan</button></div>
 </form>
 <script>
-function etPick(all) {
-  document.querySelectorAll('.etuser').forEach(function (c) {
-    c.checked = all ? true : (c.value === '{{ me_id }}');
-  });
-}
-
+// De kiezer (vinkjes, aantal, meldingen) komt uit planning/_proefmail.html.
 function etSend(key, btn) {
-  var msg = document.getElementById('etmsg');
-  var ids = [].map.call(document.querySelectorAll('.etuser:checked'), function (c) { return c.value; });
+  var ids = pmChecked();
+  pmOpen();
   if (!ids.length) {
-    msg.textContent = 'Vink eerst iemand aan.';
-    msg.style.color = '#b3261e';
+    pmMsg('Vink eerst iemand aan.', false);
     return;
   }
   var was = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'versturen...';
-  msg.textContent = '';
-  msg.style.color = '';
+  pmMsg('', true);
   fetch('{{ url_for("planning.email_template_proef", key="__KEY__") }}'.replace('__KEY__', key),
         {method: 'POST',
          headers: {'Content-Type': 'application/json', 'X-Requested-With': 'fetch'},
          body: JSON.stringify({users: ids})})
     .then(function (r) { return r.json().catch(function () { return {ok: false, message: 'Onverwacht antwoord van de server (HTTP ' + r.status + ').'}; }); })
-    .then(function (d) {
-      msg.textContent = d.message || (d.ok ? 'Verstuurd.' : 'Mislukt.');
-      msg.style.color = d.ok ? '#2f9e54' : '#b3261e';
-    })
-    .catch(function (e) {
-      msg.textContent = 'Versturen mislukt: ' + e;
-      msg.style.color = '#b3261e';
-    })
+    .then(function (d) { pmMsg(d.message || (d.ok ? 'Verstuurd.' : 'Mislukt.'), d.ok); })
+    .catch(function (e) { pmMsg('Versturen mislukt: ' + e, false); })
     .then(function () { btn.disabled = false; btn.textContent = was; });
 }
 </script>
