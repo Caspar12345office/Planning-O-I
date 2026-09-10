@@ -49,7 +49,7 @@
     {% endfor %}
   </div>
   <div class="etactions">
-    <button class="btn" type="button" onclick="etSend('alle',this)">Mail alle vier</button>
+    <button class="btn" type="button" onclick="etSend('alle',this)">Mail alle voorbeelden</button>
     <button class="etlink" type="button" onclick="etPick(true)">alles aanvinken</button>
     <button class="etlink" type="button" onclick="etPick(false)">alleen mijzelf</button>
     <span id="etmsg"></span>
@@ -62,6 +62,16 @@
     {{ track_lead }} minuten voor het tijdvak open, zodat niemand de monteur de
     hele dag kan volgen.
   </p>
+  {% if p_has_perm('view_documents') %}
+  <p class="etnote" style="margin:10px 0 0">
+    De knop in de leveringsdocument-mail gaat naar de vragenlijst.
+    <a href="{{ url_for('planning.leverdoc_demo') }}" target="_blank" rel="noopener"
+       style="color:var(--accent);font-weight:600">Bekijk die pagina zoals de klant hem ziet</a>.
+    De vragen zelf staan niet hier maar in het sjabloon bij
+    <a href="{{ url_for('planning.leveringsdocumenten') }}"
+       style="color:var(--accent);font-weight:600">Leveringsdocumenten</a>.
+  </p>
+  {% endif %}
 </div>
 <form method="post">
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn primary" type="submit">Opslaan</button></div>

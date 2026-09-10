@@ -205,6 +205,14 @@
     </div>
     <nav class="rail-nav">
       {% macro nicon(key) %}<svg class="i" aria-hidden="true"><use href="#ic-{{ key }}"/></svg>{% endmacro %}
+      {# Rood bolletje met een aantal, per menu-item. Op één plek, want dit
+         hoort bij drie verschillende soorten menu-items. #}
+      {% macro nbadge(ep) %}
+        {%- if ep=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>
+        {%- elif ep=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>
+        {%- elif ep=='planning.leveringsdocumenten' and p_new_leverdocs %}<span class="nbadge">{{ p_new_leverdocs }}</span>
+        {%- endif %}
+      {%- endmacro %}
       {% for item in p_nav %}
         {% if item.children %}
           {% set visible = item.children | selectattr('perm','in',p_perms) | list %}
@@ -213,7 +221,7 @@
             <details class="navgrp" {{ 'open' if open }}>
               <summary>{{ nicon(item.icon) }}{{ item.label }}<span class="caret">▾</span></summary>
               {% for ch in visible %}
-              <a class="sub {{ 'active' if request.endpoint==ch.endpoint }}" href="{{ url_for(ch.endpoint) }}">{{ nicon(ch.icon) }}{{ ch.label }}{% if ch.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
+              <a class="sub {{ 'active' if request.endpoint==ch.endpoint }}" href="{{ url_for(ch.endpoint) }}">{{ nicon(ch.icon) }}{{ ch.label }}{{ nbadge(ch.endpoint) }}</a>
               {% endfor %}
             </details>
           {% endif %}
@@ -221,14 +229,17 @@
           {% if p_has_perm(item.perm) %}
           {% set sopen = (request.endpoint==item.endpoint) or (item.subs | selectattr('endpoint','equalto',request.endpoint) | list) %}
           <details class="navgrp linkgrp" {{ 'open' if sopen }}>
-            <summary><a class="grplink {{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}</a><span class="caret">▾</span></summary>
+            <summary><a class="grplink {{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}</a>{#
+              Dichtgeklapte groep: het bolletje van de onderliggende pagina's
+              hier laten zien, anders zie je het seintje pas na uitklappen. #}
+              {% if not sopen %}{% for s in item.subs %}{{ nbadge(s.endpoint) }}{% endfor %}{% endif %}<span class="caret">▾</span></summary>
             {% for s in item.subs %}{% if p_has_perm(s.perm) %}
-            <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ nicon(s.icon) }}{{ s.label }}{% if s.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
+            <a class="sub {{ 'active' if request.endpoint==s.endpoint }}" href="{{ url_for(s.endpoint) }}">{{ nicon(s.icon) }}{{ s.label }}{{ nbadge(s.endpoint) }}</a>
             {% endif %}{% endfor %}
           </details>
           {% endif %}
         {% elif p_has_perm(item.perm) %}
-          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}{% if item.endpoint=='planning.free_days' and p_pending_leave %}<span class="nbadge">{{ p_pending_leave }}</span>{% endif %}{% if item.endpoint=='planning.bus_issues' and p_open_bus_issues %}<span class="nbadge">{{ p_open_bus_issues }}</span>{% endif %}</a>
+          <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}{{ nbadge(item.endpoint) }}</a>
         {% endif %}
       {% endfor %}
       {% if p_user and p_user.role=='monteur' %}

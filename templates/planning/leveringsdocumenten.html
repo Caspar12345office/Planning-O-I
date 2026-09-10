@@ -17,6 +17,30 @@
   .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
   .badge.on{background:#d9f0e1;color:#1f6b3e}.badge.off{background:#eee;color:#888}
   .badge.rec{background:#d9f0e1;color:#1f6b3e}.badge.open{background:#eef2f6;color:#4a6785}
+  .badge.new{background:#fde8e8;color:#b3261e}
+
+  /* Sjabloon links bewerken, rechts meteen zien wat de klant krijgt. */
+  .ldgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin-top:12px}
+  @media(max-width:1000px){.ldgrid{grid-template-columns:1fr}}
+  .ldhead{display:flex;justify-content:space-between;align-items:center;gap:10px;
+          flex-wrap:wrap;margin-bottom:6px}
+  .ldhead label{font-size:11px;color:var(--muted)}
+  .ldtabs{display:flex;gap:6px}
+  .ldtabs button{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+                 padding:4px 11px;font:inherit;font-size:12px;color:var(--muted);cursor:pointer}
+  .ldtabs button.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+  /* De klantpagina is 640 breed. In een halve kolom zou hij in zijn mobiele
+     opmaak schieten, dus we tonen hem op 700 en schalen hem terug: dan zie je
+     de desktopweergave zoals de klant die op zijn laptop krijgt. */
+  .ldbox{position:relative;overflow:hidden;height:560px;border:1px solid var(--line);
+         border-radius:12px;background:#efefef}
+  .ldbox iframe{position:absolute;top:0;left:0;width:700px;border:0;transform-origin:0 0}
+  .ldfoot{margin-top:6px;font-size:12px}
+  .ldfoot a{color:var(--accent);font-weight:600}
+  .ldactief{display:flex;align-items:center;gap:8px;font-size:13px;margin:0 0 10px}
+  /* De checkbox moet expliciet width:auto krijgen: formuliervelden zijn hier
+     width:100%, en dan wordt het vinkje zo breed als de kolom. */
+  .ldactief input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0;cursor:pointer}
   table.lst{width:100%;border-collapse:collapse;font-size:13px}
   table.lst th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 10px;border-bottom:2px solid var(--line)}
   table.lst td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
@@ -43,32 +67,59 @@
 
 <div class="panel">
   <h3>Documentsjablonen</h3>
-  <div class="sub">Het <b>actieve</b> sjabloon wordt verstuurd. De klant beantwoordt de vragen hieronder online en ondertekent digitaal. Eén vraag per regel.</div>
+  <div class="sub">Het <b>actieve</b> sjabloon wordt verstuurd. De klant beantwoordt de vragen online
+    en ondertekent digitaal. Eén vraag per regel. Open een sjabloon en je ziet er rechts meteen bij
+    wat de klant te zien krijgt. <b>Sla eerst op</b>, want het voorbeeld toont wat is opgeslagen.
+    {% if p_has_perm('manage_settings') %}
+    De e-mail waarin de klant de link krijgt, wijzig je bij
+    <a href="{{ url_for('planning.email_templates') }}" style="color:var(--accent);font-weight:600">Automatische e-mails</a>.
+    {% endif %}</div>
 
   {% for t in templates %}
   <div class="tpl {{ 'act' if t.active }}">
-    <details>
+    <details ontoggle="ldToggle(this)">
       <summary style="cursor:pointer;display:flex;align-items:center;gap:10px;list-style:none">
         <span class="tname">{{ t.title }}</span>
         {% if t.active %}<span class="badge on">Actief</span>{% else %}<span class="badge off">Inactief</span>{% endif %}
         <span class="muted" style="margin-left:auto;font-size:12px">{{ (t.questions or '').splitlines()|length }} vragen · bewerken ›</span>
       </summary>
-      <form method="post" action="{{ url_for('planning.leverdoc_template_edit', tid=t.id) }}" style="margin-top:12px">
-        <div class="frow" style="margin-bottom:10px">
-          <div class="f" style="flex:1;min-width:220px"><label>Titel</label><input type="text" name="title" value="{{ t.title }}"></div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" name="active" {{ 'checked' if t.active }}> Actief (dit sjabloon versturen)</label>
+      <div class="ldgrid">
+        <div>
+          <form method="post" action="{{ url_for('planning.leverdoc_template_edit', tid=t.id) }}">
+            {# In de halve kolom past titel + vinkje niet naast elkaar: elk zijn eigen regel. #}
+            <div class="frow" style="margin-bottom:8px">
+              <div class="f" style="flex:1 0 100%"><label>Titel (kop op de pagina)</label><input type="text" name="title" value="{{ t.title }}"></div>
+            </div>
+            <label class="ldactief"><input type="checkbox" name="active" {{ 'checked' if t.active }}> Actief (dit sjabloon versturen)</label>
+            <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
+            <textarea class="q" name="intro" style="min-height:56px">{{ t.intro or '' }}</textarea>
+            <label style="font-size:11px;color:var(--muted)">Vragen - één per regel</label>
+            <textarea class="q" name="questions">{{ t.questions or '' }}</textarea>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn primary sm" type="submit">Opslaan</button>
+            </div>
+          </form>
+          <form method="post" action="{{ url_for('planning.leverdoc_template_delete', tid=t.id) }}" onsubmit="return confirm('Sjabloon “{{ t.title }}” verwijderen?')" style="margin-top:6px">
+            <button class="btn ghost sm" type="submit" style="color:#b23a1e;border-color:#e6b8ac">Verwijderen</button>
+          </form>
         </div>
-        <label style="font-size:11px;color:var(--muted)">Introtekst (optioneel)</label>
-        <textarea class="q" name="intro" style="min-height:56px">{{ t.intro or '' }}</textarea>
-        <label style="font-size:11px;color:var(--muted)">Vragen - één per regel</label>
-        <textarea class="q" name="questions">{{ t.questions or '' }}</textarea>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button class="btn primary sm" type="submit">Opslaan</button>
+        <div>
+          <div class="ldhead">
+            <label>Wat de klant ziet</label>
+            <span class="ldtabs">
+              <button type="button" class="on" onclick="ldShow(this,'')">Vragenlijst</button>
+              <button type="button" onclick="ldShow(this,'&amp;state=done')">Na het invullen</button>
+            </span>
+          </div>
+          <div class="ldbox">
+            <iframe title="Voorbeeld van het leveringsdocument"
+                    data-base="{{ url_for('planning.leverdoc_demo', tpl=t.id) }}"></iframe>
+          </div>
+          <div class="ldfoot">
+            <a href="{{ url_for('planning.leverdoc_demo', tpl=t.id) }}" target="_blank" rel="noopener">Op ware grootte openen ↗</a>
+          </div>
         </div>
-      </form>
-      <form method="post" action="{{ url_for('planning.leverdoc_template_delete', tid=t.id) }}" onsubmit="return confirm('Sjabloon “{{ t.title }}” verwijderen?')" style="margin-top:6px">
-        <button class="btn ghost sm" type="submit" style="color:#b23a1e;border-color:#e6b8ac">Verwijderen</button>
-      </form>
+      </div>
     </details>
   </div>
   {% else %}
@@ -94,7 +145,9 @@
 
 <div class="panel">
   <h3>Ingevulde &amp; verstuurde documenten</h3>
-  <div class="sub">Nieuwste eerst. Zoek op ordernummer of klantnaam.</div>
+  <div class="sub">Nieuwste eerst. Zoek op ordernummer of klantnaam. Vult een klant een document in,
+    dan krijgt degene die het verstuurde een mail én komt er een rood bolletje in het menu.
+    Dat bolletje gaat weg zodra iemand op <b>Bekijk</b> klikt.</div>
   <form method="get" class="searchbar">
     <input type="text" name="q" value="{{ q }}" placeholder="Zoek op order of klant…">
     <button class="btn primary sm" type="submit"><svg class="ico"><use href="#ic-search"/></svg> Zoeken</button>
@@ -109,7 +162,7 @@
         <td><a href="{{ url_for('planning.order_detail', oid=d.order_id) }}">#{{ d.onum }}</a></td>
         <td>{{ d.client or '-' }}</td>
         <td class="muted" style="font-size:12px">{{ d.reason }}</td>
-        <td>{% if d.status=='received' %}<span class="badge rec">Ontvangen</span>{% else %}<span class="badge open">Open</span>{% endif %}</td>
+        <td>{% if d.status=='received' %}<span class="badge rec">Ontvangen</span>{% if not d.seen %} <span class="badge new">Nieuw</span>{% endif %}{% else %}<span class="badge open">Open</span>{% endif %}</td>
         <td class="muted" style="font-size:12px">{{ d.sent_at }}</td>
         <td class="muted" style="font-size:12px">{{ d.received_at or '-' }}</td>
         <td style="text-align:right">
@@ -124,4 +177,37 @@
   </table>
   </div>
 </div>
+
+<script>
+// Het voorbeeld staat in een iframe, zodat het exact dezelfde pagina is die de
+// klant krijgt. De iframe laadt pas als je een sjabloon openklapt.
+function ldFit(box) {
+  var f = box.querySelector('iframe');
+  var s = box.clientWidth / 700;
+  if (s > 1) { s = 1; }
+  f.style.transform = 'scale(' + s + ')';
+  f.style.height = (box.clientHeight / s) + 'px';
+}
+
+function ldToggle(det) {
+  if (!det.open) { return; }
+  var box = det.querySelector('.ldbox'), f = box.querySelector('iframe');
+  if (!f.getAttribute('src')) { f.setAttribute('src', f.getAttribute('data-base')); }
+  ldFit(box);
+}
+
+function ldShow(btn, extra) {
+  var tabs = btn.parentNode;
+  [].forEach.call(tabs.querySelectorAll('button'), function (b) { b.classList.remove('on'); });
+  btn.classList.add('on');
+  var box = tabs.parentNode.parentNode.querySelector('.ldbox');
+  var f = box.querySelector('iframe');
+  f.setAttribute('src', f.getAttribute('data-base') + extra);
+  ldFit(box);
+}
+
+window.addEventListener('resize', function () {
+  [].forEach.call(document.querySelectorAll('details[open] .ldbox'), ldFit);
+});
+</script>
 {% endblock %}

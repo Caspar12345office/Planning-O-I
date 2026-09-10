@@ -705,7 +705,10 @@ def init_db():
                  # De monteur-, magazijn- en hub-app blokkeren een account na 5 mislukte
                  # inlogpogingen. Hier ook aanmaken zodat het ontgrendelen altijd werkt.
                  "ALTER TABLE users ADD COLUMN login_fails INTEGER DEFAULT 0",
-                 "ALTER TABLE users ADD COLUMN locked INTEGER DEFAULT 0"):
+                 "ALTER TABLE users ADD COLUMN locked INTEGER DEFAULT 0",
+                 # Seintje bij Leveringsdocumenten: 0 = ingevuld maar nog niet
+                 # door kantoor bekeken (rood bolletje in het menu).
+                 "ALTER TABLE leverdoc ADD COLUMN seen INTEGER DEFAULT 0"):
         try:
             conn.execute(stmt)
         except Exception:
@@ -715,6 +718,19 @@ def init_db():
         for r in conn.execute("SELECT id FROM orders WHERE track_token IS NULL OR track_token=''").fetchall():
             conn.execute("UPDATE orders SET track_token=? WHERE id=?", (_new_track_token(), r["id"]))
         conn.commit()
+    except Exception:
+        pass
+    # Documenten die al binnen waren vóór het seintje bestond niet als 'nieuw'
+    # tellen; die zijn allang afgehandeld. Dit loopt via een vlag in settings en
+    # dus precies één keer: 'seen IS NULL' zou hier niet werken, want ADD COLUMN
+    # met DEFAULT 0 vult bestaande rijen met 0 (zowel SQLite als PostgreSQL).
+    # Zonder die vlag zou een herstart later elk vers seintje wegpoetsen.
+    try:
+        gedaan = conn.execute("SELECT value FROM settings WHERE skey='leverdoc_seen_backfill'").fetchone()
+        if not gedaan:
+            conn.execute("UPDATE leverdoc SET seen=1 WHERE status='received'")
+            _save_setting(conn, "leverdoc_seen_backfill", "1")
+            conn.commit()
     except Exception:
         pass
     # Eenmalige opschoning bestaande orderregels: merk 'Renab' weghalen (idempotent).
@@ -1211,6 +1227,21 @@ def open_bus_issues_count(u):
     return n
 
 
+def new_leverdocs_count(u):
+    """Het seintje: leveringsdocumenten die de klant heeft ingevuld en die nog
+    niemand op kantoor heeft bekeken. Wordt 0 zodra iemand de antwoorden opent."""
+    if not u or "view_documents" not in user_perms(u):
+        return 0
+    conn = db()
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM leverdoc WHERE status='received' "
+                         "AND COALESCE(seen,0)=0").fetchone()[0]
+    except Exception:
+        n = 0          # kolom bestaat nog niet (oude database, eerste start)
+    conn.close()
+    return n
+
+
 @bp.app_context_processor
 def _inject():
     if request.blueprint != "planning":
@@ -1222,6 +1253,7 @@ def _inject():
             "p_open_questions": open_questions_count(u), "p_online": online,
             "p_pending_leave": pending_leave_count(u) if u else 0,
             "p_open_bus_issues": open_bus_issues_count(u) if u else 0,
+            "p_new_leverdocs": new_leverdocs_count(u) if u else 0,
             "p_leave_decision": my_unseen_decision(u) if u else None}
 
 
@@ -1629,6 +1661,13 @@ MAIL_TEXT_DEFAULTS = {
     "mailtxt_near_b": "Onze monteur is er bijna. U kunt hem live volgen via de knop hieronder.",
     "mailtxt_delay_h": "Update over uw levertijd",
     "mailtxt_delay_b": "Door omstandigheden onderweg is de verwachte aankomsttijd iets opgeschoven. Onze excuses voor het ongemak.",
+    # De uitnodiging voor het leveringsdocument. De vragenlijst zelf staat niet
+    # hier maar in het sjabloon bij Leveringsdocumenten; dit is alleen de mail
+    # waarin de klant de link krijgt.
+    "mailtxt_leverdoc_h": "Nog een paar gegevens over de levering",
+    "mailtxt_leverdoc_b": ("Om uw levering vlot te laten verlopen hebben wij nog een paar gegevens over de "
+                           "leverlocatie nodig. Via de knop hieronder vult u ze online in en ondertekent u "
+                           "digitaal. Dat kost u ongeveer een minuut."),
 }
 
 
@@ -1867,6 +1906,9 @@ MAIL_CONTACT_EMAIL = "planning@office-interior.com"
 
 CONFIRM_NOTICE = ("Op de dag zelf ontvangt u een mail met een live volglink en de "
                   "verwachte aankomsttijd van de monteur.")
+
+LEVERDOC_NOTICE = ("U hoeft niets uit te printen of terug te mailen: invullen en ondertekenen "
+                   "doet u op de pagina zelf. Wij nemen uw antwoorden mee bij de levering.")
 
 
 def _mail_asset(path):
@@ -3044,6 +3086,7 @@ MAIL_PREVIEW_BLOCKS = [
     ("today", "Wij komen vandaag langs"),
     ("near", "Onze monteur is er bijna"),
     ("delay", "Update over uw levertijd"),
+    ("leverdoc", "Leveringsdocument - vragen over de leverlocatie"),
 ]
 
 
@@ -3055,6 +3098,9 @@ def _preview_mails():
     """
     cur = {k: _mailtxt(k) for k in MAIL_TEXT_DEFAULTS}
     demo_link = "%s/track/voorbeeld" % LEVERDOC_BASE.rstrip("/")
+    # De knop van de leveringsdocument-mail wijst in een voorbeeld naar de
+    # interne voorbeeldpagina; een echt token bestaat hier immers niet.
+    ld_link = "%s/leveringsdocument-voorbeeld" % LEVERDOC_BASE.rstrip("/")
 
     def one(key, subject, cells, buttons=None, notice=None, link=None):
         hk, bk = "mailtxt_%s_h" % key, "mailtxt_%s_b" % key
@@ -3089,6 +3135,11 @@ def _preview_mails():
                      [("clock", "Nieuwe verwachte tijd", "rond 10:40"),
                       ("hash", "Ordernummer", "#36399")],
                      buttons=("Volg uw levering", demo_link), link=demo_link),
+        # Onderwerpregel volgt de kop, precies zoals in leverdoc_send.
+        "leverdoc": one("leverdoc", cur["mailtxt_leverdoc_h"] + " #36399",
+                        [("hash", "Ordernummer", "#36399")],
+                        buttons=("Document invullen & ondertekenen", ld_link),
+                        notice=LEVERDOC_NOTICE, link=ld_link),
     }
 
 
@@ -4717,18 +4768,22 @@ def leverdoc_send(oid):
     link = "%s/leverdoc/%s" % (LEVERDOC_BASE, token)
     mailed = False
     if to_email and _mail_live():
-        greet = "Beste %s," % (o["client"] or "klant")
-        intro = ("Voor uw levering (order #%s) hebben wij nog enkele gegevens over de "
-                 "leverlocatie nodig. Wilt u het onderstaande document invullen en digitaal "
-                 "ondertekenen? Dat kost slechts een minuut." % o["order_number"])
-        html = _brand_email("Leveringsdocument invullen", _paras(greet, intro),
-                            info=[("Ordernummer", "#" + o["order_number"])],
-                            # gewone '&': _brand_email escapet zelf, anders
-                            # ziet de klant letterlijk "&amp;" in de knop
-                            button=("Document invullen & ondertekenen", link))
+        # Exact hetzelfde sjabloon als de vier automatische klantmails, zodat de
+        # klant één huisstijl ziet. Kop en bericht zijn te wijzigen bij
+        # Instellingen -> Automatische e-mails (blok 'Leveringsdocument').
+        heading = _mailtxt("mailtxt_leverdoc_h")
+        body = _mailtxt("mailtxt_leverdoc_b")
+        cells = [("hash", "Ordernummer", "#" + o["order_number"])]
+        html = _mail_html(heading, o["client"], body, cells,
+                          # gewone '&': de knoppenbouwer escapet zelf, anders
+                          # ziet de klant letterlijk "&amp;" in de knop
+                          buttons=("Document invullen & ondertekenen", link),
+                          notice=LEVERDOC_NOTICE)
+        # Platte tekst moet de gegevens EN de link bevatten: blokkeert de
+        # mailclient de HTML, dan bestaat de knop niet.
+        text = _mail_text(o["client"], body, cells, notice=LEVERDOC_NOTICE, link=link)
         try:
-            mailed = bool(_send_mail(to_email, "Leveringsdocument voor uw order #" + o["order_number"],
-                                     greet + "\n\n" + intro + "\n\n" + link, html))
+            mailed = bool(_send_mail(to_email, "%s #%s" % (heading, o["order_number"]), text, html))
         except Exception:
             mailed = False
     if mailed:
@@ -4748,6 +4803,13 @@ def leverdoc_view(lid):
                         FROM leverdoc l JOIN orders o ON o.id=l.order_id
                         LEFT JOIN clients c ON c.id=o.client_id WHERE l.id=?""", (lid,)).fetchone()
     tpl = conn.execute("SELECT * FROM leverdoc_template WHERE id=?", (d["template_id"],)).fetchone() if d else None
+    # Antwoorden bekeken = seintje weg (het rode bolletje in het menu).
+    if d and d["status"] == "received":
+        try:
+            conn.execute("UPDATE leverdoc SET seen=1 WHERE id=?", (lid,))
+            conn.commit()
+        except Exception:
+            pass
     conn.close()
     if not d:
         abort(404)
@@ -4759,6 +4821,39 @@ def leverdoc_view(lid):
         answers = []
     link = "%s/leverdoc/%s" % (LEVERDOC_BASE, d["token"])
     return render_template("planning/leverdoc_view.html", d=d, tpl=tpl, answers=answers, link=link)
+
+
+@bp.route("/leveringsdocument-voorbeeld")
+def leverdoc_demo():
+    """Het leveringsdocument met verzonnen gegevens, zodat kantoor kan zien wat
+    de klant krijgt. Alleen intern (recht view_documents).
+
+    Rendert BEWUST dezelfde template als de echte klantpagina. Een tweede,
+    losse voorbeeldpagina zou binnen een maand uit de pas lopen met het echte
+    ding en dan keur je iets goed wat de klant niet ziet.
+
+    ?tpl=<id> kiest een sjabloon (standaard het actieve), ?state=done toont de
+    bedankpagina. Er wordt niets opgeslagen en er bestaat geen token.
+    """
+    guard = login_required("view_documents")
+    if guard:
+        return guard
+    conn = db()
+    tpl = None
+    tid = request.args.get("tpl")
+    if tid:
+        try:
+            tpl = conn.execute("SELECT * FROM leverdoc_template WHERE id=?", (int(tid),)).fetchone()
+        except (TypeError, ValueError):
+            tpl = None
+    if tpl is None:
+        tpl = _leverdoc_active_template(conn)
+    conn.close()
+    done = request.args.get("state") == "done"
+    return render_template("planning/leverdoc_public.html", found=True, demo=True,
+                           d={"onum": "36399", "client": "Voorbeeldklant"},
+                           tpl=tpl, questions=_leverdoc_questions(tpl),
+                           done=done, already=done)
 
 
 @bp.route("/leverdoc/<token>", methods=["GET", "POST"])
@@ -4778,15 +4873,22 @@ def leverdoc_public(token):
         answers = [{"q": q, "a": (request.form.get("q%d" % i) or "").strip()} for i, q in enumerate(questions)]
         signer = (request.form.get("signer_name") or "").strip()
         signature = (request.form.get("signature") or "").strip()[:200000]
+        # seen=0: dit is het seintje voor kantoor (rood bolletje in het menu).
         conn.execute("""UPDATE leverdoc SET status='received', answers=?, signer_name=?, signature=?,
-                        received_at=? WHERE token=?""",
+                        received_at=?, seen=0 WHERE token=?""",
                      (json.dumps(answers, ensure_ascii=False), signer, signature,
                       datetime.now().isoformat(timespec="minutes"), token))
         conn.commit()
+        try:
+            _leverdoc_notify_office(conn, d, signer, answers)
+        except Exception:
+            # Nooit laten struikelen over de mail: de antwoorden staan al vast en
+            # het bolletje in het menu is er ook zonder mail.
+            pass
         conn.close()
         return redirect(url_for("planning.leverdoc_public", token=token, done=1))
     conn.close()
-    return render_template("planning/leverdoc_public.html", found=True, d=d, tpl=tpl,
+    return render_template("planning/leverdoc_public.html", found=True, demo=False, d=d, tpl=tpl,
                            questions=questions, done=request.args.get("done"),
                            already=(d["status"] == "received"))
 
@@ -5625,6 +5727,48 @@ def _leverdoc_questions(tpl):
     if not tpl:
         return []
     return [q.strip() for q in (tpl["questions"] or "").splitlines() if q.strip()]
+
+
+def _leverdoc_notify_office(conn, d, signer, answers):
+    """Seintje naar kantoor zodra een klant het leveringsdocument heeft ingevuld.
+
+    Twee sporen, want één alleen is niet betrouwbaar genoeg:
+      - het rode bolletje bij Documenten -> Leveringsdocumenten. Dat staat er
+        altijd, ook met de testmodus aan, en gaat pas weg als iemand de
+        antwoorden echt opent (kolom `seen`).
+      - een mail naar degene die het document verstuurde, anders de
+        planningsmailbox. Die loopt via de gewone verzendlaag en respecteert dus
+        de testmodus: staat die aan, dan blijft het bij het bolletje.
+
+    Mag nooit een fout naar buiten laten komen: de klant heeft zijn antwoorden al
+    opgeslagen en moet in alle gevallen zijn bedankpagina zien.
+    """
+    if not _mail_live():
+        return False       # testmodus of geen mailbox ingesteld: alleen het bolletje
+    to, naam = "", ""
+    who = (d["sent_by"] or "").strip()
+    if who:
+        r = conn.execute("SELECT name, email FROM users WHERE name=? AND email IS NOT NULL "
+                         "AND email<>'' ORDER BY id LIMIT 1", (who,)).fetchone()
+        if r:
+            to, naam = (r["email"] or "").strip(), (r["name"] or "").strip()
+    to = to or MAIL_CONTACT_EMAIL
+
+    regels = ["%s: %s" % (a["q"], (a["a"] or "-")[:200]) for a in (answers or [])]
+    body = ("De klant heeft het leveringsdocument ingevuld en digitaal ondertekend. "
+            "Hieronder de antwoorden; de handtekening staat in de tool.")
+    if regels:
+        body += "\n\n" + "\n".join(regels)
+    heading = "Leveringsdocument ontvangen"
+    cells = [("hash", "Ordernummer", "#%s" % (d["onum"] or "?")),
+             ("user", "Ondertekend door", signer or "onbekend")]
+    link = "%s/leveringsdocumenten/%s" % (LEVERDOC_BASE.rstrip("/"), d["id"])
+    subject = "Leveringsdocument ingevuld #%s%s" % (
+        (d["onum"] or "?"), (" - %s" % d["client"]) if d["client"] else "")
+    html = _mail_html(heading, naam or "collega", body, cells,
+                      buttons=("Antwoorden bekijken", link))
+    text = _mail_text(naam or "collega", body, cells, link=link)
+    return bool(_send_mail(to, subject, text, html))
 
 
 def _leverdoc_status_map(conn, order_ids):

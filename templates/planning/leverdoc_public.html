@@ -6,8 +6,9 @@
   .ldform label{display:block;margin:20px 0 6px;font-size:15px;font-weight:700;color:var(--teal)}
   .ldform input[type=text]{width:100%;padding:13px;border:1px solid var(--rule);
                            border-radius:10px;font:inherit;font-size:15px}
-  canvas.sig{width:100%;height:170px;border:1px dashed #c3b79c;border-radius:12px;
-             background:#fdfbf7;touch-action:none;display:block}
+  /* neutraal grijsgroen; de oude crèmetinten hoorden bij de vorige huisstijl */
+  canvas.sig{width:100%;height:170px;border:1px dashed #b9c4c0;border-radius:12px;
+             background:#fbfcfc;touch-action:none;display:block}
   .sigrow{display:flex;justify-content:space-between;align-items:center;
           margin-top:8px;font-size:13px;color:var(--label)}
   .sigrow button{background:none;border:0;color:var(--teal);font:inherit;
@@ -53,7 +54,8 @@
     {% endif %}
   </div>
 
-  <form method="post" id="ldform" class="ldform">
+  {# In het voorbeeld mag er niets weg: onsubmit vangt het ook zonder JS af. #}
+  <form method="post" id="ldform" class="ldform"{% if demo %} onsubmit="return false"{% endif %}>
     {% for q in questions %}
     <label>{{ q }}</label>
     <input type="text" name="q{{ loop.index0 }}" autocomplete="off">
@@ -73,6 +75,7 @@
     <button class="ldsend" type="submit">Versturen &amp; ondertekenen</button>
   </form>
   <p class="ldprivacy">Uw gegevens worden uitsluitend gebruikt voor deze levering.</p>
+  {% if demo %}<p class="ldprivacy"><b>Voorbeeld.</b> Tekenen en typen mag; er wordt niets opgeslagen of verstuurd.</p>{% endif %}
 {% endif %}
 {% endblock %}
 
@@ -106,6 +109,8 @@
     ctx.clearRect(0, 0, c.width, c.height); dirty = false;
   });
   document.getElementById('ldform').addEventListener('submit', function (e) {
+    // In het voorbeeld niet zeuren over een handtekening: er gaat niets weg.
+    if ({{ 'true' if demo else 'false' }}) { e.preventDefault(); return; }
     if (!dirty) { e.preventDefault(); alert('Zet alstublieft uw handtekening.'); return; }
     document.getElementById('sigdata').value = c.toDataURL('image/png');
   });
