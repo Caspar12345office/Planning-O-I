@@ -13,6 +13,7 @@ om met echte API-logica te worden "ingeplugd".
 from flask import (
     Blueprint, render_template, request, redirect, url_for, session,
     flash, jsonify, Response, abort, send_from_directory, got_request_exception, g,
+    current_app,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -1910,6 +1911,82 @@ CONFIRM_NOTICE = ("Op de dag zelf ontvangt u een mail met een live volglink en d
 LEVERDOC_NOTICE = ("U hoeft niets uit te printen of terug te mailen: invullen en ondertekenen "
                    "doet u op de pagina zelf. Wij nemen uw antwoorden mee bij de levering.")
 
+# Hoelang de knop in een PROEFMAIL van het leveringsdocument blijft werken.
+LEVERDOC_PREVIEW_DAYS = 14
+
+
+# Terugval als er (buiten een request) geen app-secret is: bewust willekeurig
+# per proces, zodat een sleutel dan niet te verzinnen is.
+_PREVIEW_FALLBACK_SECRET = secrets.token_hex(16)
+
+
+def _preview_secret():
+    """Sleutel om voorbeeldlinks te ondertekenen; normaal de Flask-secret."""
+    try:
+        key = current_app.secret_key
+    except Exception:
+        key = None
+    key = key or SSO_SECRET or _PREVIEW_FALLBACK_SECRET
+    return key if isinstance(key, bytes) else str(key).encode()
+
+
+def _leverdoc_preview_sig(tid, exp):
+    raw = "%s.%s" % (tid, exp)
+    return hmac.new(_preview_secret(), raw.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _leverdoc_demo_link(tid=""):
+    """Absolute link naar de voorbeeldpagina, ondertekend zodat hij ook zonder
+    login opengaat.
+
+    Nodig omdat een proefmail bedoeld is om écht te testen wat de klant krijgt:
+    klik je die knop op je telefoon, dan heb je daar geen sessie en zou je op het
+    inlogscherm belanden in plaats van op de vragenlijst. De pagina toont
+    uitsluitend verzonnen gegevens (#36399 / Voorbeeldklant) plus de vragen uit
+    het sjabloon, slaat niets op en verloopt na LEVERDOC_PREVIEW_DAYS dagen.
+    """
+    tid = str(tid or "")
+    exp = int(time.time()) + LEVERDOC_PREVIEW_DAYS * 86400
+    q = {"k": "%d.%s" % (exp, _leverdoc_preview_sig(tid, exp))}
+    if tid:
+        q["tpl"] = tid
+    return "%s/leveringsdocument-voorbeeld?%s" % (LEVERDOC_BASE.rstrip("/"),
+                                                  urllib.parse.urlencode(q))
+
+
+def _leverdoc_preview_ok(tid, tok):
+    """Is dit een geldige, niet-verlopen voorbeeldsleutel voor dit sjabloon?"""
+    try:
+        exp, sig = (tok or "").split(".")
+        if not hmac.compare_digest(sig, _leverdoc_preview_sig(str(tid or ""), exp)):
+            return False
+        return int(exp) >= int(time.time())
+    except Exception:
+        return False
+
+
+def _leverdoc_mail(client, order_number, link):
+    """De uitnodigingsmail voor het leveringsdocument.
+
+    Eén bron voor de echte verzending, het voorbeeld op de mailpagina en de
+    proefmail, zodat die drie nooit uit elkaar kunnen lopen. Kop en bericht zijn
+    te wijzigen bij Instellingen -> Automatische e-mails.
+    """
+    heading = _mailtxt("mailtxt_leverdoc_h")
+    body = _mailtxt("mailtxt_leverdoc_b")
+    cells = [("hash", "Ordernummer", "#%s" % order_number)]
+    return {
+        "subject": "%s #%s" % (heading, order_number),
+        # gewone '&': de knoppenbouwer escapet zelf, anders ziet de klant
+        # letterlijk "&amp;" in de knop
+        "html": _mail_html(heading, client, body, cells,
+                           buttons=("Document invullen & ondertekenen", link),
+                           notice=LEVERDOC_NOTICE),
+        # Platte tekst moet de gegevens EN de link bevatten: blokkeert de
+        # mailclient de HTML, dan bestaat de knop niet.
+        "text": _mail_text(client, body, cells, notice=LEVERDOC_NOTICE, link=link),
+    }
+
 
 def _mail_asset(path):
     """Absolute URL naar een bestand in static/, want e-mail kan niets relatief laden.
@@ -3091,16 +3168,13 @@ MAIL_PREVIEW_BLOCKS = [
 
 
 def _preview_mails():
-    """De vier automatische klantmails, opgebouwd met voorbeeldgegevens.
+    """Alle klantmails, opgebouwd met voorbeeldgegevens.
 
     Eén bron voor zowel het voorbeeld op de pagina als de knop 'mail naar
     mijzelf', zodat je mailbox exact toont wat de pagina laat zien.
     """
     cur = {k: _mailtxt(k) for k in MAIL_TEXT_DEFAULTS}
     demo_link = "%s/track/voorbeeld" % LEVERDOC_BASE.rstrip("/")
-    # De knop van de leveringsdocument-mail wijst in een voorbeeld naar de
-    # interne voorbeeldpagina; een echt token bestaat hier immers niet.
-    ld_link = "%s/leveringsdocument-voorbeeld" % LEVERDOC_BASE.rstrip("/")
 
     def one(key, subject, cells, buttons=None, notice=None, link=None):
         hk, bk = "mailtxt_%s_h" % key, "mailtxt_%s_b" % key
@@ -3135,11 +3209,9 @@ def _preview_mails():
                      [("clock", "Nieuwe verwachte tijd", "rond 10:40"),
                       ("hash", "Ordernummer", "#36399")],
                      buttons=("Volg uw levering", demo_link), link=demo_link),
-        # Onderwerpregel volgt de kop, precies zoals in leverdoc_send.
-        "leverdoc": one("leverdoc", cur["mailtxt_leverdoc_h"] + " #36399",
-                        [("hash", "Ordernummer", "#36399")],
-                        buttons=("Document invullen & ondertekenen", ld_link),
-                        notice=LEVERDOC_NOTICE, link=ld_link),
+        # Zelfde bouwer als de echte verzending. De knop wijst naar de
+        # ondertekende voorbeeldpagina, want een echt token bestaat hier niet.
+        "leverdoc": _leverdoc_mail("Voorbeeldklant", "36399", _leverdoc_demo_link()),
     }
 
 
@@ -3153,6 +3225,44 @@ def _colleagues():
     return [dict(r) for r in rows]
 
 
+def _proefmail_recipients(ids):
+    """Ontvangers voor een proefmail: UITSLUITEND accounts uit de users-tabel.
+
+    Het formulier stuurt gebruikers-id's en die worden hier tegen de database
+    gecontroleerd. Zo kan een proefmail-route nooit misbruikt worden om buiten de
+    testmodus om een klant te mailen. Zonder keuze gaat het naar jezelf.
+
+    Retourneert (adressen, foutmelding); bij een foutmelding is de lijst leeg.
+    """
+    u = current_user()
+    if not u:
+        return [], "Niet ingelogd"
+    schoon = []
+    for v in (ids or [])[:25]:
+        try:
+            schoon.append(int(v))
+        except (TypeError, ValueError):
+            return [], "Ongeldige ontvanger."
+    conn = db()
+    if schoon:
+        ph = ",".join("?" * len(schoon))
+        rows = conn.execute("SELECT name, email FROM users WHERE active=1 "
+                            "AND email IS NOT NULL AND email<>'' AND id IN (%s)" % ph,
+                            tuple(schoon)).fetchall()
+    else:
+        rows = conn.execute("SELECT name, email FROM users WHERE id=?", (u["id"],)).fetchall()
+    conn.close()
+    recips = sorted({(r["email"] or "").strip() for r in rows if (r["email"] or "").strip()})
+    if not recips:
+        return [], "Geen geldige ontvanger gekozen. Kies een collega met een e-mailadres."
+    cfg = _email_cfg()
+    if not (cfg.get("resend_api_key") or "").strip():
+        return [], "Vul eerst de Resend-sleutel in bij Koppelingen."
+    if not (cfg.get("from_email") or "").strip():
+        return [], "Vul eerst het afzenderadres in bij Koppelingen."
+    return recips, ""
+
+
 @bp.route("/email-templates/proefmail/<key>", methods=["POST"])
 def email_template_proef(key):
     """Mail een voorbeeld van een klantmail naar jezelf of naar collega's.
@@ -3161,11 +3271,8 @@ def email_template_proef(key):
     zodat je het echte resultaat in een mailbox kunt bekijken zonder dat er iets
     naar klanten gaat.
 
-    VEILIGHEID: ontvangers worden gekozen uit de ACCOUNTS in de app, nooit als
-    vrij tekstveld. Het formulier stuurt gebruikers-id's, en die worden hier
-    tegen de users-tabel gecontroleerd voordat er iets verstuurd wordt. Zo kan
-    deze route nooit misbruikt worden om buiten de testmodus om een klant te
-    mailen. Bij een leeg verzoek gaat het naar de ingelogde gebruiker zelf.
+    VEILIGHEID: zie `_proefmail_recipients` - ontvangers komen uit de ACCOUNTS in
+    de app, nooit uit een vrij tekstveld.
     """
     if not has_perm("manage_settings"):
         return jsonify(ok=False, message="Geen rechten"), 403
@@ -3175,38 +3282,10 @@ def email_template_proef(key):
     if any(k not in mails for k in wanted):
         return jsonify(ok=False, message="Onbekende mailsoort"), 404
 
-    u = current_user()
-    if not u:
-        return jsonify(ok=False, message="Niet ingelogd"), 403
-
     data = request.get_json(silent=True) or {}
-    ids = []
-    for v in (data.get("users") or [])[:25]:
-        try:
-            ids.append(int(v))
-        except (TypeError, ValueError):
-            return jsonify(ok=False, message="Ongeldige ontvanger."), 400
-
-    conn = db()
-    if ids:
-        ph = ",".join("?" * len(ids))
-        rows = conn.execute("SELECT name, email FROM users WHERE active=1 "
-                            "AND email IS NOT NULL AND email<>'' AND id IN (%s)" % ph,
-                            tuple(ids)).fetchall()
-    else:
-        rows = conn.execute("SELECT name, email FROM users WHERE id=?", (u["id"],)).fetchall()
-    conn.close()
-
-    recips = sorted({(r["email"] or "").strip() for r in rows if (r["email"] or "").strip()})
-    if not recips:
-        return jsonify(ok=False, message="Geen geldige ontvanger gekozen. "
-                                         "Kies een collega met een e-mailadres.")
-
-    cfg = _email_cfg()
-    if not (cfg.get("resend_api_key") or "").strip():
-        return jsonify(ok=False, message="Vul eerst de Resend-sleutel in bij Koppelingen.")
-    if not (cfg.get("from_email") or "").strip():
-        return jsonify(ok=False, message="Vul eerst het afzenderadres in bij Koppelingen.")
+    recips, err = _proefmail_recipients(data.get("users"))
+    if err:
+        return jsonify(ok=False, message=err), (403 if err == "Niet ingelogd" else 200)
 
     sent, failed = [], []
     for k in wanted:
@@ -4701,8 +4780,11 @@ def leveringsdocumenten():
             "min_bureau": setting("leverdoc_min_bureau", "10"),
             "min_kast": setting("leverdoc_min_kast", "3"),
             "min_stoel": setting("leverdoc_min_stoel", "10")}
+    me = current_user()
     return render_template("planning/leveringsdocumenten.html", templates=templates, docs=rows,
-                           trig=trig, q=q, base=LEVERDOC_BASE)
+                           trig=trig, q=q, base=LEVERDOC_BASE,
+                           colleagues=_colleagues(), me_id=(me["id"] if me else 0),
+                           mail_live=_mail_live())
 
 
 @bp.route("/leveringsdocumenten/template/<int:tid>", methods=["POST"])
@@ -4769,21 +4851,10 @@ def leverdoc_send(oid):
     mailed = False
     if to_email and _mail_live():
         # Exact hetzelfde sjabloon als de vier automatische klantmails, zodat de
-        # klant één huisstijl ziet. Kop en bericht zijn te wijzigen bij
-        # Instellingen -> Automatische e-mails (blok 'Leveringsdocument').
-        heading = _mailtxt("mailtxt_leverdoc_h")
-        body = _mailtxt("mailtxt_leverdoc_b")
-        cells = [("hash", "Ordernummer", "#" + o["order_number"])]
-        html = _mail_html(heading, o["client"], body, cells,
-                          # gewone '&': de knoppenbouwer escapet zelf, anders
-                          # ziet de klant letterlijk "&amp;" in de knop
-                          buttons=("Document invullen & ondertekenen", link),
-                          notice=LEVERDOC_NOTICE)
-        # Platte tekst moet de gegevens EN de link bevatten: blokkeert de
-        # mailclient de HTML, dan bestaat de knop niet.
-        text = _mail_text(o["client"], body, cells, notice=LEVERDOC_NOTICE, link=link)
+        # klant één huisstijl ziet.
+        m = _leverdoc_mail(o["client"], o["order_number"], link)
         try:
-            mailed = bool(_send_mail(to_email, "%s #%s" % (heading, o["order_number"]), text, html))
+            mailed = bool(_send_mail(to_email, m["subject"], m["text"], m["html"]))
         except Exception:
             mailed = False
     if mailed:
@@ -4823,6 +4894,48 @@ def leverdoc_view(lid):
     return render_template("planning/leverdoc_view.html", d=d, tpl=tpl, answers=answers, link=link)
 
 
+@bp.route("/leveringsdocumenten/proefmail/<tid>", methods=["POST"])
+def leverdoc_proefmail(tid):
+    """Mail de uitnodiging voor het leveringsdocument naar jezelf of collega's.
+
+    Dit is de mail die de klant krijgt, met een knop die écht opengaat: hij wijst
+    naar de vragenlijst van DIT sjabloon, ondertekend zodat je hem ook op je
+    telefoon kunt openen zonder in te loggen.
+
+    Gaat bewust langs de testmodus-gate (force=True), net als de proefmails bij
+    Automatische e-mails. Ontvangers zijn gecontroleerde accounts, zie
+    `_proefmail_recipients`.
+    """
+    if not has_perm("view_documents"):
+        return jsonify(ok=False, message="Geen rechten"), 403
+    try:
+        tid = int(tid)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, message="Onbekend sjabloon."), 404
+    conn = db()
+    tpl = conn.execute("SELECT id FROM leverdoc_template WHERE id=?", (tid,)).fetchone()
+    conn.close()
+    if not tpl:
+        return jsonify(ok=False, message="Sjabloon niet gevonden."), 404
+
+    data = request.get_json(silent=True) or {}
+    recips, err = _proefmail_recipients(data.get("users"))
+    if err:
+        return jsonify(ok=False, message=err), (403 if err == "Niet ingelogd" else 200)
+
+    m = _leverdoc_mail("Voorbeeldklant", "36399", _leverdoc_demo_link(tid))
+    try:
+        ok = _api_send(recips, "[VOORBEELD] " + m["subject"], m["text"], m["html"], force=True)
+    except Exception:
+        ok = False
+    if not ok:
+        return jsonify(ok=False, message="Versturen mislukt. Controleer de logs in Resend.")
+    wie = recips[0] if len(recips) == 1 else "%d ontvangers" % len(recips)
+    return jsonify(ok=True, message="Voorbeeld verstuurd naar %s. De knop in de mail opent de "
+                                    "vragenlijst van dit sjabloon en werkt %d dagen."
+                                    % (wie, LEVERDOC_PREVIEW_DAYS))
+
+
 @bp.route("/leveringsdocument-voorbeeld")
 def leverdoc_demo():
     """Het leveringsdocument met verzonnen gegevens, zodat kantoor kan zien wat
@@ -4834,13 +4947,17 @@ def leverdoc_demo():
 
     ?tpl=<id> kiest een sjabloon (standaard het actieve), ?state=done toont de
     bedankpagina. Er wordt niets opgeslagen en er bestaat geen token.
+
+    Met een geldige ?k= (uit een proefmail) mag de pagina ook zonder login open;
+    zie `_leverdoc_demo_link`.
     """
-    guard = login_required("view_documents")
-    if guard:
-        return guard
+    tid = request.args.get("tpl")
+    if not _leverdoc_preview_ok(tid, request.args.get("k")):
+        guard = login_required("view_documents")
+        if guard:
+            return guard
     conn = db()
     tpl = None
-    tid = request.args.get("tpl")
     if tid:
         try:
             tpl = conn.execute("SELECT * FROM leverdoc_template WHERE id=?", (int(tid),)).fetchone()

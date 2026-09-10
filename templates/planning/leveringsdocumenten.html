@@ -35,8 +35,27 @@
   .ldbox{position:relative;overflow:hidden;height:560px;border:1px solid var(--line);
          border-radius:12px;background:#efefef}
   .ldbox iframe{position:absolute;top:0;left:0;width:700px;border:0;transform-origin:0 0}
-  .ldfoot{margin-top:6px;font-size:12px}
+  .ldfoot{margin-top:6px;font-size:12px;display:flex;justify-content:space-between;
+          align-items:center;gap:10px;flex-wrap:wrap}
   .ldfoot a{color:var(--accent);font-weight:600}
+  .ldproef{background:none;border:0;padding:0;font:inherit;font-size:12px;font-weight:600;
+           color:var(--accent);text-decoration:underline;cursor:pointer}
+  .ldproef[disabled]{opacity:.5;cursor:default}
+
+  /* Wie krijgt de proefmail: alleen collega's met een account, nooit een vrij
+     tekstveld, zodat er geen klant tussen kan zitten. */
+  .ldwho{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;
+         background:var(--soft)}
+  .ldwho .lbl{font-size:12.5px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+  .ldchips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .ldchip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--line);
+          border-radius:999px;font-size:13px;cursor:pointer;background:var(--panel);white-space:nowrap}
+  .ldchip input[type=checkbox]{width:auto;flex:0 0 auto;margin:0;padding:0;cursor:pointer}
+  .ldchip em{font-style:normal;color:var(--muted);font-size:12px}
+  .ldchip:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .ldwhoact{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px}
+  .ldlink{background:none;border:0;padding:0;font:inherit;font-size:12.5px;color:var(--muted);
+          text-decoration:underline;cursor:pointer}
   .ldactief{display:flex;align-items:center;gap:8px;font-size:13px;margin:0 0 10px}
   /* De checkbox moet expliciet width:auto krijgen: formuliervelden zijn hier
      width:100%, en dan wordt het vinkje zo breed als de kolom. */
@@ -74,6 +93,33 @@
     De e-mail waarin de klant de link krijgt, wijzig je bij
     <a href="{{ url_for('planning.email_templates') }}" style="color:var(--accent);font-weight:600">Automatische e-mails</a>.
     {% endif %}</div>
+
+  {% if templates %}
+  <div class="ldwho">
+    <div class="lbl">
+      Wil je het écht uitproberen? Vink hieronder aan wie de proefmail krijgt en gebruik dan
+      bij een sjabloon de knop <b>“Voorbeeld mailen”</b>. Je krijgt dan exact de mail die de klant
+      krijgt, en de knop daarin opent de vragenlijst van dat sjabloon, ook op je telefoon.
+      Je kunt alleen <b>collega's met een account</b> aanvinken, dus er kan nooit per ongeluk
+      een klant tussen zitten.
+      {% if not mail_live %}<br><b>Testmodus staat aan:</b> naar klanten gaat er nog niets, deze proefmail komt wel aan.{% endif %}
+    </div>
+    <div class="ldchips">
+      {% for c in colleagues %}
+      <label class="ldchip">
+        <input type="checkbox" class="lduser" value="{{ c.id }}" {% if c.id == me_id %}checked{% endif %}>
+        <span>{{ c.name }}{% if c.id == me_id %} (jij){% endif %}</span>
+        <em>{{ c.email }}</em>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="ldwhoact">
+      <button class="ldlink" type="button" onclick="ldPick(true)">alles aanvinken</button>
+      <button class="ldlink" type="button" onclick="ldPick(false)">alleen mijzelf</button>
+      <span id="ldmsg"></span>
+    </div>
+  </div>
+  {% endif %}
 
   {% for t in templates %}
   <div class="tpl {{ 'act' if t.active }}">
@@ -117,6 +163,7 @@
           </div>
           <div class="ldfoot">
             <a href="{{ url_for('planning.leverdoc_demo', tpl=t.id) }}" target="_blank" rel="noopener">Op ware grootte openen ↗</a>
+            <button class="ldproef" type="button" onclick="ldMail({{ t.id }},this)">Voorbeeld mailen</button>
           </div>
         </div>
       </div>
@@ -209,5 +256,43 @@ function ldShow(btn, extra) {
 window.addEventListener('resize', function () {
   [].forEach.call(document.querySelectorAll('details[open] .ldbox'), ldFit);
 });
+
+function ldPick(all) {
+  document.querySelectorAll('.lduser').forEach(function (c) {
+    c.checked = all ? true : (c.value === '{{ me_id }}');
+  });
+}
+
+// Proefmail: exact de mail die de klant krijgt, met een knop die de vragenlijst
+// van dit sjabloon opent.
+function ldMail(tid, btn) {
+  var msg = document.getElementById('ldmsg');
+  var ids = [].map.call(document.querySelectorAll('.lduser:checked'), function (c) { return c.value; });
+  if (!ids.length) {
+    msg.textContent = 'Vink eerst iemand aan.';
+    msg.style.color = '#b3261e';
+    document.querySelector('.ldwho').scrollIntoView({block: 'center'});
+    return;
+  }
+  var was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'versturen...';
+  msg.textContent = '';
+  msg.style.color = '';
+  fetch('{{ url_for("planning.leverdoc_proefmail", tid="__TID__") }}'.replace('__TID__', tid),
+        {method: 'POST',
+         headers: {'Content-Type': 'application/json', 'X-Requested-With': 'fetch'},
+         body: JSON.stringify({users: ids})})
+    .then(function (r) { return r.json().catch(function () { return {ok: false, message: 'Onverwacht antwoord van de server (HTTP ' + r.status + ').'}; }); })
+    .then(function (d) {
+      msg.textContent = d.message || (d.ok ? 'Verstuurd.' : 'Mislukt.');
+      msg.style.color = d.ok ? '#2f9e54' : '#b3261e';
+    })
+    .catch(function (e) {
+      msg.textContent = 'Versturen mislukt: ' + e;
+      msg.style.color = '#b3261e';
+    })
+    .then(function () { btn.disabled = false; btn.textContent = was; });
+}
 </script>
 {% endblock %}
