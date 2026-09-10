@@ -734,6 +734,17 @@ def init_db():
             conn.commit()
     except Exception:
         pass
+    # Kop van de leveringsdocument-mail is hernoemd (2026-09-10). Stond de oude
+    # standaardtekst al als instelling opgeslagen (dat gebeurt zodra iemand de
+    # mailpagina bewaart), dan zou een nieuwe standaard geen effect hebben. Die
+    # regel weghalen laat _mailtxt terugvallen op de nieuwe tekst. Alleen bij een
+    # exacte match, dus een eigen tekst van kantoor blijft staan.
+    try:
+        conn.execute("DELETE FROM settings WHERE skey='mailtxt_leverdoc_h' "
+                     "AND value='Nog een paar gegevens over de levering'")
+        conn.commit()
+    except Exception:
+        pass
     # Eenmalige opschoning bestaande orderregels: merk 'Renab' weghalen (idempotent).
     try:
         conn.execute("UPDATE order_items SET name=TRIM(SUBSTR(name,7)) WHERE name LIKE 'Renab %'")
@@ -1665,7 +1676,7 @@ MAIL_TEXT_DEFAULTS = {
     # De uitnodiging voor het leveringsdocument. De vragenlijst zelf staat niet
     # hier maar in het sjabloon bij Leveringsdocumenten; dit is alleen de mail
     # waarin de klant de link krijgt.
-    "mailtxt_leverdoc_h": "Nog een paar gegevens over de levering",
+    "mailtxt_leverdoc_h": "Informatie vereist voor probleemloze levering",
     "mailtxt_leverdoc_b": ("Om uw levering vlot te laten verlopen hebben wij nog een paar gegevens over de "
                            "leverlocatie nodig. Via de knop hieronder vult u ze online in en ondertekent u "
                            "digitaal. Dat kost u ongeveer een minuut."),
