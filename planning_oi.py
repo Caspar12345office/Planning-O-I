@@ -587,6 +587,8 @@ def init_db():
         created_at TEXT, resolved_by TEXT, resolved_at TEXT);
     CREATE TABLE IF NOT EXISTS monteur_location(
         monteur_id INTEGER PRIMARY KEY, lat REAL, lng REAL, updated_at TEXT, live INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS bus_choices(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_email TEXT,
+        user_name TEXT, bus_id TEXT, bus_label TEXT, plate TEXT, date TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS office_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         person TEXT, date TEXT, status TEXT, note TEXT, UNIQUE(person, date));
@@ -1595,22 +1597,32 @@ def _velocity_sync(force=False):
 
     conn = db()
     try:
+        today = _today_iso()
         busses = conn.execute("SELECT id, name, plate FROM busses WHERE active=1").fetchall()
-        bus_by_key = {_plate_key(b["plate"]): b for b in busses if _plate_key(b["plate"])}
-        pos_by_bus = {}
-        for d in devices:
-            b = bus_by_key.get(d["key"])
-            if b:
-                pos_by_bus[b["id"]] = d
-        # Wie zit vandaag in welke bus: de bus uit de planning, anders de vaste bus.
+        pos_by_key = {d["key"]: d for d in devices if d["key"]}
+        pos_by_bus = {b["id"]: pos_by_key[_plate_key(b["plate"])] for b in busses
+                      if _plate_key(b["plate"]) in pos_by_key}
+        # De bus die de monteur vanochtend zelf koos in de monteur-app (met kenteken).
+        chosen = {r["mid"]: r["plate"] for r in conn.execute(
+            """SELECT u.monteur_id AS mid, c.plate FROM bus_choices c JOIN users u ON u.id=c.user_id
+               WHERE c.date=? AND u.monteur_id IS NOT NULL ORDER BY c.ts""", (today,)).fetchall()}
+        # Kentekens die we kennen: onder Bussen of ooit gekozen in de monteur-app.
+        known = {_plate_key(b["plate"]) for b in busses} | {_plate_key(r["plate"]) for r in conn.execute(
+            "SELECT DISTINCT plate FROM bus_choices WHERE plate IS NOT NULL").fetchall()}
+        known.discard("")
+        # Wie zit vandaag in welke bus: eerst de eigen keuze in de monteur-app, dan de
+        # bus uit de planning, dan de vaste bus.
         rows = conn.execute("""SELECT p.monteur_id AS mid, MAX(p.bus_id) AS pbus, m.bus_id AS mbus
                                FROM planning p JOIN monteurs m ON m.id=p.monteur_id
                                WHERE p.date=? AND p.status!='afgerond' AND m.active=1
-                               GROUP BY p.monteur_id, m.bus_id""", (_today_iso(),)).fetchall()
+                               GROUP BY p.monteur_id, m.bus_id""", (today,)).fetchall()
         cutoff = _live_cutoff()
         updated = 0
         for r in rows:
-            d = pos_by_bus.get(r["pbus"] or r["mbus"])
+            if r["mid"] in chosen:
+                d = pos_by_key.get(_plate_key(chosen[r["mid"]]))
+            else:
+                d = pos_by_bus.get(r["pbus"] or r["mbus"])
             if not d or d["private"] or not d["at"]:
                 continue
             stamp = d["at"].isoformat(timespec="minutes")
@@ -1628,9 +1640,9 @@ def _velocity_sync(force=False):
         conn.commit()
     finally:
         conn.close()
-    known = {_plate_key(b["plate"]) for b in busses}
     st = {"ok": True, "at": datetime.now().isoformat(timespec="minutes"),
-          "devices": len(devices), "matched": len(pos_by_bus), "updated": updated,
+          "devices": len(devices), "matched": sum(1 for d in devices if d["key"] in known),
+          "updated": updated,
           "matched_plates": sorted(d["plate"] for d in devices if d["key"] in known),
           "unknown_plates": sorted(d["plate"] for d in devices if d["key"] not in known),
           "busses_without": sorted(b["name"] for b in busses if b["id"] not in pos_by_bus)}
@@ -6924,11 +6936,12 @@ def integration_test(ikey):
         st = _velocity_sync(force=True)
         if not st.get("ok"):
             return jsonify(ok=False, message="Velocity-test: " + st.get("msg", "mislukt"))
-        msg = "Verbonden met Radius Velocity. %d voertuig(en) gevonden, %d gekoppeld aan een bus" % (
+        msg = "Verbonden met Radius Velocity. %d voertuig(en) gevonden, %d herkend" % (
             st["devices"], st["matched"])
         msg += (": %s." % ", ".join(st["matched_plates"])) if st["matched_plates"] else "."
         if st["unknown_plates"]:
-            msg += " Niet herkend (kenteken staat niet onder Bussen): %s." % ", ".join(st["unknown_plates"])
+            msg += (" Niet herkend (kenteken staat niet onder Bussen en is nog nooit gekozen in de "
+                    "monteur-app): %s." % ", ".join(st["unknown_plates"]))
         if st["busses_without"]:
             msg += " Bussen zonder positie uit Velocity: %s." % ", ".join(st["busses_without"])
         if st["updated"]:
