@@ -455,13 +455,15 @@ INTEGRATIONS = [
         {"key": "api_key", "label": "API-sleutel (optioneel)", "type": "password"},
         {"key": "share_precise", "label": "Exacte locatie delen met klant", "type": "toggle", "default": "0",
          "lock_off": True, "help": "Klant ziet altijd alleen een veilige benadering, nooit exacte GPS."}]},
-    {"key": "velocity", "name": "VeloCity (busregistratie)", "icon": "🚐", "img": "velocity.svg",
-     "desc": "Koppeling met VeloCity voor voertuig- en kilometerregistratie van de bussen. Kilometers en ritten worden automatisch ingelezen per voertuig.",
+    {"key": "velocity", "name": "Radius Velocity (bussen)", "icon": "🚐", "img": "velocity.svg",
+     "desc": "Live posities van de bussen uit Radius Velocity. Rijdt een monteur met Waze of staat het scherm op slot, dan loopt de volgkaart via de bus gewoon door. Bussen worden gekoppeld op kenteken (zie Bussen).",
      "fields": [
-        {"key": "account_id", "label": "VeloCity account-ID", "type": "text"},
-        {"key": "api_key", "label": "API-sleutel", "type": "password"},
-        {"key": "fleet_id", "label": "Wagenpark-ID (fleet)", "type": "text", "placeholder": "bv. OI-FLEET-01"},
-        {"key": "auto_import_km", "label": "Kilometers automatisch importeren", "type": "toggle", "default": "1"}]},
+        {"key": "api_key", "label": "API-token", "type": "password",
+         "placeholder": "Velocity: Account > Account Settings > API Integrations"},
+        {"key": "customer_id", "label": "Klant-ID (alleen bij meerdere accounts)", "type": "text",
+         "optional": True, "placeholder": "Wordt automatisch gevonden"},
+        {"key": "live_gps", "label": "Busposities gebruiken als live locatie", "type": "toggle", "default": "1",
+         "help": "Alleen voor monteurs die vandaag nog adressen open hebben, tussen 06:00 en 20:00, en nooit bij een rit die in Velocity als privé is gemarkeerd."}]},
     {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐", "logo": "google", "c": "#4285F4",
      "desc": "Inloggen met Google en verplichte multi-factor authenticatie.",
      "fields": [
@@ -1436,6 +1438,228 @@ def _live_loc(conn, mid):
     if r and r["live"] and (r["updated_at"] or "") >= _live_cutoff():
         return (r["lat"], r["lng"])
     return None
+
+
+# --------------------------------------------------------------------------- #
+#  Radius Velocity (Kinesis): live posities van de bussen. Het kastje in de bus
+#  geeft de locatie door, los van de telefoon. Zo blijft de volgkaart lopen als de
+#  monteur met Waze rijdt of het scherm op slot staat (een web-app krijgt dan geen
+#  GPS meer). De buspositie komt in monteur_location, dus dashboard, aankomsttijden
+#  en de klant-volgpagina gebruiken hem vanzelf; de telefoon-GPS blijft reserve.
+#
+#  API: Bearer-token, aan te maken in Velocity onder Account > Account Settings >
+#  API Integrations > Create API Token.
+#    GET  /vapi/v1/accounts/users/customers/   -> {"<klant-id>": {name, number, product}}
+#    POST /api/mobile/kinesis/device-live-positions/?customer=<klant-id>
+#         -> {"devices": [{vehicle_registration, lat, lon, timestamp, ignition, speed, private}]}
+# --------------------------------------------------------------------------- #
+VELOCITY_BASE = os.environ.get("VELOCITY_BASE_URL", "https://www.velocityfleet.com").rstrip("/")
+VELOCITY_SYNC_SEC = 60
+VELOCITY_HOURS = (6, 20)        # alleen tijdens werktijd ophalen
+_VELOCITY = {"started": False, "customer": None}
+_VELOCITY_LOCK = threading.Lock()
+
+
+def _velocity_cfg():
+    conn = db()
+    try:
+        cfg = {r["field"]: r["value"] for r in
+               conn.execute("SELECT field,value FROM integrations WHERE ikey=?", ("velocity",)).fetchall()}
+    except Exception:
+        cfg = {}
+    conn.close()
+    # Een token als env-var op Render gaat voor; anders wat bij Koppelingen is ingevuld.
+    token = (os.environ.get("VELOCITY_API_TOKEN") or cfg.get("api_key") or "").strip()
+    return {"token": token, "customer_id": (cfg.get("customer_id") or "").strip(),
+            "enabled": (cfg.get("live_gps") or "1") == "1"}
+
+
+def _plate_key(plate):
+    """Kenteken vergelijkbaar maken: 'VND-12-A', 'vnd 12 a' en 'VND12A' zijn hetzelfde."""
+    return _re.sub(r"[^A-Z0-9]", "", (plate or "").upper())
+
+
+def _velocity_call(path, token, method="GET", query=None):
+    url = VELOCITY_BASE + path + ("?" + urllib.parse.urlencode(query) if query else "")
+    req = urllib.request.Request(url, method=method, data=(b"" if method == "POST" else None),
+                                 headers={"Authorization": "Bearer " + token, "Accept": "application/json",
+                                          "User-Agent": "OfficeRoute/1.0 (Office-Interior)"})
+    with urllib.request.urlopen(req, timeout=12) as r:
+        return json.loads(r.read().decode("utf-8") or "null")
+
+
+def _velocity_err(e):
+    """Leesbare foutmelding voor kantoor (Koppelingen en het commandocentrum)."""
+    if isinstance(e, urllib.error.HTTPError):
+        if e.code in (401, 403):
+            return "Velocity weigert het API-token (code %s). Maak een nieuw token aan en plak het opnieuw." % e.code
+        try:
+            detail = e.read().decode("utf-8", "replace")[:160]
+        except Exception:
+            detail = ""
+        return "Velocity gaf foutcode %s. %s" % (e.code, detail)
+    if isinstance(e, urllib.error.URLError):
+        return "Velocity is niet bereikbaar (%s)." % e.reason
+    return str(e)[:200]
+
+
+def _velocity_customer(cfg):
+    """Het klant-ID bij Velocity. Staat het niet ingevuld, dan zoeken we het op; bij
+    precies één klantaccount (het gewone geval) is het daarmee geregeld."""
+    if cfg["customer_id"]:
+        return cfg["customer_id"]
+    if _VELOCITY["customer"]:
+        return _VELOCITY["customer"]
+    data = _velocity_call("/vapi/v1/accounts/users/customers/", cfg["token"]) or {}
+    ids = list(data.keys()) if isinstance(data, dict) else []
+    if len(ids) == 1:
+        _VELOCITY["customer"] = str(ids[0])
+        return _VELOCITY["customer"]
+    if not ids:
+        raise ValueError("Velocity geeft geen klantaccount terug bij dit token.")
+    names = ", ".join("%s (%s)" % ((data[i] or {}).get("name") or "?", i) for i in ids)
+    raise ValueError("Meerdere klantaccounts gevonden: %s. Vul het juiste Klant-ID in." % names)
+
+
+def _velocity_positions(cfg):
+    data = _velocity_call("/api/mobile/kinesis/device-live-positions/", cfg["token"], "POST",
+                          {"customer": _velocity_customer(cfg)}) or {}
+    out = []
+    for d in (data.get("devices") or []):
+        try:
+            lat, lng = float(d.get("lat")), float(d.get("lon"))
+        except (TypeError, ValueError):
+            continue
+        if not (lat or lng):
+            continue
+        try:
+            at = datetime.fromtimestamp(int(float(d.get("timestamp"))))   # unix-tijd van het kastje
+        except (TypeError, ValueError, OverflowError, OSError):
+            at = None
+        out.append({"plate": d.get("vehicle_registration") or "", "key": _plate_key(d.get("vehicle_registration")),
+                    "lat": lat, "lng": lng, "at": at,
+                    "private": str(d.get("private")).lower() in ("1", "true", "y", "yes")})
+    return out
+
+
+def _velocity_save_status(st):
+    conn = db()
+    try:
+        _save_setting(conn, "velocity_status", json.dumps(st))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _velocity_status():
+    # Rechtstreeks uit de database: de achtergrondtaak schrijft dit, en de gewone
+    # instellingen-cache wordt alleen na een formulier-actie ververst.
+    conn = db()
+    try:
+        r = conn.execute("SELECT value FROM settings WHERE skey='velocity_status'").fetchone()
+        return json.loads(r["value"]) if r and r["value"] else {}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
+
+def _velocity_sync(force=False):
+    """Busposities ophalen en als live locatie zetten bij de monteur die vandaag in die
+    bus zit. Alleen voor monteurs met nog open adressen vandaag, en nooit bij een rit
+    die in Velocity als privé is gemarkeerd. Geeft een overzicht terug voor de test."""
+    cfg = _velocity_cfg()
+    if not cfg["token"]:
+        return {"ok": False, "msg": "Vul eerst het API-token in."}
+    if not cfg["enabled"] and not force:
+        return {"ok": False, "msg": "Busposities gebruiken staat uit."}
+    conn = db()
+    try:
+        # Twee serverprocessen: wie het laatst ophaalde staat in settings, zodat
+        # Velocity samen hooguit ongeveer eens per minuut wordt gevraagd.
+        now = datetime.now()
+        if not force:
+            r = conn.execute("SELECT value FROM settings WHERE skey='velocity_sync_at'").fetchone()
+            if r and r["value"] and r["value"] > (now - timedelta(seconds=VELOCITY_SYNC_SEC - 10)).isoformat(timespec="seconds"):
+                return None
+        _save_setting(conn, "velocity_sync_at", now.isoformat(timespec="seconds"))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        devices = _velocity_positions(cfg)
+    except Exception as e:
+        st = {"ok": False, "at": datetime.now().isoformat(timespec="minutes"), "msg": _velocity_err(e)}
+        _velocity_save_status(st)
+        return st
+
+    conn = db()
+    try:
+        busses = conn.execute("SELECT id, name, plate FROM busses WHERE active=1").fetchall()
+        bus_by_key = {_plate_key(b["plate"]): b for b in busses if _plate_key(b["plate"])}
+        pos_by_bus = {}
+        for d in devices:
+            b = bus_by_key.get(d["key"])
+            if b:
+                pos_by_bus[b["id"]] = d
+        # Wie zit vandaag in welke bus: de bus uit de planning, anders de vaste bus.
+        rows = conn.execute("""SELECT p.monteur_id AS mid, MAX(p.bus_id) AS pbus, m.bus_id AS mbus
+                               FROM planning p JOIN monteurs m ON m.id=p.monteur_id
+                               WHERE p.date=? AND p.status!='afgerond' AND m.active=1
+                               GROUP BY p.monteur_id, m.bus_id""", (_today_iso(),)).fetchall()
+        cutoff = _live_cutoff()
+        updated = 0
+        for r in rows:
+            d = pos_by_bus.get(r["pbus"] or r["mbus"])
+            if not d or d["private"] or not d["at"]:
+                continue
+            stamp = d["at"].isoformat(timespec="minutes")
+            if stamp < cutoff:
+                continue          # kastje meldt zich al een tijd niet; niet als live tonen
+            cur = conn.execute("SELECT updated_at, live FROM monteur_location WHERE monteur_id=?",
+                               (r["mid"],)).fetchone()
+            if cur and cur["live"] and (cur["updated_at"] or "") > stamp:
+                continue          # de telefoon gaf net een nieuwere positie door
+            conn.execute("""INSERT INTO monteur_location(monteur_id,lat,lng,updated_at,live) VALUES(?,?,?,?,1)
+                            ON CONFLICT(monteur_id) DO UPDATE SET lat=excluded.lat,lng=excluded.lng,
+                            updated_at=excluded.updated_at,live=1""",
+                         (r["mid"], d["lat"], d["lng"], stamp))
+            updated += 1
+        conn.commit()
+    finally:
+        conn.close()
+    known = {_plate_key(b["plate"]) for b in busses}
+    st = {"ok": True, "at": datetime.now().isoformat(timespec="minutes"),
+          "devices": len(devices), "matched": len(pos_by_bus), "updated": updated,
+          "matched_plates": sorted(d["plate"] for d in devices if d["key"] in known),
+          "unknown_plates": sorted(d["plate"] for d in devices if d["key"] not in known),
+          "busses_without": sorted(b["name"] for b in busses if b["id"] not in pos_by_bus)}
+    _velocity_save_status(st)
+    return st
+
+
+def _velocity_loop():
+    while True:
+        try:
+            if VELOCITY_HOURS[0] <= datetime.now().hour < VELOCITY_HOURS[1]:
+                _velocity_sync()
+        except Exception:
+            pass
+        time.sleep(VELOCITY_SYNC_SEC)
+
+
+@bp.before_app_request
+def _velocity_start():
+    # Eén achtergrondtaak per serverproces, gestart bij het eerste verzoek (na de
+    # fork van gunicorn). Zonder token doet hij niets behalve elke minuut kijken.
+    if _VELOCITY["started"]:
+        return
+    with _VELOCITY_LOCK:
+        if _VELOCITY["started"]:
+            return
+        _VELOCITY["started"] = True
+        if os.environ.get("VELOCITY_DISABLE") != "1":
+            threading.Thread(target=_velocity_loop, name="velocity-sync", daemon=True).start()
 
 
 def route_alerts(monteur_id, has_stops):
@@ -4093,9 +4317,15 @@ def busses():
                              FROM bus_notes ORDER BY important DESC, id DESC""").fetchall():
         notes_by_bus.setdefault(n["bus_id"], []).append(n)
     conn.close()
+    # Per bus: gevonden in Radius Velocity (op kenteken)? Alleen als de koppeling werkt.
+    vst = _velocity_status() if _velocity_cfg()["token"] else {}
+    radius = None
+    if vst.get("ok"):
+        seen = {_plate_key(p) for p in vst.get("matched_plates") or []}
+        radius = {b["id"]: (_plate_key(b["plate"]) in seen) for b in rows}
     return render_template("planning/busses.html", busses=rows, today=_today_iso(),
                            can_edit=has_perm("manage_users"), notes_by_bus=notes_by_bus,
-                           margin_kg=LOAD_MARGIN_KG)
+                           margin_kg=LOAD_MARGIN_KG, radius=radius)
 
 
 @bp.route("/busses/<int:bid>/note", methods=["POST"])
@@ -5139,9 +5369,10 @@ def _conn_advice(key):
         "gps": ("Er is nog geen live locatie binnengekomen van de monteurs.",
                ["Laat de monteur in de app de locatie-deling aanzetten (tab ‘Ik’).",
                 "Controleer of de telefoon locatietoegang geeft aan de app."]),
-        "velocity": ("Er zijn nog geen busgegevens uit Velocity.",
-               ["Controleer de busregistratie-koppeling (Velocity).",
-                "Voeg voertuigen toe onder Bussen."]),
+        "velocity": ("Er komen nog geen busposities binnen uit Radius Velocity.",
+               ["Maak in Velocity een API-token aan (Account > Account Settings > API Integrations).",
+                "Plak het bij Instellingen > Koppelingen > Radius Velocity en klik op Test verbinding.",
+                "Zorg dat de kentekens onder Bussen gelijk zijn aan die in Velocity."]),
         "cron": ("De dagelijkse ochtendmail-planner (cron-job.org) heeft nog niet gedraaid.",
                ["Controleer de job op cron-job.org (werkdagen 07:00, Europe/Amsterdam).",
                 "Check dat CRON_KEY op Render gelijk is aan de sleutel in de cron-URL.",
@@ -5296,7 +5527,18 @@ def _connection_health(deep=False):
     # Nog niet gekoppeld
     put("oauth", "err", "Niet gekoppeld", advice=_conn_advice("oauth"))
     put("traffic", "err", "Niet gekoppeld · NDW", advice=_conn_advice("traffic"))
-    put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
+    # Radius Velocity: groen als de laatste ophaalronde gelukt is en recent was
+    vst = _velocity_status()
+    if not _velocity_cfg()["token"]:
+        put("velocity", "err", "Niet gekoppeld", advice=_conn_advice("velocity"))
+    elif not vst:
+        put("velocity", "warn", "Wacht op eerste ophaalronde", advice=_conn_advice("velocity"))
+    elif not vst.get("ok"):
+        put("velocity", "err", "Fout: %s" % (vst.get("msg") or "onbekend")[:60], advice=_conn_advice("velocity"))
+    elif (vst.get("at") or "") >= (datetime.now() - timedelta(minutes=10)).isoformat(timespec="minutes"):
+        put("velocity", "ok", "Live · %d bus(sen)" % vst.get("matched", 0), "live")
+    else:
+        put("velocity", "ok", "Gekoppeld · laatst %s" % (vst.get("at") or "")[11:16])
     bagk = (_bag_cfg().get("api_key") or "").strip()
     put("bag", "ok" if bagk else "warn", "Actief" if bagk else "Nog te koppelen",
         advice=None if bagk else _conn_advice("bag"))
@@ -6678,6 +6920,20 @@ def integration_test(ikey):
             return jsonify(ok=False, message="BAG-test: " + err)
         return jsonify(ok=True, message="BAG-koppeling werkt. Testadres herkend als %s · ± %s verdieping(en)." % (
             "flat/appartement" if rec["type"] == "flat" else "eengezinswoning", rec["floors"]))
+    if ikey == "velocity":
+        st = _velocity_sync(force=True)
+        if not st.get("ok"):
+            return jsonify(ok=False, message="Velocity-test: " + st.get("msg", "mislukt"))
+        msg = "Verbonden met Radius Velocity. %d voertuig(en) gevonden, %d gekoppeld aan een bus" % (
+            st["devices"], st["matched"])
+        msg += (": %s." % ", ".join(st["matched_plates"])) if st["matched_plates"] else "."
+        if st["unknown_plates"]:
+            msg += " Niet herkend (kenteken staat niet onder Bussen): %s." % ", ".join(st["unknown_plates"])
+        if st["busses_without"]:
+            msg += " Bussen zonder positie uit Velocity: %s." % ", ".join(st["busses_without"])
+        if st["updated"]:
+            msg += " Live locatie bijgewerkt voor %d monteur(s)." % st["updated"]
+        return jsonify(ok=True, message=msg)
     if integ_status(ikey) == "verbonden":
         return jsonify(ok=True, message="Verbinding gereed. De API-logica kan nu worden ingeschakeld.")
     return jsonify(ok=False, message="Vul eerst alle verplichte velden in om de koppeling klaar te zetten.")

@@ -85,6 +85,7 @@
     {% if b.plate %}<span class="plate"><span class="eu"><span class="st">★</span><span class="nl">NL</span></span><span class="pl">{{ b.plate }}</span></span>{% endif %}
     <div class="kv">
       <span class="k">Chauffeur</span><span>{{ b.driver }}</span>
+      {% if radius is not none %}<span class="k">Radius</span><span>{% if radius.get(b.id) %}<span class="pill green">live positie</span>{% else %}<span class="pill amber" title="Dit kenteken komt niet voor in Radius Velocity">kenteken niet gevonden</span>{% endif %}</span>{% endif %}
       <span class="k">Leeggewicht</span><span>{{ '%.0f'|format(b.empty_weight or 0) }} kg</span>
       <span class="k">Max. gewicht</span><span>{{ '%.0f'|format(b.max_weight) }} kg</span>
       <span class="k">Laadvermogen</span><span><b>{{ '%.0f'|format((b.max_weight or 0) - (b.empty_weight or 0)) }} kg</b> <span class="k">(+{{ margin_kg }} kg marge)</span></span>
