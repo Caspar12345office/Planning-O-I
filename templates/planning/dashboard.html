@@ -276,7 +276,7 @@ function planOrder(btn, oid){
       });
     }).catch(function(){});
   }
-  refresh(); setInterval(refresh,15000);
+  refresh(); oiPoll(refresh,15000);
 })();
 </script>
 {% endblock %}

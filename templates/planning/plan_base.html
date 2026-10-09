@@ -150,6 +150,21 @@
   }
   {% block page_css %}{% endblock %}
 </style>
+<script>
+/* Pollen alleen als het tabblad zichtbaar is. Een tabblad op de achtergrond vraagt
+   niets (of, met hiddenMs, af en toe iets) en haalt bij terugkomst meteen bij. */
+window.oiPoll=function(fn,ms,hiddenMs){
+  var last=Date.now();
+  setInterval(function(){
+    var now=Date.now();
+    if(document.hidden && (!hiddenMs || now-last<hiddenMs)) return;
+    last=now; fn();
+  }, ms);
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden && Date.now()-last>=ms/2){ last=Date.now(); fn(); }
+  });
+};
+</script>
 {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -318,7 +333,7 @@
       cnt.textContent=list.length+' online';
     }).catch(function(){});
   }
-  refresh(); setInterval(refresh, 20000);
+  refresh(); oiPoll(refresh, 20000, 60000);
 })();
 </script>
 {% endif %}
@@ -367,7 +382,7 @@
     fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
       .then(function(r){return r.json();}).then(render).catch(function(){});
   }
-  beat(); setInterval(beat, 12000);
+  beat(); oiPoll(beat, 12000);
 })();
 </script>
 {% endif %}

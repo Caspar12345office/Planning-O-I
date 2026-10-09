@@ -472,12 +472,12 @@ function saveManual(btn){
 (function(){
   var base=null;
   function check(){
-    fetch('{{ url_for("planning.api_planning_version") }}?day={{ day }}').then(function(r){return r.json();}).then(function(d){
+    fetch('{{ url_for("planning.api_planning_version") }}?day={{ day }}'+(base===null?'&fresh=1':'')).then(function(r){return r.json();}).then(function(d){
       if(base===null){ base=d.v; return; }
       if(d.v!==base){ var b=document.getElementById('liveBanner'); if(b) b.style.display='flex'; }
     }).catch(function(){});
   }
-  check(); setInterval(check, 15000);
+  check(); oiPoll(check, 15000);
 })();
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function loadCorrespondence(oid){

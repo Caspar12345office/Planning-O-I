@@ -6,12 +6,23 @@
   .rl.beheerder{background:#ece8fb;color:#5847b8}.rl.manager{background:#e4edff;color:#2f5fd0}
   .rl.planner{background:#e3f3da;color:#3c7a2c}.rl.administratie{background:#fbeccd;color:#9a6a17}.rl.monteur{background:#ece9e2;color:#74705f}
   .rl.picker{background:#f4ecd9;color:#8a6a1f}
+  .pwwarn{display:flex;gap:12px;align-items:flex-start;background:#f7e2dc;color:#7a2e20;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.5}
+  .pwwarn svg{width:18px;height:18px;flex:none;margin-top:1px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .stat{display:flex;gap:6px;flex-wrap:wrap}
 {% endblock %}
 {% block content %}
 {% if p_has_perm('manage_users') %}
 <div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   <a class="btn primary sm" href="{{ url_for('planning.user_new') }}">+ Nieuwe gebruiker</a>
   <form method="post" action="{{ url_for('planning.users_picker_defaults') }}" style="margin:0"><button class="btn ghost sm" type="submit">Standaard magazijn-pickers aanmaken</button></form>
+</div>
+{% endif %}
+{% if start_pw_count %}
+<div class="pwwarn">
+  <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+  <div><b>{{ start_pw_count }} {{ 'account staat' if start_pw_count == 1 else 'accounts staan' }} nog op een startwachtwoord</b> dat meerdere mensen kennen.
+  Geef {{ 'het' if start_pw_count == 1 else 'ze' }} via Bewerken een eigen wachtwoord, beheerders eerst.
+  Staat er ook "2FA niet gekoppeld" bij, dan kan wie dat wachtwoord kent als eerste inloggen en er een eigen authenticator aan koppelen.</div>
 </div>
 {% endif %}
 <div class="card" style="padding:6px">
@@ -24,7 +35,9 @@
       <td class="muted">{{ u.email }}</td>
       <td><span class="rl {{ u.role }}">{{ ROLE_LABELS.get(u.role, u.role) }}</span></td>
       <td><span class="pill">{{ u.perm_count if u.role!='beheerder' else 'alle' }}</span></td>
-      <td>{% if u.active %}<span class="pill green">actief</span>{% else %}<span class="pill gray">inactief</span>{% endif %}</td>
+      <td><div class="stat">{% if u.active %}<span class="pill green">actief</span>{% else %}<span class="pill gray">inactief</span>{% endif %}
+        {% if u.start_pw %}<span class="pill red" title="Dit wachtwoord kennen meerdere mensen">startwachtwoord</span>{% endif %}
+        {% if u.no_2fa %}<span class="pill amber" title="Wordt gekoppeld bij de eerste keer inloggen">2FA niet gekoppeld</span>{% endif %}</div></td>
       <td>{% if p_has_perm('manage_roles') %}<a class="btn ghost sm" href="{{ url_for('planning.user_edit', uid=u.id) }}">Bewerken</a>{% endif %}</td>
     </tr>
   {% endfor %}

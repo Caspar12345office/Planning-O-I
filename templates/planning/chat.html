@@ -66,6 +66,6 @@ function sendMsg(){
   fetch('{{ url_for("planning.api_chat") }}',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({text:t.value, order_number:o.value})}).then(function(){ t.value=''; o.value=''; poll(); });
 }
-setInterval(poll, 4000);
+oiPoll(poll, 4000);
 </script>
 {% endblock %}

@@ -1075,13 +1075,36 @@ def has_perm(perm):
     return perm in user_perms(current_user())
 
 
+# Korte gedeelde cache voor wat elk open tabblad steeds opnieuw vraagt. Bij ~50
+# gebruikers vragen tientallen tabbladen elke paar seconden hetzelfde op; zo doet
+# de database dat hooguit eens per paar seconden. Per worker-proces, dus een
+# antwoord is nooit ouder dan de ttl.
+_POLL_CACHE = {}
+_POLL_LOCK = threading.Lock()
+
+
+def _poll_cached(key, ttl, fn, fresh=False):
+    now = time.monotonic()
+    hit = _POLL_CACHE.get(key)
+    if hit and hit[0] > now and not fresh:
+        return hit[1]
+    val = fn()
+    with _POLL_LOCK:
+        if len(_POLL_CACHE) > 500:
+            _POLL_CACHE.clear()
+        _POLL_CACHE[key] = (now + ttl, val)
+    return val
+
+
 def online_users(within_minutes=2):
-    cutoff = (datetime.now() - timedelta(minutes=within_minutes)).isoformat(timespec="seconds")
-    conn = db()
-    rows = conn.execute("""SELECT name, role FROM users WHERE active=1 AND last_seen IS NOT NULL
-                           AND last_seen >= ? ORDER BY name""", (cutoff,)).fetchall()
-    conn.close()
-    return [{"name": r["name"], "role": r["role"], "initial": (r["name"][:1] or "?").upper()} for r in rows]
+    def load():
+        cutoff = (datetime.now() - timedelta(minutes=within_minutes)).isoformat(timespec="seconds")
+        conn = db()
+        rows = conn.execute("""SELECT name, role FROM users WHERE active=1 AND last_seen IS NOT NULL
+                               AND last_seen >= ? ORDER BY name""", (cutoff,)).fetchall()
+        conn.close()
+        return [{"name": r["name"], "role": r["role"], "initial": (r["name"][:1] or "?").upper()} for r in rows]
+    return _poll_cached(("online", within_minutes), 10, load)
 
 
 @bp.before_app_request
@@ -3033,12 +3056,17 @@ def api_planning_version():
     if not current_user():
         return jsonify(v=""), 403
     day = request.args.get("day", _today_iso())
-    conn = db()
-    r = conn.execute("""SELECT COUNT(*) c, COALESCE(MAX(id),0) m, COALESCE(SUM(confirmed),0) cf,
-                        COALESCE(SUM(CASE WHEN status='afgerond' THEN 1 ELSE 0 END),0) af
-                        FROM planning WHERE date=?""", (day,)).fetchone()
-    conn.close()
-    return jsonify(v="%d-%d-%d-%d" % (r["c"], r["m"], r["cf"], r["af"]))
+
+    def load():
+        conn = db()
+        r = conn.execute("""SELECT COUNT(*) c, COALESCE(MAX(id),0) m, COALESCE(SUM(confirmed),0) cf,
+                            COALESCE(SUM(CASE WHEN status='afgerond' THEN 1 ELSE 0 END),0) af
+                            FROM planning WHERE date=?""", (day,)).fetchone()
+        conn.close()
+        return "%d-%d-%d-%d" % (r["c"], r["m"], r["cf"], r["af"])
+    # De eerste vraag na het laden is het vergelijkingspunt en moet vers zijn, anders
+    # ziet wie net zelf iets wijzigde daarna onterecht de "bijgewerkt"-balk.
+    return jsonify(v=_poll_cached(("planver", day), 3, load, fresh=bool(request.args.get("fresh"))))
 
 
 @bp.route("/api/order-contact/<int:oid>")
@@ -6658,6 +6686,35 @@ def integration_test(ikey):
 # --------------------------------------------------------------------------- #
 #  Gebruikers / rollen / rechten
 # --------------------------------------------------------------------------- #
+def _start_passwords():
+    """Wachtwoorden die meerdere mensen kennen: de seed-wachtwoorden (ook de oude, die
+    in de code staan en ooit gelekt zijn) en het standaardwachtwoord voor pickers."""
+    pws = {"PlanningOI2025!", "Magazijn2026!", os.environ.get("SEED_ADMIN_PW") or "", _PICKER_DEFAULT_PW}
+    return [p for p in pws if p]
+
+
+# Uitkomst per opgeslagen hash. De hash bevat een eigen salt, dus een nieuw wachtwoord
+# geeft een nieuwe sleutel en wordt vanzelf opnieuw gecontroleerd.
+_START_PW_CACHE = {}
+
+
+def _has_start_password(pw_hash):
+    if not pw_hash:
+        return False
+    hit = _START_PW_CACHE.get(pw_hash)
+    if hit is None:
+        hit = False
+        for p in _start_passwords():
+            try:
+                if check_password_hash(pw_hash, p):
+                    hit = True
+                    break
+            except Exception:
+                pass
+        _START_PW_CACHE[pw_hash] = hit
+    return hit
+
+
 @bp.route("/users")
 def users():
     guard = login_required("manage_users")
@@ -6673,8 +6730,12 @@ def users():
             d["perm_count"] = len(json.loads(u["permissions"] or "[]"))
         except Exception:
             d["perm_count"] = 0
+        # Alleen actieve accounts tellen: een inactief account kan niet inloggen.
+        d["start_pw"] = bool(u["active"]) and _has_start_password(d.get("password"))
+        d["no_2fa"] = bool(u["active"]) and not (d.get("totp_secret") or "").strip()
         parsed.append(d)
-    return render_template("planning/users.html", users=parsed)
+    start_pw_count = sum(1 for d in parsed if d["start_pw"])
+    return render_template("planning/users.html", users=parsed, start_pw_count=start_pw_count)
 
 
 @bp.route("/users/new", methods=["GET", "POST"])
@@ -6694,6 +6755,9 @@ def user_new():
         active = 1 if request.form.get("active") else 0
         if not (name and email and pw):
             conn.close(); flash("Naam, e-mail en wachtwoord zijn verplicht.")
+            return redirect(url_for("planning.user_new"))
+        if pw in _start_passwords():
+            conn.close(); flash("Dat is een startwachtwoord dat meerdere mensen kennen. Kies een eigen wachtwoord voor deze persoon.")
             return redirect(url_for("planning.user_new"))
         if conn.execute("SELECT id FROM users WHERE lower(email)=?", (email,)).fetchone():
             conn.close(); flash("Dat e-mailadres bestaat al.")
@@ -6734,6 +6798,11 @@ def user_edit(uid):
         conn.execute("UPDATE users SET name=?, email=?, role=?, permissions=?, active=?, monteur_id=? WHERE id=?",
                      (name, email, role, json.dumps(perms), active, mid, uid))
         newpw = (request.form.get("new_password") or "").strip()
+        if newpw and newpw in _start_passwords():
+            conn.commit(); conn.close()
+            flash("Gebruiker bijgewerkt, maar het wachtwoord niet: dat is een startwachtwoord dat "
+                  "meerdere mensen kennen. Kies een eigen wachtwoord voor deze persoon.")
+            return redirect(url_for("planning.user_edit", uid=uid))
         if newpw:
             conn.execute("UPDATE users SET password=? WHERE id=?", (_hash_pw(newpw), uid))
         conn.commit(); conn.close()
