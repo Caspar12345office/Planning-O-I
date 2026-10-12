@@ -370,6 +370,7 @@ PERMISSIONS = [
     ("view_documents",     "Documenten",                 "Documenten"),
     ("view_connections",   "Koppelingen (commandocentrum)", "Koppelingen"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
+    ("approve_leave",      "Verlofaanvragen goedkeuren", "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
     ("view_signatures",    "Handtekeningen inzien",      "Rapportage"),
@@ -1231,36 +1232,40 @@ def _email(u):
     return (u["email"] or "").lower() if u else ""
 
 
-def can_approve(u, is_monteur):
-    return bool(u) and _email(u) in (APPROVERS_MONTEUR if is_monteur else APPROVERS_OFFICE)
+def is_leave_approver(u):
+    """Wie verlofaanvragen goedkeurt: beheerders, iedereen met het recht 'Verlofaanvragen
+    goedkeuren' (per gebruiker aan te zetten onder Gebruikers), en als vangnet de vaste
+    adressen van vroeger. Eerder bepaalden alleen die vaste e-mailadressen het, en
+    klopte een adres niet met het echte account, dan zag niemand de aanvraag."""
+    if not u:
+        return False
+    if u["role"] == "beheerder" or "approve_leave" in user_perms(u):
+        return True
+    return _email(u) in (APPROVERS_MONTEUR | APPROVERS_OFFICE)
 
 
-def _leave_conds(u):
-    """SQL-condities voor de aanvragen die deze gebruiker te zien krijgt om goed te keuren.
-    Precies dezelfde mensen als can_approve: monteur-aanvragen naar APPROVERS_MONTEUR
-    (Caspar, Aleks, Stijn, Jorik), kantoor-aanvragen naar APPROVERS_OFFICE. Eerder zag
-    alleen Jorik de monteur-aanvragen, terwijl de monteur-app zegt dat ze naar alle vier
-    gaan. Een eigen aanvraag keur je niet zelf goed; die van Aleks gaan, zoals al zo was,
-    niet langs de kantoorgoedkeuring."""
-    e = _email(u)
-    own = "user_id != %d" % int(u["id"])
-    conds = []
-    if e in APPROVERS_MONTEUR:
-        conds.append("(is_monteur=1 AND %s)" % own)
-    if e in APPROVERS_OFFICE:
-        conds.append("(is_monteur=0 AND COALESCE(user_name,'') != 'Aleks' AND %s)" % own)
-    return conds
+def can_approve(u, req):
+    """Goedkeuren mag een goedkeurder, maar nooit de eigen aanvraag."""
+    return is_leave_approver(u) and req["user_id"] != u["id"]
+
+
+def leave_approver_names(conn):
+    """Namen van de goedkeurders, voor 'Je aanvraag gaat naar ...'."""
+    names = [r["name"] for r in conn.execute(
+        "SELECT * FROM users WHERE active=1 AND role NOT IN ('monteur','picker') ORDER BY name").fetchall()
+        if is_leave_approver(r)]
+    if not names:
+        return "de beheerder"
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " en " + names[-1]
 
 
 def pending_leave_count(u):
-    if not u:
-        return 0
-    conds = _leave_conds(u)
-    if not conds:
+    """Openstaande aanvragen die deze gebruiker kan behandelen (zijn eigen niet)."""
+    if not is_leave_approver(u):
         return 0
     conn = db()
-    n = conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND (%s)"
-                     % " OR ".join(conds)).fetchone()[0]
+    n = conn.execute("SELECT COUNT(*) FROM leave_requests WHERE status='open' AND user_id != ?",
+                     (u["id"],)).fetchone()[0]
     conn.close()
     return n
 
@@ -1310,7 +1315,7 @@ def _inject():
             "p_open_questions": open_questions_count(u), "p_online": online,
             "p_pending_leave": pending_leave_count(u) if u else 0,
             # Goedkeurders zien 'Vrije dagen' in het menu, ook zonder het beheerrecht.
-            "p_leave_approver": bool(u and _leave_conds(u)),
+            "p_leave_approver": is_leave_approver(u),
             "p_open_bus_issues": open_bus_issues_count(u) if u else 0,
             "p_new_leverdocs": new_leverdocs_count(u) if u else 0,
             "p_leave_decision": my_unseen_decision(u) if u else None}
@@ -7234,7 +7239,7 @@ def free_days():
         # Wie aanvragen mag goedkeuren komt hier altijd binnen, ook zonder het recht
         # 'vrije dagen beheren'; anders ziet die wel het bolletje maar niet de aanvraag.
         _u = current_user()
-        if not (_u and _leave_conds(_u)):
+        if not is_leave_approver(_u):
             return guard
     u = current_user()
     conn = db()
@@ -7253,19 +7258,20 @@ def free_days():
                            LEFT JOIN monteurs m ON m.id=f.monteur_id ORDER BY f.date_from DESC""").fetchall()
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1 ORDER BY name").fetchall()
     # aanvragen die ik mag goedkeuren (kantoor→Caspar behalve Aleks, monteurs→Jorik)
-    conds = _leave_conds(u)
-    open_reqs = []
-    if conds:
-        open_reqs = conn.execute("SELECT * FROM leave_requests WHERE status='open' AND (%s) ORDER BY created_at"
-                                 % " OR ".join(conds)).fetchall()
+    # Goedkeurders zien alle openstaande aanvragen; een eigen aanvraag staat er ook,
+    # zonder knoppen (een ander beslist), zodat er nooit iets stil verdwijnt.
+    approver = is_leave_approver(u)
+    open_reqs = conn.execute("SELECT * FROM leave_requests WHERE status='open' ORDER BY created_at").fetchall()         if approver else []
     history = conn.execute("SELECT * FROM leave_requests WHERE status!='open' ORDER BY decided_at DESC LIMIT 50").fetchall()
     my_reqs = conn.execute("SELECT * FROM leave_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 20", (u["id"],)).fetchall()
     conn.close()
     # tot wie kan deze gebruiker een aanvraag richten?
-    approvers_label = "Aleks, Stijn, Jorik en Caspar" if u["role"] == "monteur" else "Caspar, Aleks en Jorik"
+    conn = db()
+    approvers_label = leave_approver_names(conn)
+    conn.close()
     return render_template("planning/free_days.html", rows=rows, monteurs=monteurs,
                            open_reqs=open_reqs, history=history, my_reqs=my_reqs,
-                           is_approver=bool(conds), approvers_label=approvers_label)
+                           is_approver=approver, approvers_label=approvers_label, me_id=u["id"])
 
 
 @bp.route("/api/leave-request", methods=["POST"])
@@ -7299,8 +7305,10 @@ def api_leave_decide(rid):
     if not r:
         conn.close()
         return jsonify(ok=False, error="Niet gevonden"), 404
-    if not can_approve(u, r["is_monteur"]):
+    if not can_approve(u, r):
         conn.close()
+        if r["user_id"] == u["id"]:
+            return jsonify(ok=False, error="Je eigen aanvraag keurt een andere goedkeurder goed."), 403
         return jsonify(ok=False, error="Geen rechten om dit goed te keuren"), 403
     data = request.get_json(force=True)
     decision = "goedgekeurd" if data.get("approve") else "afgewezen"

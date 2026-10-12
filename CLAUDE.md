@@ -134,9 +134,11 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
 - Gebruikers: `_start_passwords` markeert accounts met een gedeeld startwachtwoord.
-- Verlof: wie een aanvraag ziet (`_leave_conds`) moet gelijk blijven aan wie hem mag goedkeuren
-  (`can_approve`, `APPROVERS_MONTEUR` / `APPROVERS_OFFICE`). Goedkeurders komen op `/free-days`
-  ook zonder het recht `manage_freedays`.
+- Verlof: goedkeurder = beheerder, of het recht `approve_leave` ("Verlofaanvragen goedkeuren",
+  per gebruiker onder Gebruikers), of als vangnet een adres uit `APPROVERS_MONTEUR` /
+  `APPROVERS_OFFICE` (`is_leave_approver`). Goedkeurders zien alle open aanvragen, een eigen
+  aanvraag zonder knoppen. Monteur- en magazijn-app tonen "Mijn aanvragen" met status en de
+  echte namen bij "Gaat naar" (`_leave_approver_names`, gelijk houden met de kantoor-app).
 - Routes: blok "Echte adressen en echte routes" na de Radius-koppeling. `_geocode`,
   `_order_point`, `_home_point`, `_depot_point`, `_route` (Google of schatting, met cache),
   `_planned_route` (planningpagina, kaart, terugkomst), `compute_arrivals` (live: vanaf de

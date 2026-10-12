@@ -66,10 +66,14 @@
       {% if r.category=='afspraak' %}Afspraak op {{ r.date_from }} {{ r.time_from }}-{{ r.time_to }}{% else %}{{ r.leave_type }} · {{ r.date_from }}{% if r.date_to and r.date_to!=r.date_from %} t/m {{ r.date_to }}{% endif %}{% endif %}
       {% if r.reason %}<br>“{{ r.reason }}”{% endif %}
     </div>
+    {% if r.user_id == me_id %}
+    <div class="meta" style="margin-top:8px">Dit is je eigen aanvraag; een andere goedkeurder beslist.</div>
+    {% else %}
     <div class="actions">
       <button class="btn primary sm" onclick="decide({{ r.id }}, true)"><svg class="ico"><use href="#ic-check"/></svg> Goedkeuren</button>
       <button class="btn ghost sm" onclick="decide({{ r.id }}, false)"><svg class="ico"><use href="#ic-x"/></svg> Afwijzen</button>
     </div>
+    {% endif %}
   </div>
   {% else %}<p class="muted">Geen openstaande aanvragen. 🎉</p>{% endfor %}
 
