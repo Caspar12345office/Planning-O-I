@@ -15,6 +15,11 @@
   .issue .st.done{background:#e3f3da;color:#3c7a2c}
   .issue .actions{margin-top:12px;display:flex;align-items:center;gap:12px}
   .empty{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:40px;text-align:center;color:var(--muted)}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .issue .plate{color:#f0c57c}
+  [data-theme="dark"] .issue .st.open{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .issue .st.done{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 {% if not issues %}

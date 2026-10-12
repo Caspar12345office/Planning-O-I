@@ -6,6 +6,9 @@
   .acctgrid label{display:block;font-size:13px;font-weight:600;margin:0 0 5px}
   .acctgrid input,.acctgrid select{width:100%;padding:11px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff}
   @media(max-width:640px){.acctgrid{grid-template-columns:1fr}}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .acctgrid input,[data-theme="dark"] .acctgrid select{background:var(--panel)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle gebruikers</a>

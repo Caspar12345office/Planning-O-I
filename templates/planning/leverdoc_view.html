@@ -11,6 +11,10 @@
   .meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:6px 14px}
   .sig{max-width:320px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:6px}
   .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#d9f0e1;color:#1f6b3e}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .sig{background:var(--panel)}
+  [data-theme="dark"] .badge{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.leveringsdocumenten') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle leveringsdocumenten</a>

@@ -14,6 +14,12 @@
   .delcard .delrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .delcard .delrow input{width:auto;max-width:180px;padding:8px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:#fff}
   .btn.del{color:#b23a1e;border-color:#e6b8ac}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .delcard h3{color:#f3a593}
+  [data-theme="dark"] .delcard .delwarn{color:#f3a593}
+  [data-theme="dark"] .delcard .delrow input{background:var(--panel)}
+  [data-theme="dark"] .btn.del{color:#f3a593}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <script>window.__presence = {order_id: {{ o.id }}, label: "Order #{{ o.order_number }}"};</script>

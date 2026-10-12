@@ -48,6 +48,17 @@
   .testmsg{font-size:13px;font-weight:600}
   .testmsg.ok{color:#3c7a2c}.testmsg.no{color:#a23d2a}
   @media(max-width:760px){.fgrid{grid-template-columns:1fr}}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] /* Beeldmerk-tegel: wit met een dun randje,[data-theme="dark"] zodat merkkleuren eruit springen (net als op het commandocentrum). */
+  .integ .ico.brand{background:var(--panel)}
+  [data-theme="dark"] .st.verbonden{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .st.deels{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .st.niet_gekoppeld{color:var(--ink);background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .slider{background:var(--soft)}
+  [data-theme="dark"] .slider:before{background:var(--panel)}
+  [data-theme="dark"] .locked{background:rgba(217,150,43,.16);border-color:var(--line)}
+  [data-theme="dark"] .testmsg.no{color:#f3a593}
+  /* einde donker */
 {% endblock %}
 
 {% block content %}

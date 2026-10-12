@@ -52,6 +52,18 @@
   .searchbar input{flex:1;min-width:180px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit}
   .muted{color:var(--muted)}
   code.lnk{font-size:11.5px;background:var(--soft);padding:2px 6px;border-radius:6px;user-select:all}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .tpl.act{background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .badge.on{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .badge.off{color:var(--ink);background:var(--panel)}
+  [data-theme="dark"] .badge.rec{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .badge.open{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .badge.new{color:#f3a593;background:rgba(192,83,63,.18)}
+  [data-theme="dark"] /* De klantpagina is 640 breed. In een halve kolom zou hij in zijn mobiele
+     opmaak schieten,[data-theme="dark"] dus we tonen hem op 700 en schalen hem terug: dan zie je
+     de desktopweergave zoals de klant die op zijn laptop krijgt. */
+  .ldbox{background:var(--panel)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 

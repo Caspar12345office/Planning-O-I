@@ -31,6 +31,12 @@
   .rangeform input[type=date]{padding:8px 10px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink)}
   .rangeform .rl{font-size:12.5px;color:var(--muted)}
   .reset{font-size:12.5px;color:var(--accent);font-weight:600;align-self:center}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .locked .ic{background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .st{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .notice{color:#f0c57c;background:rgba(217,150,43,.16);border-color:var(--line)}
+  [data-theme="dark"] table.ur tr.warnrow td{background:rgba(217,150,43,.16)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 {% if not can_view %}

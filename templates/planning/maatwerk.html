@@ -12,6 +12,9 @@
   .mw .sub{color:var(--muted);font-size:13px}
   .mw h3{color:var(--accent);font-size:14.5px;margin:18px 0 8px}
   .mw .totrow{display:flex;justify-content:space-between;align-items:center;background:var(--soft);border-radius:10px;padding:11px 14px;margin-top:14px;font-weight:600}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .mw .note{color:#f0c57c;background:rgba(217,150,43,.16);border-color:var(--line)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ nxt or url_for('planning.order_detail', oid=o.id) }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Terug</a>

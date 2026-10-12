@@ -43,6 +43,12 @@
   .kmsg{font-size:13.5px;font-weight:500;margin-top:14px;padding:11px 15px;border-radius:12px;display:none}
   .kmsg.ok{display:block;background:#e3f3da;color:#3c7a2c;border:1px solid #c5e6b6}
   .kmsg.err{display:block;background:#f7e2dc;color:#a23d2a;border:1px solid #eec4b9}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .note{color:#f0c57c;background:rgba(217,150,43,.16);border-color:var(--line)}
+  [data-theme="dark"] .modal .mb{background:var(--panel)}
+  [data-theme="dark"] .kmsg.ok{color:#a3dc8f;background:rgba(115,191,82,.15);border-color:var(--line)}
+  [data-theme="dark"] .kmsg.err{color:#f3a593;background:rgba(192,83,63,.18);border-color:var(--line)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 

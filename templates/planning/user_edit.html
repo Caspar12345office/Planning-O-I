@@ -16,6 +16,9 @@
   .lockcard.on{border-color:var(--red);box-shadow:0 0 0 2px rgba(192,83,63,.14)}
   .lockstate{display:flex;align-items:flex-start;gap:9px;font-size:13px;line-height:1.55;color:var(--red);margin:0 0 12px}
   .lockstate .ico{width:17px;height:17px;flex:0 0 auto;margin-top:1px}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .acctgrid input,[data-theme="dark"] .acctgrid select{background:var(--panel)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.users') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle gebruikers</a>

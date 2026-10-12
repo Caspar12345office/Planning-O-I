@@ -21,6 +21,14 @@
   .ld .badge.rec{background:#d9f0e1;color:#1f6b3e}.ld .badge.open{background:#eef2f6;color:#4a6785}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
   @media(max-width:640px){.infocard{grid-template-columns:1fr}}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .mail .dir.in{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .mail .dir.out{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .gmail-badge.on{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .gmail-badge.off{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .ld .badge.rec{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .ld .badge.open{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <a class="btn ghost sm" href="{{ url_for('planning.clients') }}" style="margin-bottom:14px"><svg class="ico"><use href="#ic-arrow-left"/></svg> Alle klanten</a>

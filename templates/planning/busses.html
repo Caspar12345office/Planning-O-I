@@ -44,6 +44,12 @@
   .addbus>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
   .addbus>summary::-webkit-details-marker{display:none}
   .addbus .bcard{max-width:560px;margin-top:14px}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .plate .pl{color:var(--ink)}
+  [data-theme="dark"] .apk-warn{color:#f3a593}
+  [data-theme="dark"] .note.imp{background:rgba(217,150,43,.16);border-color:var(--line)}
+  [data-theme="dark"] .note .ndel:hover{color:#f3a593}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 {% if can_edit %}

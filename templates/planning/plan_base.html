@@ -6,6 +6,10 @@
 <title>{% block title %}OfficeRoute{% endblock %}</title>
 <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}">
 <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
+<script>/* Thema vóór het tekenen zetten (geen witte flits). Keuze per apparaat: licht, donker of systeem. */
+(function(){try{var m=localStorage.getItem('oi-kantoor-theme')||'licht';
+var d=m==='donker'||(m==='systeem'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
+if(d)document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>
 <style>
   @font-face{font-family:'Jost';font-style:normal;font-weight:100 900;font-display:swap;src:url("{{ url_for('static', filename='fonts/jost-latin.woff2') }}") format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
   :root{
@@ -148,6 +152,48 @@
     .content{padding:20px 16px 50px}.topbar{padding:14px 16px}
     .search{display:none}
   }
+  /* ---------- donkere modus (keuze onderin het menu; zelfde palet als de monteur-app) ---------- */
+  :root[data-theme="dark"]{
+    --accent:#62d0c2;--accent2:#3fa596;--gold:#d4a85c;--gold2:#e0bb73;
+    --bg:#0c1917;--ink:#e3ece8;--muted:#93a59e;--soft:#1a2e29;--line:#25392f;--panel:#13241f;
+    --rail:#0f1e1b;--railtext:#c3d1cb;--railmut:#7d918a;
+    --shadow:0 14px 40px rgba(0,0,0,.35);--shadow-sm:0 6px 18px rgba(0,0,0,.28);
+    color-scheme:dark;
+  }
+  [data-theme="dark"] .main{background-image:none}
+  [data-theme="dark"] .rail-nav a.active,[data-theme="dark"] .navgrp.linkgrp .grplink.active,
+  [data-theme="dark"] .btn.primary,[data-theme="dark"] .ucard .av,[data-theme="dark"] .onlinebar .av{color:#06201c;box-shadow:none}
+  [data-theme="dark"] .rail-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12)}
+  [data-theme="dark"] .pill.green,[data-theme="dark"] .flash{background:rgba(115,191,82,.16);color:#a3dc8f;border-color:rgba(115,191,82,.3)}
+  [data-theme="dark"] .pill.blue{background:rgba(47,109,240,.22);color:#a9c2ff}
+  [data-theme="dark"] .pill.amber,[data-theme="dark"] .presence-chip,[data-theme="dark"] .presence-here{background:rgba(217,150,43,.18);color:#f0c57c;border-color:rgba(217,150,43,.35)}
+  [data-theme="dark"] .pill.red{background:rgba(192,83,63,.24);color:#f3a593}
+  [data-theme="dark"] .pill.violet{background:rgba(109,91,208,.26);color:#c3b9f7}
+  [data-theme="dark"] .pill.gray{background:rgba(255,255,255,.08);color:#bcc7c2}
+  [data-theme="dark"] .tag{background:rgba(212,168,92,.16)}
+  [data-theme="dark"] .leavepop .lb{background:var(--panel)}
+  [data-theme="dark"] input:focus,[data-theme="dark"] select:focus,[data-theme="dark"] textarea:focus{box-shadow:0 0 0 3px rgba(98,208,194,.18)}
+  /* Vaste witte vlakken en donkere tekstkleuren in losse schermen */
+  [data-theme="dark"] [style*="background:#fff"],[data-theme="dark"] [style*="background: #fff"],
+  [data-theme="dark"] [style*="background:#ffffff"],[data-theme="dark"] [style*="background:white"]{background:var(--panel)!important}
+  [data-theme="dark"] [style*="color:#16302d"],[data-theme="dark"] [style*="color:#0f3d3e"],
+  [data-theme="dark"] [style*="color: #0f3d3e"]{color:var(--ink)!important}
+  /* Kaarten (OpenStreetMap) donker */
+  [data-theme="dark"] .leaflet-tile{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.92) saturate(.55)}
+  [data-theme="dark"] .leaflet-container{background:#0c1917}
+  [data-theme="dark"] .leaflet-tooltip,[data-theme="dark"] .leaflet-popup-content-wrapper,
+  [data-theme="dark"] .leaflet-popup-tip{background:var(--panel);color:var(--ink);border-color:var(--line)}
+  [data-theme="dark"] .leaflet-bar a{background:var(--panel);color:var(--ink);border-color:var(--line)}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] [style*="background:#e3f3da"]{background:rgba(115,191,82,.15)!important}
+  [data-theme="dark"] [style*="background:#e4edff"]{background:rgba(47,109,240,.18)!important}
+  [data-theme="dark"] [style*="background:#fbeccd"]{background:rgba(217,150,43,.16)!important}
+  [data-theme="dark"] [style*="background:#fdf3e6"]{background:rgba(217,150,43,.16)!important}
+  /* einde donker */
+  /* keuzeknop licht / donker / systeem */
+  .themesw{display:flex;gap:3px;background:var(--soft);border-radius:10px;padding:3px;margin-top:10px}
+  .themesw button{flex:1;border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);padding:6px 2px;border-radius:8px;cursor:pointer}
+  .themesw button.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow-sm)}
   {% block page_css %}{% endblock %}
 </style>
 <script>
@@ -278,6 +324,23 @@ window.oiPoll=function(fn,ms,hiddenMs){
         <div class="av">{{ (p_user.name[:1] if p_user else '?')|upper }}</div>
         <div><div class="nm">{{ p_user.name if p_user else '' }}</div><div class="rl">{{ ROLE_LABELS.get(p_user.role, p_user.role) if p_user else '' }}</div></div>
       </div>
+      <div class="themesw" id="themesw" role="group" aria-label="Weergave">
+        <button type="button" data-m="licht" onclick="setTheme('licht')">Licht</button>
+        <button type="button" data-m="donker" onclick="setTheme('donker')">Donker</button>
+        <button type="button" data-m="systeem" onclick="setTheme('systeem')" title="Volgt de instelling van je computer">Systeem</button>
+      </div>
+      <script>
+      function setTheme(m){
+        try{localStorage.setItem('oi-kantoor-theme',m);}catch(e){}
+        var d=m==='donker'||(m==='systeem'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
+        if(d){document.documentElement.setAttribute('data-theme','dark');}else{document.documentElement.removeAttribute('data-theme');}
+        document.querySelectorAll('#themesw button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-m')===m);});
+      }
+      (function(){var m='licht';try{m=localStorage.getItem('oi-kantoor-theme')||'licht';}catch(e){}
+        document.querySelectorAll('#themesw button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-m')===m);});
+        if(window.matchMedia){matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){var cur='licht';try{cur=localStorage.getItem('oi-kantoor-theme')||'licht';}catch(e){} if(cur==='systeem'){setTheme('systeem');}});}
+      })();
+      </script>
       <a class="logout" href="{{ url_for('planning.logout') }}">Uitloggen</a>
     </div>
   </aside>

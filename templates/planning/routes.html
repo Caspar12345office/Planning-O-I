@@ -21,6 +21,11 @@
   .stop .seq{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
   .stop.depot .seq{background:var(--gold);color:#1c1a16}
   .stop .info b{font-size:14px}.stop .info span{font-size:12.5px;color:var(--muted);display:block}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .badge.on{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .badge.off{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .stop.depot .seq{color:var(--ink)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <div class="rtop">

@@ -18,6 +18,10 @@
   .chatbar input.onum{width:130px;flex:0 0 130px}
   .chatbar input.txt{flex:1}
   .chatbar button{flex:0 0 auto}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .msg .onum{background:var(--panel)}
+  [data-theme="dark"] .msg.me .bub{background:rgba(115,191,82,.15)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <div class="card chatcard">

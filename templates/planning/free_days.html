@@ -19,6 +19,17 @@
   .st{font-size:11.5px;font-weight:700;border-radius:6px;padding:2px 9px}
   .st.open{background:#fbeccd;color:#9a6a17}.st.goedgekeurd{background:#e3f3da;color:#3c7a2c}.st.afgewezen{background:#f7e2dc;color:#a23d2a}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .ty.vakantie{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .ty.atv{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .ty.ziekte{color:#f3a593;background:rgba(192,83,63,.18)}
+  [data-theme="dark"] .ty.vrij{color:var(--ink);background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .ty.feestdag{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .ty.afspraak{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .st.open{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .st.goedgekeurd{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .st.afgewezen{color:#f3a593;background:rgba(192,83,63,.18)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 <div class="tabs">

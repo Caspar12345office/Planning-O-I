@@ -9,6 +9,15 @@
   .pwwarn{display:flex;gap:12px;align-items:flex-start;background:#f7e2dc;color:#7a2e20;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13.5px;line-height:1.5}
   .pwwarn svg{width:18px;height:18px;flex:none;margin-top:1px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
   .stat{display:flex;gap:6px;flex-wrap:wrap}
+  /* donker (gegenereerd) */
+  [data-theme="dark"] .rl.beheerder{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .rl.manager{color:#a9c2ff;background:rgba(47,109,240,.18)}
+  [data-theme="dark"] .rl.planner{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .rl.administratie{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .rl.monteur{color:var(--ink);background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .rl.picker{color:#f0c57c;background:rgba(217,150,43,.16)}
+  [data-theme="dark"] .pwwarn{color:#f3a593;background:rgba(192,83,63,.18)}
+  /* einde donker */
 {% endblock %}
 {% block content %}
 {% if p_has_perm('manage_users') %}

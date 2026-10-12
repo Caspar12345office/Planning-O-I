@@ -141,6 +141,10 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   Daarnaast bewaart de Radius-ophaalronde alle bussen in `bus_location` (privéritten niet);
   `/api/bus-locations` zet ze als busjes op de dashboardkaart (alleen kantoor).
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.
+- Donkere modus: keuze Licht/Donker/Systeem onderin het menu (localStorage `oi-kantoor-theme`,
+  `data-theme="dark"` op html). Basis via de kleurvariabelen in `plan_base.html`; per scherm een
+  blok "donker (gegenereerd)" in page_css voor vaste kleuren. Nieuwe vaste kleuren in een scherm?
+  Liever variabelen gebruiken, of een `[data-theme="dark"]`-regel toevoegen.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
 - Gebruikers: `_start_passwords` markeert accounts met een gedeeld startwachtwoord.
 - Verlof: goedkeurder = beheerder, of het recht `approve_leave` ("Verlofaanvragen goedkeuren",
