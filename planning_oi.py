@@ -1875,12 +1875,33 @@ def _velocity_sync(force=False):
         # Alle bussen voor de dashboardkaart, ook zonder ingeplande monteur. Een rit die
         # in Velocity privé staat, komt niet op de kaart (en verdwijnt eraf).
         stamp_now = datetime.now().isoformat(timespec="minutes")
+        bus_id_by_key = {_plate_key(b["plate"]): b["id"] for b in busses if _plate_key(b["plate"])}
+        km_added = 0.0
         for d in devices:
             if not d["key"]:
                 continue
             if d["private"] or not d["at"]:
                 conn.execute("DELETE FROM bus_location WHERE plate_key=?", (d["key"],))
                 continue
+            # Kilometers: afstand sinds de vorige melding optellen bij deze bus op die dag.
+            # Alleen bij een nieuwe melding binnen 10 minuten na de vorige (geen sprong over
+            # een nacht of een gat), en met een snelheidscontrole tegen GPS-uitschieters.
+            bid = bus_id_by_key.get(d["key"])
+            prev = conn.execute("SELECT lat, lng, at FROM bus_location WHERE plate_key=?", (d["key"],)).fetchone() \
+                if bid else None
+            if prev and prev["at"] and d["at_nl"]:
+                try:
+                    prev_at = datetime.strptime(prev["at"][:16], "%Y-%m-%dT%H:%M")
+                except ValueError:
+                    prev_at = None
+                if prev_at and d["at_nl"] > prev_at:
+                    mins = (d["at_nl"] - prev_at).total_seconds() / 60.0
+                    km = haversine((prev["lat"], prev["lng"]), (d["lat"], d["lng"])) * KM_SAMPLE_FACTOR
+                    if mins <= 10 and 0.05 <= km <= mins * 2.5 + 0.5:
+                        conn.execute("""INSERT INTO vehicle_km(bus_id,date,km) VALUES(?,?,?)
+                                        ON CONFLICT(bus_id,date) DO UPDATE SET km=vehicle_km.km+excluded.km""",
+                                     (bid, d["at_nl"].date().isoformat(), round(km, 3)))
+                        km_added += km
             conn.execute("""INSERT INTO bus_location(plate_key,plate,lat,lng,at,ignition,speed,updated)
                             VALUES(?,?,?,?,?,?,?,?)
                             ON CONFLICT(plate_key) DO UPDATE SET plate=excluded.plate,lat=excluded.lat,
@@ -3402,6 +3423,9 @@ def api_locations():
     return jsonify(out)
 
 
+# Kilometers uit de posities: rechte lijnen tussen meldingen van ongeveer een minuut uit
+# elkaar missen de bochten; een kleine toeslag maakt de schatting realistischer.
+KM_SAMPLE_FACTOR = 1.05
 BUS_MAP_MAX_MIN = 12 * 60   # geparkeerde bussen melden zich niet; tot 12 uur na de laatste melding tonen
 
 
