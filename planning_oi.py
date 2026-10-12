@@ -1648,8 +1648,14 @@ def _velocity_call(path, cfg, method="GET", query=None):
             if e.code not in (401, 403):
                 raise
             detail = _velocity_http_detail(e)
+            stap = ("de klantenlijst" if "customers" in path else
+                    "de busposities" if "positions" in path else path)
+            if e.code == 403:
+                # Token is geldig maar mag dit niet: opnieuw inwisselen helpt dan niet.
+                raise VelocityAuthError("inwisselen gelukt, maar %s opvragen mag niet met dit token (403: %s, adres %s)"
+                                        % (stap, detail, path))
             if attempt:
-                raise VelocityAuthError("het toegangstoken wordt niet geaccepteerd (%s: %s)" % (e.code, detail))
+                raise VelocityAuthError("het toegangstoken wordt niet geaccepteerd bij %s (401: %s)" % (stap, detail))
 
 
 def _velocity_err(e, cfg=None):
@@ -1661,6 +1667,9 @@ def _velocity_err(e, cfg=None):
         if len(tok) < 25:
             msg += (" Dat is kort voor een token: mogelijk heeft de browser hier een opgeslagen wachtwoord"
                     " ingevuld. Plak het token opnieuw en sla op.")
+        elif "403" in str(e):
+            msg += (" Controleer in Velocity bij API Integrations of het token voor het product Telematics is"
+                    " aangemaakt (niet Fuel), en of je account de busposities mag zien.")
         else:
             msg += (" Maak in Velocity onder Account > Account Settings > API Integrations een nieuw token aan"
                     " voor het product Telematics, plak het hier en sla op.")
