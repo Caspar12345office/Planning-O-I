@@ -131,6 +131,8 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   voor het tijdvak open.
 - Live locatie: tabel `monteur_location` (telefoon via de monteur-app, bussen via Radius);
   `_live_loc`, `LIVE_MAX_MIN`. Radius Velocity staat in het blok direct na `_live_loc`.
+  Radius-token = refresh token; `_velocity_access` wisselt het in voor een toegangstoken (30 dagen,
+  bewaard in settings `velocity_access`, na 25 dagen of bij een 401 opnieuw).
   Daarnaast bewaart de Radius-ophaalronde alle bussen in `bus_location` (privéritten niet);
   `/api/bus-locations` zet ze als busjes op de dashboardkaart (alleen kantoor).
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.

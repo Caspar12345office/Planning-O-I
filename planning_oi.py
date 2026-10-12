@@ -462,7 +462,7 @@ INTEGRATIONS = [
     {"key": "velocity", "name": "Radius Velocity (bussen)", "icon": "🚐", "img": "velocity.svg",
      "desc": "Live posities van de bussen uit Radius Velocity. Rijdt een monteur met Waze of staat het scherm op slot, dan loopt de volgkaart via de bus gewoon door. Bussen worden gekoppeld op kenteken (zie Bussen).",
      "fields": [
-        {"key": "api_key", "label": "API-token", "type": "password",
+        {"key": "api_key", "label": "Refresh token (API Integrations, product Telematics)", "type": "password",
          "placeholder": "Velocity: Account > Account Settings > API Integrations"},
         {"key": "customer_id", "label": "Klant-ID (alleen bij meerdere accounts)", "type": "text",
          "optional": True, "placeholder": "Wordt automatisch gevonden"},
@@ -1524,8 +1524,10 @@ def _live_loc(conn, mid):
 #  GPS meer). De buspositie komt in monteur_location, dus dashboard, aankomsttijden
 #  en de klant-volgpagina gebruiken hem vanzelf; de telefoon-GPS blijft reserve.
 #
-#  API: Bearer-token, aan te maken in Velocity onder Account > Account Settings >
-#  API Integrations > Create API Token.
+#  API (api-docs.velocityfleet.com, achter inlog): het token uit Velocity > Account >
+#  Account Settings > API Integrations is een refresh token (per product, hier
+#  Telematics). Inwisselen: POST /vapi/v1/accounts/users/oauth2/refresh/ met formulierveld
+#  token=<refresh> -> {"token": <toegangstoken>}, 30 dagen geldig, als Bearer mee.
 #    GET  /vapi/v1/accounts/users/customers/   -> {"<klant-id>": {name, number, product}}
 #    POST /api/mobile/kinesis/device-live-positions/?customer=<klant-id>
 #         -> {"devices": [{vehicle_registration, lat, lon, timestamp, ignition, speed, private}]}
@@ -1572,32 +1574,82 @@ class VelocityAuthError(Exception):
     pass
 
 
+VELOCITY_ACCESS_DAYS = 25     # Velocity: toegangstoken 30 dagen geldig; wij vernieuwen eerder
+
+
+def _velocity_http_detail(e):
+    try:
+        body = e.read().decode("utf-8", "replace")
+        d = json.loads(body) if body.strip().startswith("{") else {}
+        return str(d.get("detail") or d.get("error") or d.get("token") or body)[:160]
+    except Exception:
+        return ""
+
+
+def _velocity_access(cfg, force=False):
+    """Toegangstoken voor Velocity. Het token uit het portaal (API Integrations) is een
+    refresh token; dat wisselen we in via /vapi/v1/accounts/users/oauth2/refresh/ voor een
+    toegangstoken (30 dagen geldig, als Bearer mee bij elke aanvraag). Het toegangstoken
+    bewaren we in settings, samen met een vingerafdruk van het refresh token: plakt
+    iemand een nieuw refresh token, dan wordt er meteen opnieuw ingewisseld."""
+    refresh = cfg["token"]
+    if refresh.count(".") == 2:
+        return refresh                      # er is direct een toegangstoken (JWT) geplakt
+    fp = hashlib.sha256(refresh.encode()).hexdigest()[:16]
+    conn = db()
+    try:
+        r = conn.execute("SELECT value FROM settings WHERE skey='velocity_access'").fetchone()
+    finally:
+        conn.close()
+    try:
+        saved = json.loads(r["value"]) if r and r["value"] else {}
+    except Exception:
+        saved = {}
+    fresh_after = (datetime.now() - timedelta(days=VELOCITY_ACCESS_DAYS)).isoformat(timespec="minutes")
+    if not force and saved.get("fp") == fp and saved.get("token") and (saved.get("at") or "") > fresh_after:
+        return saved["token"]
+    req = urllib.request.Request(cfg["base"] + "/vapi/v1/accounts/users/oauth2/refresh/", method="POST",
+                                 data=urllib.parse.urlencode({"token": refresh}).encode("utf-8"),
+                                 headers={"Content-Type": "application/x-www-form-urlencoded",
+                                          "Accept": "application/json", "User-Agent": "OfficeRoute/1.0 (Office-Interior)"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 401, 403):
+            raise VelocityAuthError("het refresh token wordt niet geaccepteerd (%s: %s)" % (e.code, _velocity_http_detail(e)))
+        raise
+    access = (data or {}).get("token") or (data or {}).get("access") or (data or {}).get("access_token")
+    if not access:
+        raise VelocityAuthError("Velocity gaf geen toegangstoken terug")
+    conn = db()
+    try:
+        _save_setting(conn, "velocity_access", json.dumps(
+            {"token": access, "fp": fp, "at": datetime.now().isoformat(timespec="minutes")}))
+        conn.commit()
+    finally:
+        conn.close()
+    return access
+
+
 def _velocity_call(path, cfg, method="GET", query=None):
-    """Aanroep naar Velocity. Eerst 'Bearer <token>' (zoals de openbare SDK); weigert
-    Velocity dat, dan nog één keer 'Token <token>'. Wat werkt, onthouden we."""
+    """Aanroep naar Velocity met het toegangstoken als Bearer. Weigert Velocity het
+    (verlopen of ingetrokken), dan één keer een vers toegangstoken halen en opnieuw."""
     url = cfg["base"] + path + ("?" + urllib.parse.urlencode(query) if query else "")
-    schemes = [_VELOCITY.get("scheme") or "Bearer"]
-    schemes.append("Token" if schemes[0] == "Bearer" else "Bearer")
-    answers = []
-    for sch in schemes:
+    for attempt in (0, 1):
+        access = _velocity_access(cfg, force=bool(attempt))
         req = urllib.request.Request(url, method=method, data=(b"" if method == "POST" else None),
-                                     headers={"Authorization": sch + " " + cfg["token"], "Accept": "application/json",
+                                     headers={"Authorization": "Bearer " + access, "Accept": "application/json",
                                               "User-Agent": "OfficeRoute/1.0 (Office-Interior)"})
         try:
             with urllib.request.urlopen(req, timeout=12) as r:
-                data = json.loads(r.read().decode("utf-8") or "null")
-            _VELOCITY["scheme"] = sch
-            return data
+                return json.loads(r.read().decode("utf-8") or "null")
         except urllib.error.HTTPError as e:
             if e.code not in (401, 403):
                 raise
-            try:
-                body = e.read().decode("utf-8", "replace")
-                detail = (json.loads(body) or {}).get("detail") or body
-            except Exception:
-                detail = ""
-            answers.append("%s: %s" % (sch, str(detail)[:120] or e.code))
-    raise VelocityAuthError("; ".join(answers))
+            detail = _velocity_http_detail(e)
+            if attempt:
+                raise VelocityAuthError("het toegangstoken wordt niet geaccepteerd (%s: %s)" % (e.code, detail))
 
 
 def _velocity_err(e, cfg=None):
@@ -1605,21 +1657,16 @@ def _velocity_err(e, cfg=None):
     if isinstance(e, VelocityAuthError):
         cfg = cfg or _velocity_cfg()
         tok = cfg["token"]
-        vorm = "JWT (drie delen met punten)" if tok.count(".") == 2 else "geen JWT"
-        msg = ("Velocity weigert het token op %s. Antwoord van Velocity: %s. Het opgeslagen token is %d tekens (%s)."
-               % (cfg["base"].split("://")[-1], e, len(tok), vorm))
+        msg = "Velocity: %s. Het opgeslagen token is %d tekens." % (e, len(tok))
         if len(tok) < 25:
-            msg += (" Dat is kort voor een API-token: mogelijk heeft de browser hier een opgeslagen wachtwoord"
+            msg += (" Dat is kort voor een token: mogelijk heeft de browser hier een opgeslagen wachtwoord"
                     " ingevuld. Plak het token opnieuw en sla op.")
+        else:
+            msg += (" Maak in Velocity onder Account > Account Settings > API Integrations een nieuw token aan"
+                    " voor het product Telematics, plak het hier en sla op.")
         return msg
     if isinstance(e, urllib.error.HTTPError):
-        if e.code in (401, 403):
-            return "Velocity weigert het API-token (code %s). Maak een nieuw token aan en plak het opnieuw." % e.code
-        try:
-            detail = e.read().decode("utf-8", "replace")[:160]
-        except Exception:
-            detail = ""
-        return "Velocity gaf foutcode %s. %s" % (e.code, detail)
+        return "Velocity gaf foutcode %s. %s" % (e.code, _velocity_http_detail(e))
     if isinstance(e, urllib.error.URLError):
         return "Velocity is niet bereikbaar (%s)." % e.reason
     return str(e)[:200]
