@@ -176,16 +176,19 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     <span class="chip"><svg class="ico"><use href="#ic-pin"/></svg> {{ t.region or '-' }}</span>
     {% if t.prov_count and t.prov_count >= 3 %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Let op: deze monteur staat in {{ t.prov_count }} verschillende provincies gepland ({{ t.region }}). Controleer of dit bewust is - dit past mogelijk niet in één dagroute."><svg class="ico"><use href="#ic-alert"/></svg> {{ t.prov_count }} provincies!</span>{% endif %}
     {% if t.overladen %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Laadgewicht {{ t.load_kg }} kg is meer dan het laadvermogen ({{ t.cap_kg }} kg) + de marge. {{ t.over_kg }} kg te zwaar."><svg class="ico"><use href="#ic-alert"/></svg> Overladen +{{ t.over_kg }} kg</span>{% endif %}
-    {% if t.stops %}{% if t.alerts %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="{% for a in t.alerts %}{{ a.desc }} (+{{ a.min }} min) {% endfor %}"><svg class="ico"><use href="#ic-alert"/></svg> +{{ t.delay }} min file/werk</span>{% else %}<span class="chip" style="background:rgba(115,191,82,.35)"><svg class="ico"><use href="#ic-check"/></svg> vrije route</span>{% endif %}{% endif %}
+    {% if t.stops %}{% if t.alerts %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="{% for a in t.alerts %}{{ a.desc }} (+{{ a.min }} min) {% endfor %}"><svg class="ico"><use href="#ic-alert"/></svg> +{{ t.delay }} min file/werk</span>{% elif t.src == 'google' %}<span class="chip" style="background:rgba(115,191,82,.35)" title="Volgens Google geen noemenswaardige vertraging op deze route"><svg class="ico"><use href="#ic-check"/></svg> vrije route</span>{% endif %}{% endif %}
+    {% if t.missing %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Dit adres kon niet worden gevonden en telt niet mee in de reistijd en km: {{ t.missing|join(', ') }}. Controleer het adres in de order."><svg class="ico"><use href="#ic-alert"/></svg> {{ t.missing|length }} adres{{ '' if t.missing|length == 1 else 'sen' }} niet gevonden</span>{% endif %}
+    {% if t.imprecise %}<span class="chip" style="background:#d9962b;color:#3a2a08" title="Alleen op straat- of plaatsniveau gevonden (geen huisnummer): {{ t.imprecise|join(', ') }}. De reistijd kan iets afwijken."><svg class="ico"><use href="#ic-pin"/></svg> {{ t.imprecise|length }} adres{{ '' if t.imprecise|length == 1 else 'sen' }} onnauwkeurig</span>{% endif %}
     {% if frees.get(m.id) %}<span class="vrij">🏖 {{ frees.get(m.id) }}</span>{% endif %}
     {% if frees.get(m.id) and t.stops %}<span class="chip" style="background:#c0533f;color:#fff;font-weight:700" title="Deze monteur heeft vrij op deze dag maar staat wél ingepland"><svg class="ico"><use href="#ic-alert"/></svg> Ingepland op vrije dag!</span>{% endif %}
     <div class="spacer"></div>
     {% if t.eta_back %}<span class="eta"><svg class="ico"><use href="#ic-home"/></svg> terug {{ HOME_BASE }} ± {{ t.eta_back }}</span>{% endif %}
     {% if t.stops %}<span class="exp" title="Bekijk route op kaart" onclick="showRouteMap(event,{{ m.id }},'{{ m.name|e }}')"><svg class="ico"><use href="#ic-map"/></svg></span>{% endif %}
-    {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer stopvolgorde (kortste route)" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
+    {% if can_edit and t.stops and t.stops > 1 %}<span class="exp" title="Optimaliseer de stopvolgorde (snelste route over de weg) en reken de tijden opnieuw uit" onclick="optimizeRoute(event,{{ m.id }})">⤴</span>{% endif %}
+    {% if can_edit and t.stops %}<span class="exp" title="Tijden opnieuw uitrekenen met echte rijtijden (volgorde blijft staan)" onclick="optimizeRoute(event,{{ m.id }},true)"><svg class="ico"><use href="#ic-clock"/></svg></span>{% endif %}
     <span class="exp focusbtn" title="Vergroten / close-up" onclick="toggleFocus(event,this)">⤢</span>
     {% if can_edit and not t.stops %}<form method="post" action="{{ url_for('planning.roster_remove') }}" style="margin:0;display:inline" onsubmit="return confirm('{{ m.name|e }} van deze dag halen?')"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="monteur_id" value="{{ m.id }}"><button class="exp" type="submit" title="Haal deze monteur van deze dag">✕</button></form>{% endif %}
-    <div class="tot"><span>{{ t.stops or 0 }} stops</span><span>{{ t.time or '-' }}</span><span>{{ t.km or 0 }} km</span>{% if t.cap_kg %}<span{% if t.overladen %} style="color:#c0533f;font-weight:700"{% endif %}>{{ t.load_kg or 0 }}/{{ t.cap_kg }} kg</span>{% endif %}{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
+    <div class="tot"><span>{{ t.stops or 0 }} stops</span><span title="{% if t.drive %}Rijden {{ t.drive }} + montage {{ t.montage }}{% endif %}{% if t.src == 'schatting' %} · schatting: koppel Google Maps bij Koppelingen voor echte rijtijden{% elif t.src == 'google' %} · rijtijd over de weg met verwacht verkeer (Google){% endif %}">{% if t.src == 'schatting' %}≈ {% endif %}{{ t.time or '-' }}</span><span title="Thuis monteur → stops → depot{% if t.src == 'schatting' %} (schatting){% endif %}">{% if t.src == 'schatting' %}≈ {% endif %}{{ t.km or 0 }} km</span>{% if t.cap_kg %}<span{% if t.overladen %} style="color:#c0533f;font-weight:700"{% endif %}>{{ t.load_kg or 0 }}/{{ t.cap_kg }} kg</span>{% endif %}{% if t.live %}<span style="color:#73bf52">● live</span>{% endif %}</div>
   </div>
   <table class="rtbl">
     <colgroup><col style="width:16px"><col style="width:38px"><col style="width:44px"><col><col style="width:48px"><col style="width:22px"><col style="width:22px"><col style="width:20px"><col style="width:38px"><col style="width:20px"></colgroup>
@@ -318,7 +321,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
       <span class="x" style="cursor:pointer;font-size:18px;color:var(--muted)" onclick="document.getElementById('routeModal').style.display='none'"><svg class="ico"><use href="#ic-x"/></svg></span>
     </div>
     <div id="rmMap" style="height:460px;width:100%"></div>
-    <div class="muted" style="font-size:11.5px;padding:8px 18px">Route via het wegennet (NL/BE). Live verkeersdrukte wordt getoond zodra de Google Maps/Route-koppeling actief is.</div>
+    <div class="muted" style="font-size:11.5px;padding:8px 18px">Van huis via de stops naar het depot, over de weg met het verwachte verkeer (Google Maps). Zonder Google-sleutel is het een schatting.</div>
   </div>
 </div>
 {% endblock %}
@@ -328,6 +331,19 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var rmMap=null;
+function decodePoly(str){
+  var i=0,lat=0,lng=0,out=[];
+  while(i<str.length){
+    var b,sh=0,res=0;
+    do{b=str.charCodeAt(i++)-63;res|=(b&31)<<sh;sh+=5;}while(b>=32);
+    lat+=(res&1)?~(res>>1):(res>>1); sh=0; res=0;
+    do{b=str.charCodeAt(i++)-63;res|=(b&31)<<sh;sh+=5;}while(b>=32);
+    lng+=(res&1)?~(res>>1):(res>>1);
+    out.push([lat/1e5,lng/1e5]);
+  }
+  return out;
+}
+function fmtMin(m){ m=Math.round(m||0); var h=Math.floor(m/60); return h? (h+' u '+(m%60)+' min') : (m+' min'); }
 function showRouteMap(ev, mid, name){
   if(ev) ev.stopPropagation();
   document.getElementById('rmTitle').textContent='Route · '+name;
@@ -352,7 +368,14 @@ function drawRoute(mid){
       });
       rmMap.fitBounds(latlngs, {padding:[30,30]});
       setTimeout(function(){ rmMap.invalidateSize(); rmMap.fitBounds(latlngs,{padding:[30,30]}); }, 120);
-      // echte wegen-route via OSRM (gratis); valt terug op rechte lijnen
+      // De route waarmee OfficeRoute rekent (Google, over de weg met verkeer).
+      if(d.poly && d.poly.length){
+        d.poly.forEach(function(enc){ L.polyline(decodePoly(enc),{color:'#15595a',weight:5,opacity:.8}).addTo(rmMap); });
+        var miss=(d.missing&&d.missing.length)?' · '+d.missing.length+' adres(sen) niet gevonden':'';
+        document.getElementById('rmInfo').textContent=(pts.length-2)+' stops · '+d.km+' km · '+fmtMin(d.minutes)+' rijtijd met verkeer'+miss;
+        return;
+      }
+      // Zonder Google-sleutel: de wegen via OSRM (gratis) alleen om te tekenen; valt terug op rechte lijnen
       var coordStr=pts.map(function(p){return p.lng+','+p.lat;}).join(';');
       fetch('https://router.project-osrm.org/route/v1/driving/'+coordStr+'?overview=full&geometries=geojson')
         .then(function(r){return r.json();}).then(function(rt){
@@ -533,11 +556,16 @@ function saveNote(){
       internal:document.getElementById('noteInternal').value, monteur:document.getElementById('noteMonteur').value})})
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
 }
-function optimizeRoute(ev, mid){
+function optimizeRoute(ev, mid, keepOrder){
   ev.stopPropagation();
+  var el=ev.currentTarget; if(el){ el.style.opacity=.4; el.style.pointerEvents='none'; }
   fetch('{{ url_for("planning.api_optimize_route", mid=0) }}'.slice(0,-1)+mid,
-    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'{{ day }}'})})
-    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'{{ day }}', keep_order:!!keepOrder})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(!res.ok){ alert(res.error||'Mislukt'); if(el){el.style.opacity='';el.style.pointerEvents='';} return; }
+      if(res.missing && res.missing.length){ alert('Let op: '+res.missing.length+' adres(sen) niet gevonden en zonder tijd achteraan gezet: '+res.missing.join(', ')+'. Controleer het adres in de order.'); }
+      location.reload();
+    });
 }
 function clearFocus(){
   document.querySelectorAll('.route.focus').forEach(function(x){x.classList.remove('focus');var e=x.querySelector('.focusbtn');if(e){e.textContent='⤢';e.title='Vergroten / close-up';}});

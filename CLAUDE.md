@@ -87,7 +87,7 @@ PLANNING_OI_DB_PATH=/tmp/test.db python -c "..."   # SQLite met demo-seed
 
 ## Stand van zaken (bijwerken)
 
-Laatst bijgewerkt: 2026-10-09.
+Laatst bijgewerkt: 2026-10-12.
 
 Uitrol naar ongeveer 50 collega's in vier stappen:
 1. Klaarmaken: **af** (Sentry-code in alle apps, versiecode van de inlogpagina's, onaffe
@@ -103,13 +103,19 @@ Open:
   API-token. Instellen bij Instellingen > Koppelingen > Radius Velocity > Test verbinding.
   Bus per monteur: eerst de eigen keuze in de monteur-app (`bus_choices`), dan de planning,
   dan de vaste bus. Alleen getest tegen een nagebootste server, nog niet tegen de echte API.
+- Routes en reistijden (2026-10-12): elk adres wordt een exacte locatie (PDOK, anders
+  Google of OpenStreetMap; tabel `geo_cache`) en rijafstand + rijtijd komen over de weg met
+  verkeer van Google Routes (tabel `route_cache`). Route = thuisadres monteur > stops >
+  depot (Nikkelstraat 28, Breda), vertrek 08:00; beide instelbaar bij Koppelingen > Routes
+  en reistijden. Eén sleutel: Koppelingen > Google Maps (Routes API + Geocoding API aan).
+  Zonder sleutel rekent alles met een schatting en staat er "≈". Getest tegen een
+  nagebootste Google-server, nog niet met een echte sleutel.
 - `SENTRY_DSN` nog zetten op monteur-, magazijn- en hub-service.
 - 12 accounts staan nog op het gedeelde startwachtwoord.
 
 Verbeterlijst (nog niets gekozen): testomgeving, eigen subdomeinen, "mijn account"-pagina,
 één kleurpalet in alle apps, eigen 404/500-pagina's, "wat is er nieuw"-melding, lege
-staten, handleiding bijwerken, klantspeld op het echte adres, UptimeRobot,
-backup-terugzettest.
+staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
 
 ## Deze repo: kantoor-app (OfficeRoute)
 
@@ -128,3 +134,10 @@ backup-terugzettest.
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
 - Gebruikers: `_start_passwords` markeert accounts met een gedeeld startwachtwoord.
+- Routes: blok "Echte adressen en echte routes" na de Radius-koppeling. `_geocode`,
+  `_order_point`, `_home_point`, `_depot_point`, `_route` (Google of schatting, met cache),
+  `_planned_route` (planningpagina, kaart, terugkomst), `compute_arrivals` (live: vanaf de
+  positie van nu, per monteur hooguit elke 20 minuten een Google-route). "Route
+  optimaliseren" en de klokknop zetten de geplande tijden (GT) met echte rijtijden.
+  `route_alerts` toont alleen echte filevertraging (met verkeer min zonder verkeer).
+  Kosten: met verkeer is het de Pro-soort van Google (5.000 per maand gratis).

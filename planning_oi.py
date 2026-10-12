@@ -60,6 +60,8 @@ BRAND = "OfficeRoute"
 # Vaste laad-/loslocatie: alle routes eindigen hier zodat de bus opnieuw geladen wordt.
 HOME_BASE = "Breda"
 BREDA = (51.5719, 4.7683)
+DEPOT_ADDRESS = "Nikkelstraat 28, Breda"   # eindpunt van de routes; instelbaar bij Koppelingen
+DEFAULT_DEPART = "08:00"                    # vertrektijd van huis; instelbaar bij Koppelingen
 LOAD_MARGIN_KG = 500   # het is normaal om iets over de max te zitten; pas boven deze marge een waarschuwing
 # Grens waarboven een order als "belangrijke order" geldt (euro).
 IMPORTANT_THRESHOLD = 3000
@@ -173,7 +175,7 @@ got_request_exception.connect(_record_app_error)
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
                  "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
-                 "route_crew", "presence", "bag_cache"}
+                 "route_crew", "presence", "bag_cache", "geo_cache", "route_cache"}
 
 
 def _sub_placeholders(sql):
@@ -437,17 +439,18 @@ INTEGRATIONS = [
         {"key": "client_secret", "label": "OAuth client-secret", "type": "password"},
         {"key": "label_filter", "label": "Labelfilter (optioneel)", "type": "text", "placeholder": "Bezorging"}]},
     {"key": "google_maps", "name": "Google Maps", "icon": "🗺", "logo": "googlemaps", "c": "#1A73E8",
-     "desc": "Kaarten, live locatie en navigatie in de monteur-app en op het dashboard.",
-     "fields": [{"key": "api_key", "label": "Maps API-sleutel", "type": "password"}]},
+     "desc": "Echte rijafstand en rijtijd met verkeer voor de routes, de geplande tijden en de aankomsttijden voor klanten, en het opzoeken van adressen. Zet in Google Cloud de Routes API en de Geocoding API aan.",
+     "fields": [{"key": "api_key", "label": "Google Maps API-sleutel", "type": "password",
+                 "placeholder": "Google Cloud > APIs en services > Inloggegevens"}]},
     # Geen eigen beeldmerk (provider is instelbaar) - sprite-icoon in de huisstijlkleur.
-    {"key": "route_api", "name": "Route Optimization", "icon": "🧭", "sicon": "ic-map", "c": "#0f3d3e",
-     "desc": "Automatische routeoptimalisatie (afstand, verkeer, capaciteit, werktijd).",
+    {"key": "route_api", "name": "Routes en reistijden", "icon": "🧭", "sicon": "ic-map", "c": "#0f3d3e",
+     "desc": "Monteurs vertrekken van huis (thuisadres onder Monteurs) en eindigen op het depot. De rijtijden zelf komen van Google Maps.",
      "fields": [
-        {"key": "provider", "label": "Provider", "type": "select",
-         "options": ["Google Route Optimization", "OptaPlanner", "Routific", "Anders"]},
-        {"key": "api_key", "label": "API-sleutel", "type": "password"},
-        {"key": "max_worktime", "label": "Max. werktijd per dag (uur)", "type": "text", "placeholder": "9"},
-        {"key": "depot", "label": "Eindpunt (depot)", "type": "text", "default": HOME_BASE}]},
+        {"key": "depart", "label": "Vertrektijd van huis", "type": "text", "default": DEFAULT_DEPART,
+         "placeholder": "08:00"},
+        {"key": "depot", "label": "Eindpunt (depot)", "type": "text", "default": DEPOT_ADDRESS},
+        {"key": "max_worktime", "label": "Max. werktijd per dag in uren (automatisch plannen)", "type": "text",
+         "placeholder": "7", "optional": True}]},
     {"key": "gps", "name": "Live GPS-tracking", "icon": "📍", "app": "monteurs",
      "desc": "Realtime locatie van monteurs op het dashboard en veilige klant-trackinglink (Uber/Picnic-stijl). De monteur-app deelt de live locatie via de telefoon.",
      "fields": [
@@ -589,6 +592,9 @@ def init_db():
         monteur_id INTEGER PRIMARY KEY, lat REAL, lng REAL, updated_at TEXT, live INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS bus_choices(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_email TEXT,
         user_name TEXT, bus_id TEXT, bus_label TEXT, plate TEXT, date TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS geo_cache(addr_key TEXT PRIMARY KEY, query TEXT, lat REAL, lng REAL,
+        src TEXT, quality TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS route_cache(rkey TEXT PRIMARY KEY, data TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS office_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         person TEXT, date TEXT, status TEXT, note TEXT, UNIQUE(person, date));
@@ -718,6 +724,13 @@ def init_db():
             conn.execute(stmt)
         except Exception:
             pass
+    # Het depot stond als plaatsnaam 'Breda'; voor echte routes is het adres nodig.
+    try:
+        conn.execute("""UPDATE integrations SET value=? WHERE ikey='route_api' AND field='depot'
+                        AND (value IS NULL OR value='' OR value=?)""", (DEPOT_ADDRESS, HOME_BASE))
+        conn.commit()
+    except Exception:
+        pass
     # Backfill: geef bestaande orders zonder tracking-token er alsnog een (idempotent).
     try:
         for r in conn.execute("SELECT id FROM orders WHERE track_token IS NULL OR track_token=''").fetchall():
@@ -962,7 +975,7 @@ def _seed(conn):
             if "default" in f:
                 c.execute("INSERT OR IGNORE INTO integrations(ikey,field,value) VALUES(?,?,?)",
                           (integ["key"], f["key"], f["default"]))
-    c.execute("INSERT OR IGNORE INTO integrations(ikey,field,value) VALUES(?,?,?)", ("route_api", "depot", HOME_BASE))
+    c.execute("INSERT OR IGNORE INTO integrations(ikey,field,value) VALUES(?,?,?)", ("route_api", "depot", DEPOT_ADDRESS))
 
     settings = {
         "company_name": "Office-Interior Bezorging & Montage",
@@ -1367,16 +1380,6 @@ def _items_by_order(conn, order_ids):
     return {k: ", ".join(v) for k, v in out.items()}
 
 
-def eta_back_to_base(lat, lng, remaining_stops, speed):
-    """Schat hoe laat de monteur terug is in Breda om te laden."""
-    km = haversine((lat, lng), BREDA)
-    speed_factor = 1.0 + (3 - (speed or 3)) * 0.08      # snellere monteur = sneller klaar
-    drive_min = km / 45 * 60
-    work_min = remaining_stops * 22 * speed_factor
-    eta = datetime.now() + timedelta(minutes=drive_min + work_min)
-    return eta.strftime("%H:%M"), round(km)
-
-
 def _gt_today(gt):
     """Geplande tijd 'HH:MM' als datetime van vandaag (of None)."""
     if not gt:
@@ -1388,44 +1391,100 @@ def _gt_today(gt):
         return None
 
 
-def compute_arrivals(stops, monteur, live, is_today):
-    """Live aankomsttijden (AT) per stop + ETA terug in Breda, o.b.v. GPS + route.
+def compute_arrivals(stops, monteur, live, is_today, montage=None, planned=None):
+    """Aankomsttijden (AT) per stop + verwachte terugkomst op het depot.
 
-    stops: lijst met city, montage_min, status, slot_start (op volgorde).
-    Geeft (arrivals, eta_back). arrivals[i] = {at, status, delta}.
-    status: done | ontime | late | none(niet live)."""
-    speed = monteur["speed"] or 3
-    mfac = 1.0 + (3 - speed) * 0.08
-    arrivals = []
-    eta_back = None
-    if live and is_today:
-        pos, t = live, datetime.now()
-        for s in stops:
-            if s["status"] == "afgerond":
-                arrivals.append({"at": None, "status": "done", "delta": None})
-                continue
-            city = CITY_COORDS.get(s["city"], BREDA)
-            t = t + timedelta(minutes=haversine(pos, city) / 45 * 60)
-            gtdt = _gt_today(s["slot_start"])
-            delta = round((t - gtdt).total_seconds() / 60) if gtdt else None
-            arrivals.append({"at": t.strftime("%H:%M"),
-                             "status": ("late" if (delta or 0) > 5 else "ontime"),
-                             "delta": delta})
-            t = t + timedelta(minutes=(s["montage_min"] or 0) * mfac)
-            pos = city
-        eta_back = (t + timedelta(minutes=haversine(pos, BREDA) / 45 * 60)).strftime("%H:%M")
-    else:
-        for s in stops:
-            arrivals.append({"at": None, "status": "none", "delta": None})
-        if stops:
-            last = stops[-1]
-            base = _gt_today(last["slot_start"])
-            if base:
-                lastcity = CITY_COORDS.get(last["city"], BREDA)
-                eta = base + timedelta(minutes=(last["montage_min"] or 0) * mfac
-                                       + haversine(lastcity, BREDA) / 45 * 60)
-                eta_back = eta.strftime("%H:%M")
+    Live (vandaag, met positie): over de weg en met verkeer, vanaf de huidige positie
+    langs de nog open stops naar het depot. Anders alleen de terugkomst, uit de
+    geplande route (planned, zie _planned_route) of anders de laatste geplande tijd.
+    stops: rijen met order_id, leveradres, montage_min, status, slot_start (op volgorde).
+    montage: optioneel {order_id: minuten} (de catalogusberekening van de planning).
+    Geeft (arrivals, eta_back). arrivals[i] = {at, status, delta}; status:
+    done | ontime | late | none (niet live of adres onbekend)."""
+    arrivals, eta_back, _km = _arrivals_and_km(stops, monteur, live, is_today, montage, planned)
     return arrivals, eta_back
+
+
+def _arrivals_and_km(stops, monteur, live, is_today, montage=None, planned=None):
+    speed = _rget(monteur, "speed") or 3
+    mfac = 1.0 + (3 - speed) * 0.08
+
+    def mont(s):
+        return ((montage or {}).get(_rget(s, "order_id")) or _rget(s, "montage_min") or 0) * mfac
+
+    arrivals = [{"at": None, "status": "none", "delta": None} for _ in stops]
+    eta_back, km_left = None, None
+    cfg = _route_cfg()
+    if live and is_today:
+        used = []
+        pts = [(live[0], live[1], "live", "adres")]
+        for i, s in enumerate(stops):
+            if s["status"] == "afgerond":
+                arrivals[i] = {"at": None, "status": "done", "delta": None}
+                continue
+            p = _order_point(s, cfg["key"])
+            if p:
+                pts.append(p); used.append(i)
+        pts.append(_depot_point(cfg["key"]))
+        now = datetime.now()
+        # Per monteur hooguit elke 20 minuten één route bij Google (gratis deel); daartussen
+        # schalen we de eerste rit naar de positie van nu (zie hieronder).
+        ck = "live:%s:%s:%s%d" % (_rget(monteur, "id"), ",".join(str(_rget(stops[i], "order_id")) for i in used),
+                                  now.strftime("%Y%m%d%H"), now.minute // ROUTE_LIVE_MIN)
+        r = _route(pts, None, cache_key=ck, ttl_min=ROUTE_LIVE_MIN)
+        legs = [dict(l) for l in r["legs"]]
+        # De route kan tot een kwartier oud zijn; de eerste rit schalen we naar wat er
+        # van de afstand nog over is vanaf de positie van nu.
+        frm = r.get("from")
+        if legs and frm and len(pts) > 1:
+            was, nu = haversine(frm, pts[1][:2]), haversine(pts[0][:2], pts[1][:2])
+            if was > 0.2:
+                legs[0]["min"] *= max(0.0, min(1.5, nu / was))
+                legs[0]["km"] *= max(0.0, min(1.5, nu / was))
+        t = now
+        for k, i in enumerate(used):
+            if k < len(legs):
+                t = t + timedelta(minutes=legs[k]["min"])
+            gtdt = _gt_today(stops[i]["slot_start"])
+            delta = round((t - gtdt).total_seconds() / 60) if gtdt else None
+            arrivals[i] = {"at": t.strftime("%H:%M"), "status": ("late" if (delta or 0) > 5 else "ontime"),
+                           "delta": delta}
+            t = t + timedelta(minutes=mont(stops[i]))
+        if len(legs) > len(used):
+            t = t + timedelta(minutes=legs[len(used)]["min"])
+        eta_back = t.strftime("%H:%M")
+        km_left = round(sum(l["km"] for l in legs))
+    elif stops:
+        pr = planned
+        last_i = len(stops) - 1
+        base = _gt_today(stops[last_i]["slot_start"])
+        if base:
+            if pr and pr.get("legs") and pr.get("stop_idx") and pr["stop_idx"][-1] == last_i:
+                back_min = pr["legs"][-1]["min"]
+            else:
+                lp = _order_point(stops[last_i], cfg["key"])
+                back_min = _route([lp, _depot_point(cfg["key"])])["min"] if lp else 0
+            eta_back = (base + timedelta(minutes=mont(stops[last_i]) + back_min)).strftime("%H:%M")
+        elif pr and pr.get("legs"):
+            # Nog geen geplande tijden: reken de dag door vanaf de vertrektijd.
+            h, mi = [int(x) for x in cfg["depart"].split(":")]
+            t = datetime.now().replace(hour=h, minute=mi, second=0, microsecond=0)
+            for k, i in enumerate(pr["stop_idx"]):
+                t = t + timedelta(minutes=pr["legs"][k]["min"] + mont(stops[i]))
+            t = t + timedelta(minutes=pr["legs"][-1]["min"])
+            eta_back = t.strftime("%H:%M")
+    return arrivals, eta_back, km_left
+
+
+def _eta_back_live(conn, m, live):
+    """Terug op het depot (tijd + resterende km) voor een monteur die nu onderweg is."""
+    stops = conn.execute("""SELECT p.order_id, p.slot_start, p.status, o.delivery_address, o.postal, o.city,
+                                   o.montage_min, o.service_type
+                            FROM planning p JOIN orders o ON o.id=p.order_id
+                            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""",
+                         (m["id"], _today_iso())).fetchall()
+    _arr, eta, km = _arrivals_and_km(stops, m, live, True)
+    return eta, km
 
 
 LIVE_MAX_MIN = 30   # locatie geldt als 'live' zolang de laatste update < 30 min oud is
@@ -1674,14 +1733,493 @@ def _velocity_start():
             threading.Thread(target=_velocity_loop, name="velocity-sync", daemon=True).start()
 
 
-def route_alerts(monteur_id, has_stops):
-    """Significante files/werkzaamheden op de route (>= ALERT_THRESHOLD min).
-    Stub - wordt live gevoed door de route-/verkeerskoppeling. Onder de drempel = vrije route."""
-    out = []
-    if has_stops and monteur_id == 1:        # demo: één route met een echte file
-        out.append({"icon": "🚗", "desc": "File A2 richting Den Bosch", "min": 25})
-        out.append({"icon": "🚧", "desc": "Wegwerkzaamheden N65 (Tilburg)", "min": 10})
-    return [a for a in out if a["min"] >= ALERT_THRESHOLD]
+# --------------------------------------------------------------------------- #
+#  Echte adressen en echte routes.
+#  1. Elk adres wordt een exacte locatie: PDOK (gratis, Nederland), anders Google
+#     Geocoding (met sleutel), anders OpenStreetMap. Uitkomst in geo_cache.
+#  2. Afstand en rijtijd komen over de weg van Google Routes, met verkeer en de
+#     echte vertrektijd. Uitkomst in route_cache, zodat dezelfde rit niet steeds
+#     opnieuw wordt gevraagd.
+#  Zonder Google-sleutel valt het terug op een schatting op de exacte locaties;
+#  dat staat er dan ook bij ("schatting").
+#  Google rekent per aanvraag: met verkeer of volgorde-optimalisatie is het de
+#  Pro-soort (5.000 per maand gratis), anders Essentials (10.000 gratis).
+# --------------------------------------------------------------------------- #
+try:
+    from zoneinfo import ZoneInfo
+    NL_TZ = ZoneInfo("Europe/Amsterdam")
+except Exception:                       # zonder tz-database: zomertijd als benadering
+    from datetime import timezone as _tz
+    NL_TZ = _tz(timedelta(hours=2))
+
+GOOGLE_ROUTES_URL = os.environ.get("GOOGLE_ROUTES_URL",
+                                   "https://routes.googleapis.com/directions/v2:computeRoutes")
+GOOGLE_GEOCODE_URL = os.environ.get("GOOGLE_GEOCODE_URL",
+                                    "https://maps.googleapis.com/maps/api/geocode/json")
+ROUTE_CACHE_FUTURE_MIN = 12 * 60   # een geplande dag: verkeersverwachting verandert weinig
+ROUTE_CACHE_TODAY_MIN = 3 * 60     # de geplande route van vandaag (live loopt apart)
+ROUTE_LIVE_MIN = 20                # live: per monteur hooguit elke 20 minuten een nieuwe route
+_NOMINATIM_LOCK = threading.Lock()
+_NOMINATIM_LAST = [0.0]
+
+
+def _route_cfg():
+    conn = db()
+    try:
+        cfg = {r["field"]: r["value"] for r in
+               conn.execute("SELECT field,value FROM integrations WHERE ikey=?", ("route_api",)).fetchall()}
+        gm = conn.execute("SELECT value FROM integrations WHERE ikey='google_maps' AND field='api_key'").fetchone()
+    except Exception:
+        cfg, gm = {}, None
+    conn.close()
+    # Eén Google-sleutel voor alles: die van de koppeling Google Maps (env gaat voor).
+    gkey = (os.environ.get("GOOGLE_MAPS_API_KEY") or (gm["value"] if gm else "") or cfg.get("api_key") or "").strip()
+    depot = (cfg.get("depot") or "").strip()
+    if not depot or depot.lower() == HOME_BASE.lower():
+        depot = DEPOT_ADDRESS
+    depart = (cfg.get("depart") or "").strip()
+    if not _re.match(r"^\d{1,2}:\d{2}$", depart):
+        depart = DEFAULT_DEPART
+    try:
+        workday = int(float((cfg.get("max_worktime") or "").replace(",", ".")) * 60)
+    except ValueError:
+        workday = 0
+    return {"key": gkey, "depot": depot, "depart": depart, "workday_min": workday or 420}
+
+
+# ---- 1. Adressen -> exacte locatie ---------------------------------------- #
+_NL_POSTCODE = _re.compile(r"\b(\d{4})\s?([A-Za-z]{2})\b")
+_BE_CITIES = {"antwerpen", "gent", "brussel", "bruxelles", "hasselt", "brugge", "leuven",
+              "mechelen", "turnhout", "kortrijk", "genk", "aalst", "oostende", "luik", "liège"}
+
+
+def _geo_key(q):
+    return _re.sub(r"[^a-z0-9]+", " ", (q or "").lower()).strip()
+
+
+def _addr_query(address, postal=None, city=None):
+    """Eén zoekregel van straat + huisnummer, postcode en plaats, zonder dubbelingen
+    (handmatige orders hebben postcode en plaats al in het adres staan)."""
+    a = (address or "").strip()
+    parts = [a] if a else []
+    flat = a.lower().replace(" ", "")
+    if postal and postal.strip() and postal.replace(" ", "").lower() not in flat:
+        parts.append(postal.strip())
+    if city and city.strip() and city.strip().lower() not in a.lower():
+        parts.append(city.strip())
+    return ", ".join(parts)
+
+
+def _looks_belgian(q):
+    """Belgisch adres? Dan slaan we PDOK (alleen Nederland) over."""
+    if _NL_POSTCODE.search(q or ""):
+        return False
+    low = (q or "").lower()
+    return "belgi" in low or any(_re.search(r"\b%s\b" % _re.escape(c), low) for c in _BE_CITIES)
+
+
+def _geo_pdok(q):
+    url = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?" + urllib.parse.urlencode(
+        {"q": q, "rows": 1, "fl": "centroide_ll,weergavenaam,type,woonplaatsnaam"})
+    docs = _http_json(url, timeout=8).get("response", {}).get("docs", [])
+    if not docs:
+        return None
+    d = docs[0]
+    m = _re.match(r"POINT\(([-\d.]+) ([-\d.]+)\)", d.get("centroide_ll") or "")
+    if not m:
+        return None
+    # Zonder postcode moet de plaats wel kloppen, anders vindt PDOK een gelijknamige
+    # straat ergens anders in het land.
+    if not _NL_POSTCODE.search(q):
+        wp = (d.get("woonplaatsnaam") or "").lower()
+        if wp and wp not in q.lower():
+            return None
+    quality = "adres" if d.get("type") == "adres" else (d.get("type") or "plaats")
+    return float(m.group(2)), float(m.group(1)), "pdok", quality
+
+
+def _geo_google(q, key):
+    url = GOOGLE_GEOCODE_URL + "?" + urllib.parse.urlencode(
+        {"address": q, "key": key, "language": "nl", "region": "nl"})
+    d = _http_json(url, headers={"User-Agent": "OfficeRoute/1.0"}, timeout=8)
+    res = d.get("results") or []
+    if d.get("status") != "OK" or not res:
+        return None
+    loc = res[0]["geometry"]["location"]
+    quality = "adres" if res[0]["geometry"].get("location_type") in ("ROOFTOP", "RANGE_INTERPOLATED") else "plaats"
+    return float(loc["lat"]), float(loc["lng"]), "google", quality
+
+
+def _geo_nominatim(q):
+    # Gebruiksregels van OpenStreetMap: hooguit één verzoek per seconde, eigen User-Agent.
+    with _NOMINATIM_LOCK:
+        wait = 1.1 - (time.time() - _NOMINATIM_LAST[0])
+        if wait > 0:
+            time.sleep(wait)
+        _NOMINATIM_LAST[0] = time.time()
+        url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+            {"q": q, "format": "jsonv2", "limit": 1, "countrycodes": "nl,be,de,lu"})
+        res = _http_json(url, headers={"User-Agent": "OfficeRoute/1.0 (+https://www.office-interiorhub.nl)"},
+                         timeout=8)
+    if not res:
+        return None
+    r = res[0]
+    quality = "adres" if r.get("addresstype") in ("building", "house", "place") or r.get("type") == "house" else "plaats"
+    return float(r["lat"]), float(r["lon"]), "osm", quality
+
+
+def _geocode_remote(q, key):
+    tries = []
+    if not _looks_belgian(q):
+        tries.append(lambda: _geo_pdok(q))
+    if key:
+        tries.append(lambda: _geo_google(q, key))
+    tries.append(lambda: _geo_nominatim(q))
+    for t in tries:
+        try:
+            hit = t()
+        except Exception:
+            hit = None
+        if hit:
+            return hit
+    return None
+
+
+def _geocode(query, key=None):
+    """(lat, lng, bron, kwaliteit) voor een adres, of None. Kwaliteit is 'adres' bij
+    een huisnummer-precieze locatie, anders bijvoorbeeld 'weg' of 'plaats'."""
+    k = _geo_key(query)
+    if not k:
+        return None
+    conn = db()
+    try:
+        r = conn.execute("SELECT lat,lng,src,quality,ts FROM geo_cache WHERE addr_key=?", (k,)).fetchone()
+    finally:
+        conn.close()
+    if r:
+        if r["lat"] is not None:
+            return (r["lat"], r["lng"], r["src"], r["quality"])
+        # 'Niet gevonden' bewaren we een dag; daarna proberen we het opnieuw.
+        if (r["ts"] or "") > (datetime.now() - timedelta(days=1)).isoformat(timespec="minutes"):
+            return None
+    hit = _geocode_remote(query, key if key is not None else _route_cfg()["key"])
+    # Bewaren is een gemak, geen voorwaarde: lukt het niet, dan werkt de pagina gewoon.
+    try:
+        conn = db()
+        try:
+            conn.execute("""INSERT INTO geo_cache(addr_key,query,lat,lng,src,quality,ts) VALUES(?,?,?,?,?,?,?)
+                            ON CONFLICT(addr_key) DO UPDATE SET query=excluded.query,lat=excluded.lat,
+                            lng=excluded.lng,src=excluded.src,quality=excluded.quality,ts=excluded.ts""",
+                         (k, query[:300], hit[0] if hit else None, hit[1] if hit else None,
+                          hit[2] if hit else "none", hit[3] if hit else None,
+                          datetime.now().isoformat(timespec="minutes")))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return hit
+
+
+def _rget(row, key):
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
+def _order_point(row, key=None):
+    """Exacte locatie van het leveradres van een order/stop (dict of Row met
+    delivery_address/postal/city of order_id)."""
+    addr, postal, city = _rget(row, "delivery_address"), _rget(row, "postal"), _rget(row, "city")
+    if addr is None and postal is None:
+        oid = _rget(row, "order_id") or _rget(row, "oid")
+        if oid:
+            conn = db()
+            o = conn.execute("SELECT delivery_address, postal, city FROM orders WHERE id=?", (oid,)).fetchone()
+            conn.close()
+            if o:
+                addr, postal, city = o["delivery_address"], o["postal"], o["city"]
+    hit = _geocode(_addr_query(addr, postal, city), key)
+    if hit:
+        return hit
+    c = CITY_COORDS.get((city or "").strip())
+    return (c[0], c[1], "lijst", "plaats") if c else None
+
+
+def _home_point(m, key=None):
+    """Startpunt van een monteur: zijn thuisadres (exact), anders het depot."""
+    addr = (_rget(m, "home_address") or "").strip()
+    if addr:
+        hit = _geocode(addr, key)
+        if hit:
+            return hit
+    if _rget(m, "home_lat"):
+        return (m["home_lat"], m["home_lng"], "opgeslagen", "adres")
+    return _depot_point(key)
+
+
+def _depot_point(key=None):
+    hit = _geocode(_route_cfg()["depot"], key)
+    return hit or (BREDA[0], BREDA[1], "lijst", "plaats")
+
+
+def _geo_prewarm(queries):
+    """Adressen alvast op de achtergrond opzoeken (bij nieuwe of gewijzigde orders),
+    zodat de planningpagina er niet op hoeft te wachten."""
+    qs = [q for q in queries if q]
+    if not qs:
+        return
+
+    def run():
+        key = _route_cfg()["key"]
+        for q in qs:
+            try:
+                _geocode(q, key)
+            except Exception:
+                pass
+    threading.Thread(target=run, name="geo-prewarm", daemon=True).start()
+
+
+# ---- 2. Routes: afstand en rijtijd over de weg ---------------------------- #
+ROAD_FACTOR = 1.3      # schatting: de weg is gemiddeld zo'n 30% langer dan hemelsbreed
+
+
+def _estimate_leg(a, b):
+    km = haversine(a[:2], b[:2]) * ROAD_FACTOR
+    if km < 0.3:
+        return km, 0.0
+    speed = 30 if km < 8 else (50 if km < 25 else 75)
+    return km, km / speed * 60 + 3      # +3 min wegrijden en parkeren
+
+
+def _parse_secs(v):
+    try:
+        return float(str(v).rstrip("s"))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _route_save_status(ok, msg=""):
+    try:
+        conn = db()
+        try:
+            _save_setting(conn, "route_status", json.dumps(
+                {"ok": ok, "msg": msg[:200], "at": datetime.now().isoformat(timespec="minutes")}))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _route_status():
+    conn = db()
+    try:
+        r = conn.execute("SELECT value FROM settings WHERE skey='route_status'").fetchone()
+        return json.loads(r["value"]) if r and r["value"] else {}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
+
+def _google_err(e):
+    """Leesbare foutmelding van Google voor kantoor (Koppelingen en commandocentrum)."""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            detail = (json.loads(e.read().decode("utf-8", "replace")).get("error") or {}).get("message") or ""
+        except Exception:
+            detail = ""
+        if e.code in (401, 403):
+            return "Google weigert de sleutel (code %s). %s" % (e.code, detail[:160])
+        return "Google gaf foutcode %s. %s" % (e.code, detail[:160])
+    if isinstance(e, urllib.error.URLError):
+        return "Google is niet bereikbaar (%s)." % e.reason
+    return str(e)[:200]
+
+
+def _google_route(points, key, depart=None, optimize=False):
+    def wp(p):
+        return {"location": {"latLng": {"latitude": p[0], "longitude": p[1]}}}
+    body = {"origin": wp(points[0]), "destination": wp(points[-1]),
+            "intermediates": [wp(p) for p in points[1:-1]],
+            "travelMode": "DRIVE", "routingPreference": "TRAFFIC_AWARE",
+            "languageCode": "nl-NL", "units": "METRIC", "regionCode": "nl"}
+    # Google accepteert alleen een vertrektijd in de toekomst; anders rekent hij met nu.
+    if depart and depart > datetime.now(NL_TZ) + timedelta(minutes=2):
+        body["departureTime"] = depart.astimezone(NL_TZ).isoformat()
+    mask = ("routes.distanceMeters,routes.duration,routes.staticDuration,routes.legs.distanceMeters,"
+            "routes.legs.duration,routes.legs.staticDuration,routes.polyline.encodedPolyline")
+    if optimize:
+        body["optimizeWaypointOrder"] = True
+        mask += ",routes.optimizedIntermediateWaypointIndex"
+    req = urllib.request.Request(GOOGLE_ROUTES_URL, data=json.dumps(body).encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/json", "X-Goog-Api-Key": key,
+                                          "X-Goog-FieldMask": mask, "User-Agent": "OfficeRoute/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read().decode("utf-8") or "{}")
+    routes = data.get("routes") or []
+    if not routes:
+        raise ValueError("Google vond geen route tussen deze adressen.")
+    rt = routes[0]
+    legs = [{"km": (l.get("distanceMeters") or 0) / 1000.0,
+             "min": _parse_secs(l.get("duration")) / 60.0,
+             "free_min": _parse_secs(l.get("staticDuration") or l.get("duration")) / 60.0}
+            for l in rt.get("legs") or []]
+    return {"legs": legs, "poly": [((rt.get("polyline") or {}).get("encodedPolyline") or "")],
+            "order": rt.get("optimizedIntermediateWaypointIndex")}
+
+
+def _route_key(pts, depart, optimize):
+    future = bool(depart and depart.date() > datetime.now(NL_TZ).date())
+    return hashlib.sha1(json.dumps(
+        [[round(p[0], 5), round(p[1], 5)] for p in pts]
+        + [bool(optimize), depart.isoformat(timespec="minutes") if future else "nu"]).encode()).hexdigest()
+
+
+def _route_store(rkey, res):
+    try:
+        conn = db()
+        try:
+            conn.execute("""INSERT INTO route_cache(rkey,data,ts) VALUES(?,?,?)
+                            ON CONFLICT(rkey) DO UPDATE SET data=excluded.data, ts=excluded.ts""",
+                         (rkey, json.dumps(res), datetime.now().isoformat(timespec="seconds")))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
+def _route(points, depart=None, optimize=False, cache_key=None, ttl_min=None):
+    """Afstand en rijtijd langs points (start, stops..., eind).
+    Geeft {km, min, legs: [{km, min, free_min}], traffic_min, poly, order, src}.
+    src = 'google' (over de weg, met verkeer) of 'schatting'."""
+    pts = [p for p in points if p]
+    if len(pts) < 2:
+        return {"km": 0, "min": 0, "legs": [], "traffic_min": 0, "poly": [], "order": None, "src": "schatting"}
+    cfg = _route_cfg()
+    key = cfg["key"]
+    res = None
+    if key:
+        today = datetime.now(NL_TZ).date()
+        future = bool(depart and depart.date() > today)
+        if ttl_min is None:
+            ttl_min = ROUTE_CACHE_FUTURE_MIN if future else ROUTE_CACHE_TODAY_MIN
+        rkey = cache_key or _route_key(pts, depart, optimize)
+        conn = db()
+        try:
+            r = conn.execute("SELECT data, ts FROM route_cache WHERE rkey=?", (rkey,)).fetchone()
+        finally:
+            conn.close()
+        if r and (r["ts"] or "") > (datetime.now() - timedelta(minutes=ttl_min)).isoformat(timespec="seconds"):
+            try:
+                res = json.loads(r["data"])
+            except Exception:
+                res = None
+        if res is None:
+            try:
+                if len(pts) - 2 <= 25:
+                    g = _google_route(pts, key, depart, optimize)
+                else:
+                    # Meer dan 25 tussenstops: in stukken (Google-limiet), zonder optimalisatie.
+                    g = {"legs": [], "poly": [], "order": None}
+                    i = 0
+                    while i < len(pts) - 1:
+                        part = _google_route(pts[i:i + 27], key, depart if i == 0 else None)
+                        g["legs"] += part["legs"]
+                        g["poly"] += part["poly"]
+                        i += 26
+                res = {"legs": g["legs"], "poly": g["poly"], "order": g["order"], "src": "google",
+                       "from": [pts[0][0], pts[0][1]]}
+                _route_store(rkey, res)
+                if optimize and g["order"] is not None and not cache_key:
+                    # De geoptimaliseerde route is ook gewoon de route in die nieuwe volgorde:
+                    # zo hoeft de kaart of de planning hem niet nog eens op te vragen.
+                    ordered = [pts[0]] + [pts[i + 1] for i in g["order"]] + [pts[-1]]
+                    _route_store(_route_key(ordered, depart, False), dict(res, order=None))
+                _route_save_status(True)
+            except Exception as e:
+                _route_save_status(False, _google_err(e))
+                res = None
+    if res is None:
+        order = None
+        if optimize and len(pts) > 3:
+            # Dichtstbijzijnde volgende stop, vanaf het startpunt.
+            rest = list(range(len(pts) - 2))
+            order, cur = [], pts[0]
+            while rest:
+                nxt = min(rest, key=lambda i: haversine(cur[:2], pts[i + 1][:2]))
+                order.append(nxt); rest.remove(nxt); cur = pts[nxt + 1]
+            pts = [pts[0]] + [pts[i + 1] for i in order] + [pts[-1]]
+        legs = []
+        for a, b in zip(pts, pts[1:]):
+            km, mins = _estimate_leg(a, b)
+            legs.append({"km": km, "min": mins, "free_min": mins})
+        res = {"legs": legs, "poly": [], "order": order, "src": "schatting"}
+    res = dict(res)
+    res["km"] = sum(l["km"] for l in res["legs"])
+    res["min"] = sum(l["min"] for l in res["legs"])
+    res["traffic_min"] = max(0.0, res["min"] - sum(l["free_min"] for l in res["legs"]))
+    return res
+
+
+def _day_depart(day_iso, cfg=None):
+    """Vertrektijd van huis op een dag (Nederlandse tijd)."""
+    cfg = cfg or _route_cfg()
+    h, mi = [int(x) for x in cfg["depart"].split(":")]
+    d = datetime.strptime(day_iso, "%Y-%m-%d")
+    return d.replace(hour=h, minute=mi, tzinfo=NL_TZ)
+
+
+def _montage_map(conn, rows):
+    """{order_id: montagetijd in minuten} uit de artikelcatalogus, met de order als terugval
+    (zelfde berekening als de planningpagina)."""
+    oids = [r["order_id"] for r in rows if _rget(r, "order_id")]
+    if not oids:
+        return {}
+    prods = _load_products(conn)
+    by_o = {}
+    for r in conn.execute("SELECT order_id,%s AS name,qty,montage_custom FROM order_items WHERE order_id IN (%s)"
+                          % (_mkey(), ",".join("?" * len(oids))), tuple(oids)).fetchall():
+        by_o.setdefault(r["order_id"], []).append({"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]})
+    return {r["order_id"]: _order_montage(by_o.get(r["order_id"], []), prods,
+                                          fallback=(_rget(r, "montage_min") or 0),
+                                          service_type=_rget(r, "service_type") or "montage")
+            for r in rows if _rget(r, "order_id")}
+
+
+def _planned_route(m, stops, day_iso, cfg=None):
+    """Geplande dagroute: thuis -> stops (in volgorde) -> depot, vertrek op de
+    vertrektijd. Stops zonder vindbaar adres tellen niet mee (en worden gemeld)."""
+    cfg = cfg or _route_cfg()
+    start = _home_point(m, cfg["key"])
+    pts, missing, idx = [start], [], []
+    for i, s in enumerate(stops):
+        p = _order_point(s, cfg["key"])
+        if p:
+            pts.append(p); idx.append(i)
+        else:
+            missing.append(i)
+    pts.append(_depot_point(cfg["key"]))
+    r = _route(pts, _day_depart(day_iso, cfg))
+    r["stop_idx"] = idx            # leg k+1 eindigt bij stops[idx[k]]
+    r["missing"] = missing
+    r["points"] = pts
+    r["imprecise"] = [i for i, p in zip(idx, pts[1:-1]) if p[3] not in ("adres",)]
+    return r
+
+
+def route_alerts(route):
+    """Echte vertraging door verkeer (file, werkzaamheden) op de route: rijtijd met
+    verkeer min rijtijd zonder verkeer, volgens Google. Onder de drempel = vrije route."""
+    if not route or route.get("src") != "google":
+        return []
+    extra = round(route.get("traffic_min") or 0)
+    if extra < ALERT_THRESHOLD:
+        return []
+    return [{"icon": "", "desc": "Verkeer op de route (file of werkzaamheden)", "min": extra}]
 
 
 # --------------------------------------------------------------------------- #
@@ -2609,7 +3147,7 @@ def dashboard():
     for r in rows:
         remaining = conn.execute("""SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'""",
                                  (r["id"], today)).fetchone()[0]
-        eta, km = eta_back_to_base(r["lat"], r["lng"], remaining, r["speed"])
+        eta, km = _eta_back_live(conn, r, (r["lat"], r["lng"]))
         # eerstvolgende stop = waar hij nu naartoe onderweg is
         nxt = conn.execute("""SELECT c.name AS client FROM planning p
                               JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
@@ -2664,7 +3202,7 @@ def api_locations():
     for r in rows:
         remaining = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=? AND status!='afgerond'",
                                  (r["id"], today)).fetchone()[0]
-        eta, km = eta_back_to_base(r["lat"], r["lng"], remaining, r["speed"])
+        eta, km = _eta_back_live(conn, r, (r["lat"], r["lng"]))
         out.append({"id": r["id"], "name": r["name"], "color": r["color"],
                     "lat": r["lat"], "lng": r["lng"], "eta_base": eta, "km_base": km,
                     "updated": r["updated_at"]})
@@ -2895,10 +3433,22 @@ def planning():
         raw.setdefault(j["monteur_id"], []).append(j)
 
     routes_by_m = {}
+    # Echte dagroutes (thuis -> stops -> depot), tegelijk berekend: elke monteur is
+    # een aparte vraag aan Google, die we niet na elkaar willen afwachten.
+    _rcfg = _route_cfg()
+    _with_jobs = [m for m in monteurs if raw.get(m["id"])]
+    planned = {}
+    if _with_jobs:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(6, len(_with_jobs))) as _ex:
+            for _m, _pr in zip(_with_jobs, _ex.map(lambda mm: _planned_route(mm, raw[mm["id"]], day, _rcfg),
+                                                    _with_jobs)):
+                planned[_m["id"]] = _pr
     for m in monteurs:
         rj = raw.get(m["id"], [])
         live = _live_loc(conn, m["id"])
-        arrivals, eta_back = compute_arrivals(rj, m, live, is_today)
+        pr = planned.get(m["id"])
+        arrivals, eta_back = compute_arrivals(rj, m, live, is_today, montage=montage_map, planned=pr)
         enriched = []
         for s, a in zip(rj, arrivals):
             d2 = dict(s)
@@ -2915,12 +3465,8 @@ def planning():
         routes_by_m[m["id"]] = enriched
         if rj:
             montage = sum(montage_map.get(j["order_id"], j["montage_min"] or 0) for j in rj)
-            coords = [(m["home_lat"], m["home_lng"])] if m["home_lat"] else [BREDA]
-            for j in rj:
-                coords.append(CITY_COORDS.get(j["city"], BREDA))
-            coords.append(BREDA)
-            km = sum(haversine(coords[i], coords[i + 1]) for i in range(len(coords) - 1))
-            alerts = route_alerts(m["id"], True)
+            km, drive_min = pr["km"], pr["min"]
+            alerts = route_alerts(pr)
             provs = []
             for j in rj:
                 p = PROVINCE.get(j["city"])
@@ -2931,7 +3477,11 @@ def planning():
             cap = round((bus["max_weight"] or 0) - (bus["empty_weight"] or 0)) if bus else 0
             over = (load - (cap + LOAD_MARGIN_KG)) if cap else 0
             totals[m["id"]] = {"stops": len(rj), "km": round(km),
-                               "time": fmt_duration(montage + km / 45 * 60),
+                               "time": fmt_duration(montage + drive_min),
+                               "drive": fmt_duration(drive_min), "montage": fmt_duration(montage),
+                               "src": pr["src"],
+                               "missing": [rj[i]["client"] or rj[i]["delivery_address"] or "?" for i in pr["missing"]],
+                               "imprecise": [rj[i]["client"] or rj[i]["delivery_address"] or "?" for i in pr["imprecise"]],
                                "region": " · ".join(provs) if provs else "-",
                                "prov_count": len(provs),
                                "load_kg": load, "cap_kg": cap,
@@ -2942,7 +3492,8 @@ def planning():
         else:
             # Geen stops → geen reistijd/km tonen (voorkomt 'spook'-reistijd)
             _bus = busmap.get(m["bus_id"])
-            totals[m["id"]] = {"stops": 0, "km": 0, "time": "-", "region": "-",
+            totals[m["id"]] = {"stops": 0, "km": 0, "time": "-", "region": "-", "src": None,
+                               "missing": [], "imprecise": [],
                                "prov_count": 0,
                                "load_kg": 0, "cap_kg": (round((_bus["max_weight"] or 0) - (_bus["empty_weight"] or 0)) if _bus else 0),
                                "overladen": False, "over_kg": 0,
@@ -3088,17 +3639,20 @@ def api_autoplan():
         return any(f["monteur_id"] == mid and f["date_from"] <= diso <= f["date_to"] for f in frees)
 
     prods = _load_products(conn)
-    WORKDAY_MIN = 420          # 7 uur werk: Breda -> alle stops -> terug Breda (pauzes niet meegerekend)
-    SPEED_KMH = 45.0
+    _rcfg = _route_cfg()
+    WORKDAY_MIN = _rcfg["workday_min"]   # werkdag: thuis -> alle stops -> depot (pauzes niet meegerekend)
+    _depot = _depot_point(_rcfg["key"])
+    _homes = {m["id"]: _home_point(m, _rcfg["key"]) for m in monteurs}
 
-    def _coord(city):
-        return CITY_COORDS.get(city, BREDA)
+    def _coord(row):
+        # Exact leveradres; de planner probeert veel combinaties, dus hier een schatting
+        # over de weg in plaats van een Google-aanvraag per poging.
+        pt = _order_point(row, _rcfg["key"])
+        return pt if pt else (BREDA[0], BREDA[1], "lijst", "plaats")
 
-    def _route_min(stop_coords, montage_sum):
-        # Reistijd Breda(Nikkelstraat) -> stops (in volgorde) -> terug Breda + totale montagetijd.
-        pts = [BREDA] + stop_coords + [BREDA]
-        km = sum(haversine(pts[i], pts[i + 1]) for i in range(len(pts) - 1))
-        return km / SPEED_KMH * 60 + montage_sum
+    def _route_min(mid, stop_coords, montage_sum):
+        pts = [_homes.get(mid) or _depot] + stop_coords + [_depot]
+        return sum(_estimate_leg(a, b)[1] for a, b in zip(pts, pts[1:])) + montage_sum
 
     def _mw_map(oids):
         # {order_id: (montagetijd_min, gewicht_kg)}
@@ -3123,17 +3677,20 @@ def api_autoplan():
     routes_state = {}
     if days:
         ph = ",".join(["?"] * len(days))
-        exist = conn.execute("SELECT p.monteur_id AS mid, p.date AS date, p.order_id AS oid, o2.city AS city "
+        exist = conn.execute("SELECT p.monteur_id AS mid, p.date AS date, p.order_id AS oid, o2.city AS city, "
+                             "o2.postal AS postal, o2.delivery_address AS delivery_address "
                              "FROM planning p JOIN orders o2 ON o2.id=p.order_id WHERE p.date IN (%s)" % ph,
                              days).fetchall()
         exist_mw = _mw_map([r["oid"] for r in exist])
         for r in exist:
             mw = exist_mw.get(r["oid"], (30, 0))
             routes_state.setdefault((r["mid"], r["date"]), []).append(
-                {"coord": _coord(r["city"]), "prov": PROVINCE.get(r["city"]),
+                {"coord": _coord(r), "prov": PROVINCE.get(r["city"]),
                  "montage": mw[0] or 30, "weight": mw[1] or 0})
 
     cand_mw = _mw_map([o["id"] for o in orders])
+    # Alle adressen opzoeken vóór het inplannen (dan schrijven we nog niets weg).
+    ocoords = {o["id"]: _coord(o) for o in orders}
     busmap = {m["id"]: m["bus_id"] for m in monteurs}
     busweights = {b["id"]: ((b["max_weight"] or 0) - (b["empty_weight"] or 0))
                   for b in conn.execute("SELECT id,max_weight,empty_weight FROM busses").fetchall()}
@@ -3144,14 +3701,14 @@ def api_autoplan():
         mw = cand_mw.get(o["id"], (0, 0))
         omont = mw[0] or (o["montage_min"] or 30)
         oweight = mw[1] or 0
-        ocoord = _coord(o["city"])
+        ocoord = ocoords[o["id"]]
         best, best_score = None, -1e9
         for di, diso in enumerate(days):
             for m in monteurs:
                 if is_free(m["id"], diso):
                     continue
                 cur = routes_state.get((m["id"], diso), [])
-                rt = _route_min([s["coord"] for s in cur] + [ocoord],
+                rt = _route_min(m["id"], [s["coord"] for s in cur] + [ocoord],
                                 sum(s["montage"] for s in cur) + omont)
                 if rt > WORKDAY_MIN:
                     continue                       # past niet binnen de werkdag van 7 uur
@@ -3220,6 +3777,7 @@ def api_manual_order():
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                  (onum, cid, "manual", 0, "gepland", full, city, postal, full, email, day, amount, montage, service, _new_track_token(), _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    _geo_prewarm([_addr_query(full, postal, city)])
     if items:
         conn.execute("INSERT INTO order_items(order_id,name,qty) VALUES(?,?,1)", (oid, items))
     # Pakbon-PDF (bij ophalen): opslaan en koppelen aan de order voor de monteur.
@@ -3325,7 +3883,8 @@ def track(token):
     Werkt op een niet-raadbaar token i.p.v. het ordernummer (voorkomt enumeratie)."""
     conn = db()
     _purge_old_customer_notes(conn)
-    o = conn.execute("""SELECT o.id, o.order_number, o.city, o.status AS ostatus, o.customer_note, c.name AS client
+    o = conn.execute("""SELECT o.id, o.order_number, o.city, o.postal, o.delivery_address, o.status AS ostatus,
+                               o.customer_note, c.name AS client
                         FROM orders o LEFT JOIN clients c ON c.id=o.client_id WHERE o.track_token=?""",
                      (token,)).fetchone()
     if not o:
@@ -3338,7 +3897,9 @@ def track(token):
     tijdvak = the_date = eta = monteur = None
     m_lat = m_lng = None
     gate_ok, map_from = False, None
-    dcoord = CITY_COORDS.get(o["city"]) or BREDA
+    # De speld van de klant op het echte leveradres, niet op het midden van de plaats.
+    _dp = _order_point(o)
+    dcoord = (_dp[0], _dp[1]) if _dp else BREDA
     if p:
         the_date = p["date"]
         monteur = p["monteur"]
@@ -3350,7 +3911,8 @@ def track(token):
                 live = _live_loc(conn, p["mid"])
                 if live:
                     m_lat, m_lng = live[0], live[1]
-                    stops = conn.execute("""SELECT p.order_id, p.slot_start, p.status, o.city, o.montage_min
+                    stops = conn.execute("""SELECT p.order_id, p.slot_start, p.status, o.city, o.postal,
+                                                   o.delivery_address, o.montage_min, o.service_type
                                             FROM planning p JOIN orders o ON o.id=p.order_id
                                             WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""",
                                          (p["mid"], p["date"])).fetchall()
@@ -4042,6 +4604,17 @@ def monteur_edit(mid):
                   1 if f.get("active") else 0, mid))
     conn.commit()
     conn.close()
+    # Het thuisadres is het startpunt van de route: meteen de exacte locatie opzoeken.
+    home = (f.get("home_address") or "").strip()
+    hit = _geocode(home) if home else None
+    if hit:
+        conn = db()
+        conn.execute("UPDATE monteurs SET home_lat=?, home_lng=? WHERE id=?", (hit[0], hit[1], mid))
+        conn.commit()
+        conn.close()
+    elif home:
+        flash("Let op: het thuisadres '%s' is niet gevonden. Controleer straat, huisnummer en plaats; "
+              "tot die tijd start de route op het depot." % home)
     flash("Monteur bijgewerkt.")
     return redirect(url_for("planning.monteurs"))
 
@@ -5403,8 +5976,9 @@ def _conn_advice(key):
         "google": ("De Google-koppeling (OAuth/MFA · Maps · GPS) is nog niet actief.",
                ["Maak een Google Cloud-project met OAuth-client aan.",
                 "Zet de Google-sleutel in ‘Koppelingen instellen’."]),
-        "maps": ("Google Maps is nog niet als koppeling actief.",
-               ["Koppel Google Maps via de Google-sleutel in ‘Koppelingen instellen’."]),
+        "maps": ("Zonder Google-sleutel zijn reistijden en km een schatting.",
+               ["Maak in Google Cloud een API-sleutel aan en zet de Routes API en de Geocoding API aan.",
+                "Plak de sleutel bij Koppelingen > Google Maps en klik op Test verbinding."]),
         "waze": ("Waze is nog niet gekoppeld.",
                ["Waze werkt nu via deeplinks; een directe koppeling is optioneel."]),
         "oauth": ("Inloggen via Google (OAuth + MFA) is nog niet ingesteld.",
@@ -5532,7 +6106,14 @@ def _connection_health(deep=False):
     else:
         put("gps1", "err", "Geen live locatie", advice=_conn_advice("gps"))
     # Navigatie (Maps/Waze) - geen datakoppeling, alleen deeplinks
-    put("maps", "link", "Navigatie-link (geen data)")
+    # Google Maps: echte routes en reistijden (plus de navigatie-links in de monteur-app)
+    _rk, _rs = _route_cfg()["key"], _route_status()
+    if not _rk:
+        put("maps", "warn", "Schatting: sleutel ontbreekt", advice=_conn_advice("maps"))
+    elif _rs and not _rs.get("ok"):
+        put("maps", "err", "Fout: %s" % (_rs.get("msg") or "onbekend")[:60], advice=_conn_advice("maps"))
+    else:
+        put("maps", "ok", "Echte routes en reistijden", "live")
     put("waze", "link", "Navigatie-link (geen data)")
     # Eigen domein via TransIP - nog te koppelen
     put("transip", "warn", "Nog te koppelen", advice=_conn_advice("transip"))
@@ -6598,6 +7179,7 @@ def _shopify_import_order(o):
                  (onum, cid, "shopify", 0, "in_te_plannen", full, city, postal, full, phone, email,
                   amount, note, service, gid, _new_track_token(), _today_iso()))
     oid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    _geo_prewarm([_addr_query(full, postal, city)])
     prods = _load_products(conn)
     for li in (o.get("line_items") or []):
         qty = int(li.get("quantity") or 1)
@@ -6932,6 +7514,24 @@ def integration_test(ikey):
             return jsonify(ok=False, message="BAG-test: " + err)
         return jsonify(ok=True, message="BAG-koppeling werkt. Testadres herkend als %s · ± %s verdieping(en)." % (
             "flat/appartement" if rec["type"] == "flat" else "eengezinswoning", rec["floors"]))
+    if ikey in ("google_maps", "route_api"):
+        cfg = _route_cfg()
+        depot = _geocode(cfg["depot"], cfg["key"])
+        if not depot:
+            return jsonify(ok=False, message="Het depot-adres '%s' is niet gevonden. Controleer het bij "
+                                             "Routes en reistijden." % cfg["depot"])
+        if not cfg["key"]:
+            return jsonify(ok=False, message="Depot gevonden (%s). Vul nog de Google Maps API-sleutel in voor "
+                                             "echte rijtijden; tot die tijd rekent OfficeRoute met een schatting."
+                                             % cfg["depot"])
+        test = _geocode("Stationsplein 1, 5038 CA Tilburg", cfg["key"])
+        r = _route([depot, test, depot], None, cache_key="test:%s" % datetime.now().isoformat(timespec="seconds"),
+                   ttl_min=0) if test else None
+        if not r or r["src"] != "google":
+            st = _route_status()
+            return jsonify(ok=False, message="Google-test mislukt: %s" % (st.get("msg") or "geen route ontvangen"))
+        return jsonify(ok=True, message="Google Maps werkt. Proefrit depot > Tilburg Centraal > depot: %d km, %s "
+                                        "rijden met het verkeer van nu." % (round(r["km"]), fmt_duration(r["min"])))
     if ikey == "velocity":
         st = _velocity_sync(force=True)
         if not st.get("ok"):
@@ -7180,7 +7780,7 @@ def monteur_app():
         closed = conn.execute("SELECT 1 FROM route_closed WHERE monteur_id=? AND date=?",
                               (mid, today)).fetchone() is not None
     conn.close()
-    alerts = route_alerts(mid, bool(jobs)) if mid else []
+    alerts = route_alerts(_planned_route(monteur, jobs, today)) if (mid and monteur and jobs) else []
     all_done = bool(jobs) and all(j["status"] == "afgerond" for j in jobs)
     return render_template("planning/monteur_app.html", monteur=monteur, jobs=jobs, alerts=alerts,
                            closed=closed, all_done=all_done,
@@ -7322,26 +7922,30 @@ def close_route():
 
 @bp.route("/api/route-geo/<int:mid>")
 def api_route_geo(mid):
-    """Coördinaten voor 'Bekijk route' op de kaart (home -> stops -> Breda)."""
+    """Punten en de echte route voor 'Bekijk route' op de kaart (thuis -> stops -> depot),
+    met dezelfde km en rijtijd als de routekaart in de planning."""
     if not current_user():
         return jsonify(ok=False), 403
     day = request.args.get("day", _today_iso())
     conn = db()
-    m = conn.execute("SELECT name,home_lat,home_lng,home_address FROM monteurs WHERE id=?", (mid,)).fetchone()
-    rows = conn.execute("""SELECT o.city, o.delivery_address, c.name AS client FROM planning p
+    m = conn.execute("SELECT * FROM monteurs WHERE id=?", (mid,)).fetchone()
+    rows = conn.execute("""SELECT p.order_id, o.city, o.postal, o.delivery_address, c.name AS client FROM planning p
                            JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
     conn.close()
-    pts = []
-    if m and m["home_lat"]:
-        pts.append({"lat": m["home_lat"], "lng": m["home_lng"], "label": "Start: " + (m["home_address"] or "thuis")})
-    for r in rows:
-        c = CITY_COORDS.get(r["city"])
-        if c:
-            pts.append({"lat": c[0], "lng": c[1], "label": (r["client"] or "") + " · " + (r["city"] or ""),
-                        "address": r["delivery_address"]})
-    pts.append({"lat": BREDA[0], "lng": BREDA[1], "label": "Terug: " + HOME_BASE})
-    return jsonify(ok=True, name=(m["name"] if m else ""), points=pts)
+    if not m or not rows:
+        return jsonify(ok=True, name=(m["name"] if m else ""), points=[])
+    pr = _planned_route(m, rows, day)
+    P = pr["points"]
+    pts = [{"lat": P[0][0], "lng": P[0][1], "label": "Start: " + (m["home_address"] or "depot")}]
+    for k, i in enumerate(pr["stop_idx"]):
+        r = rows[i]
+        pts.append({"lat": P[k + 1][0], "lng": P[k + 1][1],
+                    "label": (r["client"] or "") + " · " + (r["city"] or ""), "address": r["delivery_address"]})
+    pts.append({"lat": P[-1][0], "lng": P[-1][1], "label": "Eind: " + _route_cfg()["depot"]})
+    return jsonify(ok=True, name=m["name"], points=pts, poly=[x for x in pr["poly"] if x],
+                   km=round(pr["km"]), minutes=round(pr["min"]), src=pr["src"],
+                   missing=[rows[i]["client"] or rows[i]["delivery_address"] or "?" for i in pr["missing"]])
 
 
 OUTCOMES = ["succesvol", "beschadigd", "niet_thuis"]
@@ -7919,39 +8523,55 @@ def milieu_koppel():
 
 @bp.route("/api/optimize-route/<int:mid>", methods=["POST"])
 def api_optimize_route(mid):
-    """Optimaliseer de stopvolgorde binnen een route (nearest-neighbor vanaf thuisadres)."""
+    """Snelste stopvolgorde over de weg (vanaf het thuisadres, eindigend op het depot)
+    en daarna de geplande tijden (GT) opnieuw uitrekenen met echte rijtijden.
+    Met keep_order blijft de volgorde staan en worden alleen de tijden herberekend."""
     if not has_perm("optimize_routes") and not has_perm("edit_planning"):
         return jsonify(ok=False, error="Geen rechten"), 403
     data = request.get_json(silent=True) or {}
     day = data.get("day") or _today_iso()
+    keep = bool(data.get("keep_order"))
     conn = db()
-    m = conn.execute("SELECT home_lat,home_lng,speed FROM monteurs WHERE id=?", (mid,)).fetchone()
-    rows = conn.execute("""SELECT p.id pid, o.city, o.montage_min FROM planning p JOIN orders o ON o.id=p.order_id
+    m = conn.execute("SELECT * FROM monteurs WHERE id=?", (mid,)).fetchone()
+    rows = conn.execute("""SELECT p.id pid, p.order_id, p.status, o.delivery_address, o.postal, o.city,
+                                  o.montage_min, o.service_type, c.name AS client
+                           FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
-    if not rows:
+    if not rows or not m:
         conn.close()
         return jsonify(ok=True, optimized=0)
-    start = (m["home_lat"], m["home_lng"]) if m and m["home_lat"] else BREDA
-    speed = (m["speed"] if m else 3) or 3
-    mfac = 1.0 + (3 - speed) * 0.08
-    remaining = [{"pid": r["pid"], "coord": CITY_COORDS.get(r["city"], BREDA), "montage": r["montage_min"] or 0} for r in rows]
-    order, cur = [], start
-    while remaining:
-        nxt = min(remaining, key=lambda x: haversine(cur, x["coord"]))
-        order.append(nxt); remaining.remove(nxt); cur = nxt["coord"]
-    # nieuwe volgorde + geplande tijden vanaf 08:00
-    t = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
-    pos = start
-    for i, it in enumerate(order):
-        t = t + timedelta(minutes=haversine(pos, it["coord"]) / 45 * 60)
-        st = t.strftime("%H:%M")
-        t2 = t + timedelta(minutes=it["montage"] * mfac)
+    montage = _montage_map(conn, rows)
+    conn.close()                       # niet de databaseverbinding vasthouden tijdens Google
+    cfg = _route_cfg()
+    found, missing = [], []
+    for r in rows:
+        pt = _order_point(r, cfg["key"])
+        if pt:
+            found.append((r, pt))
+        else:
+            missing.append(r)
+    pts = [_home_point(m, cfg["key"])] + [pt for _r, pt in found] + [_depot_point(cfg["key"])]
+    depart = _day_depart(day, cfg)
+    route = _route(pts, depart, optimize=(not keep and len(found) > 1))
+    order = route.get("order") if not keep else None
+    seq = [found[i] for i in order] if order else found
+    mfac = 1.0 + (3 - ((m["speed"] or 3))) * 0.08
+    t = depart.replace(tzinfo=None)
+    conn = db()
+    for k, (r, _pt) in enumerate(seq):
+        if k < len(route["legs"]):
+            t = t + timedelta(minutes=route["legs"][k]["min"])
+        t2 = t + timedelta(minutes=(montage.get(r["order_id"]) or r["montage_min"] or 0) * mfac)
         conn.execute("UPDATE planning SET sequence=?, slot_start=?, slot_end=? WHERE id=?",
-                     (i, st, t2.strftime("%H:%M"), it["pid"]))
-        t = t2; pos = it["coord"]
+                     (k, t.strftime("%H:%M"), t2.strftime("%H:%M"), r["pid"]))
+        t = t2
+    # Adressen die niet te vinden zijn: achteraan, zonder (verkeerde) tijden.
+    for k, r in enumerate(missing, start=len(seq)):
+        conn.execute("UPDATE planning SET sequence=? WHERE id=?", (k, r["pid"]))
     conn.commit()
     conn.close()
-    return jsonify(ok=True, optimized=len(order))
+    return jsonify(ok=True, optimized=len(seq), src=route["src"], km=round(route["km"]),
+                   minutes=round(route["min"]), missing=[r["client"] or r["delivery_address"] or "?" for r in missing])
 
 
 def auto_send_daily_mails():
@@ -7997,7 +8617,8 @@ def auto_send_daily_mails():
         live = _live_loc(conn, m["id"])
         if not live:
             continue
-        stops = conn.execute("""SELECT p.id pid, p.slot_start, p.delay_mailed, o.city, o.montage_min, o.status AS ostatus,
+        stops = conn.execute("""SELECT p.id pid, p.order_id, p.slot_start, p.delay_mailed, o.city, o.postal,
+                                o.delivery_address, o.montage_min, o.service_type, o.status AS ostatus,
                                 o.order_number, o.track_token, o.client_id, o.email AS oemail, c.name AS client, c.email AS cemail, p.status
                                 FROM planning p JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                                 WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (m["id"], today)).fetchall()
