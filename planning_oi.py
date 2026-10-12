@@ -175,7 +175,7 @@ got_request_exception.connect(_record_app_error)
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
                  "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
-                 "route_crew", "presence", "bag_cache", "geo_cache", "route_cache"}
+                 "route_crew", "presence", "bag_cache", "geo_cache", "route_cache", "bus_location"}
 
 
 def _sub_placeholders(sql):
@@ -596,6 +596,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS geo_cache(addr_key TEXT PRIMARY KEY, query TEXT, lat REAL, lng REAL,
         src TEXT, quality TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS route_cache(rkey TEXT PRIMARY KEY, data TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS bus_location(plate_key TEXT PRIMARY KEY, plate TEXT, lat REAL, lng REAL,
+        at TEXT, ignition TEXT, speed REAL, updated TEXT);
     CREATE TABLE IF NOT EXISTS office_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         person TEXT, date TEXT, status TEXT, note TEXT, UNIQUE(person, date));
@@ -1611,6 +1613,8 @@ def _velocity_positions(cfg):
             at = None
         out.append({"plate": d.get("vehicle_registration") or "", "key": _plate_key(d.get("vehicle_registration")),
                     "lat": lat, "lng": lng, "at": at,
+                    "ignition": str(d.get("ignition") or "").upper()[:1],
+                    "speed": float(d.get("speed") or 0) if str(d.get("speed") or "0").replace(".", "", 1).isdigit() else 0.0,
                     "private": str(d.get("private")).lower() in ("1", "true", "y", "yes")})
     return out
 
@@ -1708,6 +1712,22 @@ def _velocity_sync(force=False):
                             updated_at=excluded.updated_at,live=1""",
                          (r["mid"], d["lat"], d["lng"], stamp))
             updated += 1
+        # Alle bussen voor de dashboardkaart, ook zonder ingeplande monteur. Een rit die
+        # in Velocity privé staat, komt niet op de kaart (en verdwijnt eraf).
+        stamp_now = datetime.now().isoformat(timespec="minutes")
+        for d in devices:
+            if not d["key"]:
+                continue
+            if d["private"] or not d["at"]:
+                conn.execute("DELETE FROM bus_location WHERE plate_key=?", (d["key"],))
+                continue
+            conn.execute("""INSERT INTO bus_location(plate_key,plate,lat,lng,at,ignition,speed,updated)
+                            VALUES(?,?,?,?,?,?,?,?)
+                            ON CONFLICT(plate_key) DO UPDATE SET plate=excluded.plate,lat=excluded.lat,
+                            lng=excluded.lng,at=excluded.at,ignition=excluded.ignition,speed=excluded.speed,
+                            updated=excluded.updated""",
+                         (d["key"], d["plate"], d["lat"], d["lng"], d["at"].isoformat(timespec="minutes"),
+                          d["ignition"], d["speed"], stamp_now))
         conn.commit()
     finally:
         conn.close()
@@ -3220,6 +3240,36 @@ def api_locations():
                     "updated": r["updated_at"]})
     conn.close()
     return jsonify(out)
+
+
+BUS_MAP_MAX_MIN = 60     # een bus staat op de kaart zolang zijn laatste positie < 1 uur oud is
+
+
+@bp.route("/api/bus-locations")
+def api_bus_locations():
+    """Busposities uit Radius Velocity voor de dashboardkaart (alleen kantoor)."""
+    u = current_user()
+    if not u or u["role"] in ("monteur", "picker"):
+        return jsonify(ok=False), 403
+    today = _today_iso()
+    cutoff = (datetime.now() - timedelta(minutes=BUS_MAP_MAX_MIN)).isoformat(timespec="minutes")
+    conn = db()
+    rows = conn.execute("SELECT * FROM bus_location WHERE at >= ? ORDER BY plate", (cutoff,)).fetchall()
+    names = {_plate_key(b["plate"]): b["name"] for b in conn.execute(
+        "SELECT name, plate FROM busses WHERE active=1").fetchall() if b["plate"]}
+    drivers = {}
+    for r in conn.execute("""SELECT c.plate, u.name FROM bus_choices c JOIN users u ON u.id=c.user_id
+                             WHERE c.date=? ORDER BY c.ts""", (today,)).fetchall():
+        drivers.setdefault(_plate_key(r["plate"]), []).append(r["name"])
+    conn.close()
+    out = []
+    for r in rows:
+        moving = (r["ignition"] == "Y" and (r["speed"] or 0) >= 3)
+        out.append({"plate": r["plate"], "lat": r["lat"], "lng": r["lng"], "at": (r["at"] or "")[11:16],
+                    "name": names.get(r["plate_key"], ""), "driver": " en ".join(drivers.get(r["plate_key"], [])),
+                    "moving": moving, "speed": round(r["speed"] or 0)})
+    d = _depot_point()
+    return jsonify(ok=True, busses=out, depot=[d[0], d[1]], depot_label=_route_cfg()["depot"])
 
 
 @bp.route("/api/location", methods=["POST"])

@@ -104,8 +104,8 @@
     <div class="card mapcard">
       <div class="sec-h"><h3>Live op de kaart</h3><div style="display:flex;gap:8px;align-items:center"><span class="pill gray" id="weather" title="Actueel weer - handig om te weten of monteurs verkoeling nodig hebben">weer…</span><span class="live"><span class="dot"></span>realtime</span></div></div>
       <div id="map" class="leaflet-map"></div>
-      <div class="maplegend" id="maplegend"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></div>
-      <div class="gpsnote">Nederland &amp; België. De monteur deelt zijn live GPS vanuit de app; posities verversen automatisch.</div>
+      <div class="maplegend"><span id="maplegend" style="display:contents"><span class="lg"><span class="d" style="background:#b88a44"></span>Depot Breda</span></span><span class="lg" id="buslegend" style="display:none"><span class="d" style="background:#0f3d3e;border-radius:3px"></span><span class="n"></span></span></div>
+      <div class="gpsnote">Nederland &amp; België. Monteurs via de app, bussen via Radius (rijdend teal, stilstaand grijs); posities verversen automatisch.</div>
     </div>
 
     <div class="card">
@@ -261,10 +261,39 @@ function planOrder(btn, oid){
     return L.divIcon({className:'', iconSize:[28,28], iconAnchor:[14,14],
       html:'<div style="width:28px;height:28px;border-radius:50%;background:'+color+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center">'+letter+'</div>'});
   }
-  // depot Breda
-  L.marker([51.5719,4.7683],{icon:dot('#b88a44','B')}).addTo(map).bindTooltip('Depot Breda');
+  // depot (wordt na de eerste ophaalronde op het echte depot-adres gezet)
+  var depot=L.marker([51.5719,4.7683],{icon:dot('#b88a44','B')}).addTo(map).bindTooltip('Depot Breda');
   var layer=L.layerGroup().addTo(map);
+  var busLayer=L.layerGroup().addTo(map);
   var legend=document.getElementById('maplegend');
+  var busLegend=document.getElementById('buslegend');
+  // Busjes uit Radius Velocity: teal als hij rijdt, grijs als hij stilstaat.
+  function busIcon(moving){
+    var bg=moving?'#0f3d3e':'#8a948f';
+    return L.divIcon({className:'', iconSize:[30,30], iconAnchor:[15,15],
+      html:'<div style="width:30px;height:30px;border-radius:9px;background:'+bg+';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center">'+
+           '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg></div>'});
+  }
+  function esc(s){return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function refreshBusses(){
+    fetch('{{ url_for("planning.api_bus_locations") }}').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok) return;
+      if(d.depot){ depot.setLatLng(d.depot); depot.setTooltipContent('Depot: '+esc(d.depot_label)); }
+      busLayer.clearLayers();
+      var rijdt=0;
+      d.busses.forEach(function(b){
+        if(b.moving) rijdt++;
+        var tip='<b>'+esc(b.plate)+'</b>'+(b.name?' · '+esc(b.name):'')+(b.driver?'<br>'+esc(b.driver):'')+
+                '<br>'+(b.moving?'rijdt, '+b.speed+' km/u':'staat stil')+' · '+esc(b.at);
+        L.marker([b.lat,b.lng],{icon:busIcon(b.moving),zIndexOffset:-100}).addTo(busLayer).bindTooltip(tip);
+      });
+      if(busLegend){
+        busLegend.style.display=d.busses.length?'inline-flex':'none';
+        busLegend.querySelector('.n').textContent=d.busses.length+' bus'+(d.busses.length===1?'':'sen')+' (Radius), '+rijdt+' rijdt';
+      }
+    }).catch(function(){});
+  }
+  refreshBusses(); oiPoll(refreshBusses,30000);
   function refresh(){
     fetch('{{ url_for("planning.api_locations") }}').then(function(r){return r.json();}).then(function(list){
       layer.clearLayers();
