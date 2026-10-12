@@ -24,7 +24,7 @@
         </select>
       </div>
       <div><label>Gekoppelde monteur <span class="muted" style="font-weight:400">(alleen voor rol monteur)</span></label>
-        <select name="monteur_id"><option value="">- geen -</option>
+        <select name="monteur_id"><option value="">Nieuwe monteurskaart (automatisch bij rol Monteur)</option>
         {% for m in monteurs %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
         </select>
       </div>

@@ -730,6 +730,11 @@ def init_db():
             conn.execute(stmt)
         except Exception:
             pass
+    # Monteursaccounts zonder monteurskaart (konden eerder ontstaan) alsnog een kaart geven.
+    try:
+        _link_monteur_accounts(conn)
+    except Exception:
+        pass
     # Het depot stond als plaatsnaam 'Breda'; voor echte routes is het adres nodig.
     try:
         conn.execute("""UPDATE integrations SET value=? WHERE ikey='route_api' AND field='depot'
@@ -4836,18 +4841,96 @@ def api_online():
 # --------------------------------------------------------------------------- #
 #  Monteurs (incl. bewerken: snelheid, thuisadres, bus)
 # --------------------------------------------------------------------------- #
+MONTEUR_COLORS = ["#0f3d3e", "#b88a44", "#15595a", "#6d5bd0", "#2f6df0", "#c2410c", "#3b6d11",
+                  "#be185d", "#0e7490", "#a16207", "#475569", "#7c3aed"]
+
+
+def _create_monteur(conn, name, email="", phone="", speed=3, bus_id=None, home_address=""):
+    """Nieuwe monteurskaart (tegel, planning, route in de app). Kleur: de eerste die nog
+    niet door een actieve monteur wordt gebruikt."""
+    used = {(r["color"] or "").lower() for r in conn.execute("SELECT color FROM monteurs WHERE active=1").fetchall()}
+    color = next((c for c in MONTEUR_COLORS if c not in used), MONTEUR_COLORS[0])
+    conn.execute("""INSERT INTO monteurs(name,phone,email,speed,color,bus_id,home_address,standard,active)
+                    VALUES(?,?,?,?,?,?,?,1,1)""",
+                 (name, phone or "", (email or "").lower(), speed or 3, color, bus_id, home_address or ""))
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+
+def _link_monteur_accounts(conn):
+    """Elk actief account met rol Monteur hoort bij een monteurskaart. Eerder kon een
+    monteur alleen via de demo-start ontstaan: een nieuw account met rol Monteur kreeg
+    geen kaart, dus geen tegel, geen plek in de planning en geen route in de app.
+    Bestaat er een kaart met hetzelfde e-mailadres zonder account, dan koppelen we die;
+    anders maken we een kaart aan. Geeft de namen terug van wie een kaart kreeg."""
+    made = []
+    rows = conn.execute("""SELECT id, name, email, phone FROM users
+                           WHERE role='monteur' AND active=1 AND monteur_id IS NULL""").fetchall()
+    for u in rows:
+        email = (u["email"] or "").lower()
+        m = conn.execute("""SELECT m.id FROM monteurs m WHERE lower(COALESCE(m.email,''))=? AND m.email!=''
+                            AND NOT EXISTS (SELECT 1 FROM users x WHERE x.monteur_id=m.id)""",
+                         (email,)).fetchone() if email else None
+        mid = m["id"] if m else _create_monteur(conn, u["name"], email, u["phone"] or "")
+        conn.execute("UPDATE users SET monteur_id=? WHERE id=?", (mid, u["id"]))
+        made.append(u["name"])
+    if rows:
+        conn.commit()
+    return made
+
+
 @bp.route("/monteurs")
 def monteurs():
     guard = login_required("view_personnel")
     if guard:
         return guard
     conn = db()
+    made = _link_monteur_accounts(conn)
+    if made:
+        flash("Monteurskaart aangemaakt voor: %s. Vul hieronder telefoon, bus en thuisadres aan." % ", ".join(made))
     rows = conn.execute("""SELECT m.*, b.name AS bus FROM monteurs m
-                           LEFT JOIN busses b ON b.id=m.bus_id ORDER BY m.name""").fetchall()
+                           LEFT JOIN busses b ON b.id=m.bus_id ORDER BY m.active DESC, m.name""").fetchall()
     busses = conn.execute("SELECT * FROM busses WHERE active=1 ORDER BY name").fetchall()
     conn.close()
     return render_template("planning/monteurs.html", monteurs=rows, busses=busses,
                            can_edit=has_perm("manage_users"))
+
+
+@bp.route("/monteurs/new", methods=["POST"])
+def monteur_new():
+    """Nieuwe monteur toevoegen vanaf de pagina Monteurs."""
+    if not has_perm("manage_users"):
+        abort(403)
+    f = request.form
+    name = (f.get("name") or "").strip()
+    if not name:
+        flash("Vul in elk geval een naam in.")
+        return redirect(url_for("planning.monteurs"))
+    email = (f.get("email") or "").strip().lower()
+    home = (f.get("home_address") or "").strip()
+    conn = db()
+    mid = _create_monteur(conn, name, email, (f.get("phone") or "").strip(), _int(f.get("speed"), 3),
+                          (f.get("bus_id") or None), home)
+    # Bestaat er al een monteursaccount met dit e-mailadres zonder kaart: meteen koppelen.
+    linked = None
+    if email:
+        acc = conn.execute("""SELECT id, name FROM users WHERE lower(email)=? AND role='monteur'
+                              AND monteur_id IS NULL""", (email,)).fetchone()
+        if acc:
+            conn.execute("UPDATE users SET monteur_id=? WHERE id=?", (mid, acc["id"]))
+            linked = acc["name"]
+    conn.commit()
+    conn.close()
+    hit = _geocode(home) if home else None
+    if hit:
+        conn = db()
+        conn.execute("UPDATE monteurs SET home_lat=?, home_lng=? WHERE id=?", (hit[0], hit[1], mid))
+        conn.commit()
+        conn.close()
+    elif home:
+        flash("Let op: het thuisadres '%s' is niet gevonden; tot dat klopt start de route op het depot." % home)
+    flash("Monteur %s toegevoegd.%s" % (name, (" Gekoppeld aan het account van %s." % linked) if linked else
+          " Heeft hij de monteur-app nodig, maak dan bij Gebruikers een account met rol Monteur en dit e-mailadres."))
+    return redirect(url_for("planning.monteurs"))
 
 
 @bp.route("/monteurs/<int:mid>/edit", methods=["POST"])
@@ -7930,8 +8013,11 @@ def user_new():
         conn.execute("""INSERT INTO users(name,email,password,role,permissions,monteur_id,active,created_at)
                         VALUES(?,?,?,?,?,?,?,?)""",
                      (name, email, _hash_pw(pw), role, json.dumps(perms), mid, active, _today_iso()))
-        conn.commit(); conn.close()
-        flash("Gebruiker aangemaakt.")
+        conn.commit()
+        made = _link_monteur_accounts(conn) if role == "monteur" else []
+        conn.close()
+        flash("Gebruiker aangemaakt." + (" Er is ook een monteurskaart aangemaakt; vul bij Monteurs telefoon, bus "
+                                         "en thuisadres aan." if made else ""))
         return redirect(url_for("planning.users"))
     monteurs = conn.execute("SELECT id,name FROM monteurs WHERE active=1 ORDER BY name").fetchall()
     conn.close()
@@ -7969,8 +8055,10 @@ def user_edit(uid):
             return redirect(url_for("planning.user_edit", uid=uid))
         if newpw:
             conn.execute("UPDATE users SET password=? WHERE id=?", (_hash_pw(newpw), uid))
-        conn.commit(); conn.close()
-        flash("Gebruiker bijgewerkt.")
+        conn.commit()
+        made = _link_monteur_accounts(conn) if role == "monteur" else []
+        conn.close()
+        flash("Gebruiker bijgewerkt." + (" Er is ook een monteurskaart aangemaakt." if made else ""))
         return redirect(url_for("planning.users"))
     try:
         current = set(json.loads(u["permissions"] or "[]"))
