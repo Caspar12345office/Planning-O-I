@@ -265,7 +265,7 @@ window.oiPoll=function(fn,ms,hiddenMs){
             {% endif %}{% endfor %}
           </details>
           {% endif %}
-        {% elif p_has_perm(item.perm) %}
+        {% elif p_has_perm(item.perm) or (item.endpoint == 'planning.free_days' and p_leave_approver) %}
           <a class="{{ 'active' if request.endpoint==item.endpoint }}" href="{{ url_for(item.endpoint) }}">{{ nicon(item.icon) }}{{ item.label }}{{ nbadge(item.endpoint) }}</a>
         {% endif %}
       {% endfor %}

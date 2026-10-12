@@ -1236,14 +1236,19 @@ def can_approve(u, is_monteur):
 
 
 def _leave_conds(u):
-    """SQL-condities voor de aanvragen die deze gebruiker mag goedkeuren.
-    Kantoor-aanvragen (behalve die van Aleks) → Caspar; monteur-aanvragen → Jorik."""
+    """SQL-condities voor de aanvragen die deze gebruiker te zien krijgt om goed te keuren.
+    Precies dezelfde mensen als can_approve: monteur-aanvragen naar APPROVERS_MONTEUR
+    (Caspar, Aleks, Stijn, Jorik), kantoor-aanvragen naar APPROVERS_OFFICE. Eerder zag
+    alleen Jorik de monteur-aanvragen, terwijl de monteur-app zegt dat ze naar alle vier
+    gaan. Een eigen aanvraag keur je niet zelf goed; die van Aleks gaan, zoals al zo was,
+    niet langs de kantoorgoedkeuring."""
     e = _email(u)
+    own = "user_id != %d" % int(u["id"])
     conds = []
-    if e == "caspar@office-interior.nl":
-        conds.append("(is_monteur=0 AND COALESCE(user_name,'') != 'Aleks')")
-    if e == "jorik@office-interior.nl":
-        conds.append("is_monteur=1")
+    if e in APPROVERS_MONTEUR:
+        conds.append("(is_monteur=1 AND %s)" % own)
+    if e in APPROVERS_OFFICE:
+        conds.append("(is_monteur=0 AND COALESCE(user_name,'') != 'Aleks' AND %s)" % own)
     return conds
 
 
@@ -1304,6 +1309,8 @@ def _inject():
             "ROLE_LABELS": ROLE_LABELS, "HOME_BASE": HOME_BASE, "p_nav": NAV, "BRAND": BRAND,
             "p_open_questions": open_questions_count(u), "p_online": online,
             "p_pending_leave": pending_leave_count(u) if u else 0,
+            # Goedkeurders zien 'Vrije dagen' in het menu, ook zonder het beheerrecht.
+            "p_leave_approver": bool(u and _leave_conds(u)),
             "p_open_bus_issues": open_bus_issues_count(u) if u else 0,
             "p_new_leverdocs": new_leverdocs_count(u) if u else 0,
             "p_leave_decision": my_unseen_decision(u) if u else None}
@@ -7224,10 +7231,17 @@ def shopify_webhook():
 def free_days():
     guard = login_required("manage_freedays")
     if guard:
-        return guard
+        # Wie aanvragen mag goedkeuren komt hier altijd binnen, ook zonder het recht
+        # 'vrije dagen beheren'; anders ziet die wel het bolletje maar niet de aanvraag.
+        _u = current_user()
+        if not (_u and _leave_conds(_u)):
+            return guard
     u = current_user()
     conn = db()
     if request.method == "POST":
+        if not has_perm("manage_freedays"):
+            conn.close()
+            abort(403)
         conn.execute("""INSERT INTO free_days(monteur_id,type,date_from,date_to,note) VALUES(?,?,?,?,?)""",
                      (request.form.get("monteur_id"), request.form.get("type"),
                       request.form.get("date_from"),
@@ -7248,7 +7262,7 @@ def free_days():
     my_reqs = conn.execute("SELECT * FROM leave_requests WHERE user_id=? ORDER BY created_at DESC LIMIT 20", (u["id"],)).fetchall()
     conn.close()
     # tot wie kan deze gebruiker een aanvraag richten?
-    approvers_label = "Jorik" if u["role"] == "monteur" else "Caspar"
+    approvers_label = "Aleks, Stijn, Jorik en Caspar" if u["role"] == "monteur" else "Caspar, Aleks en Jorik"
     return render_template("planning/free_days.html", rows=rows, monteurs=monteurs,
                            open_reqs=open_reqs, history=history, my_reqs=my_reqs,
                            is_approver=bool(conds), approvers_label=approvers_label)

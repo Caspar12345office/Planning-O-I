@@ -134,6 +134,9 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
 - Gebruikers: `_start_passwords` markeert accounts met een gedeeld startwachtwoord.
+- Verlof: wie een aanvraag ziet (`_leave_conds`) moet gelijk blijven aan wie hem mag goedkeuren
+  (`can_approve`, `APPROVERS_MONTEUR` / `APPROVERS_OFFICE`). Goedkeurders komen op `/free-days`
+  ook zonder het recht `manage_freedays`.
 - Routes: blok "Echte adressen en echte routes" na de Radius-koppeling. `_geocode`,
   `_order_point`, `_home_point`, `_depot_point`, `_route` (Google of schatting, met cache),
   `_planned_route` (planningpagina, kaart, terugkomst), `compute_arrivals` (live: vanaf de
