@@ -15,12 +15,11 @@
   .drow .meta b{font-size:14px}.drow .meta span{display:block;font-size:12.5px;color:var(--muted)}
   .lbl-s{font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px}
   .lbl-s.succesvol{background:#e3f3da;color:#3c7a2c}.lbl-s.beschadigd{background:#f7e2dc;color:#a23d2a}.lbl-s.niet_thuis{background:#fbeccd;color:#9a6a17}
-  .sig{width:150px;height:60px;object-fit:contain;border:1px solid var(--line);border-radius:6px;background:#fff;flex-shrink:0}
+  .sig{width:150px;height:60px;object-fit:contain}
   /* donker (gegenereerd) */
   [data-theme="dark"] .lbl-s.succesvol{color:#a3dc8f;background:rgba(115,191,82,.15)}
   [data-theme="dark"] .lbl-s.beschadigd{color:#f3a593;background:rgba(192,83,63,.18)}
   [data-theme="dark"] .lbl-s.niet_thuis{color:#f0c57c;background:rgba(217,150,43,.16)}
-  [data-theme="dark"] .sig{background:var(--panel)}
   /* einde donker */
 {% endblock %}
 {% block content %}
@@ -40,7 +39,7 @@
       <span>{{ r.monteur }} · ontvanger: {{ r.receiver or '-' }} · {{ r.ts.replace('T',' ') }}</span>
     </div>
     <span class="lbl-s {{ r.outcome }}">{{ r.outcome }}{% if r.sub_outcome %} · {{ r.sub_outcome }}{% endif %}</span>
-    {% if r.signature %}<img class="sig" src="{{ r.signature }}" alt="handtekening">{% else %}<span class="muted" style="font-size:12px">geen</span>{% endif %}
+    {% if r.signature %}<span class="sigbox"><img class="sig" src="{{ r.signature }}" alt="handtekening"></span>{% else %}<span class="muted" style="font-size:12px">geen</span>{% endif %}
   </div>
   {% endfor %}
 </details>

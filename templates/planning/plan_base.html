@@ -190,6 +190,14 @@ if(d)document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
   [data-theme="dark"] [style*="background:#fbeccd"]{background:rgba(217,150,43,.16)!important}
   [data-theme="dark"] [style*="background:#fdf3e6"]{background:rgba(217,150,43,.16)!important}
   /* einde donker */
+  /* Kaart: geen Leaflet-logo, alleen een kleine verplichte bronvermelding van OpenStreetMap */
+  .leaflet-control-attribution{font-size:9px!important;background:transparent!important;color:var(--muted)!important;opacity:.7}
+  .leaflet-control-attribution a{color:inherit!important}
+  /* Handtekeningen: donkere lijnen op een transparante achtergrond, in donker wit */
+  .sigbox{display:inline-flex;border:1px solid var(--line);border-radius:8px;background:#fff;flex-shrink:0;overflow:hidden}
+  .sigbox img{display:block}
+  [data-theme="dark"] .sigbox{background:var(--panel)}
+  [data-theme="dark"] .sigbox img{filter:brightness(0) invert(1)}
   /* keuzeknop licht / donker / systeem */
   .themesw{display:flex;gap:3px;background:var(--soft);border-radius:10px;padding:3px;margin-top:10px}
   .themesw button{flex:1;border:0;background:transparent;font:inherit;font-size:12px;font-weight:600;color:var(--muted);padding:6px 2px;border-radius:8px;cursor:pointer}

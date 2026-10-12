@@ -641,6 +641,9 @@ def init_db():
         assigned_by TEXT, created_at TEXT, done INTEGER DEFAULT 0, done_at TEXT);
     CREATE TABLE IF NOT EXISTS office_notifications(
         id INTEGER PRIMARY KEY AUTOINCREMENT, recipient TEXT, text TEXT, created_at TEXT, seen INTEGER DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS monteur_notices(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, monteur_id INTEGER, date TEXT, kind TEXT, text TEXT,
+        detail TEXT, created_by TEXT, created_at TEXT, seen INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS route_pick(
         monteur_id INTEGER, date TEXT, status TEXT DEFAULT 'bezig', picker_name TEXT,
         started_at TEXT, updated_at TEXT, PRIMARY KEY(monteur_id, date));
@@ -3806,6 +3809,95 @@ def planning():
                            maatwerk_orders=_orders_needing_custom())
 
 
+def _route_notice(conn, mid, day):
+    """Melding in de monteur-app als kantoor de route van vandaag wijzigt (volgorde,
+    stop erbij of eraf). Een oudere ongelezen melding voor dezelfde dag wordt vervangen,
+    zodat de monteur alleen de laatste stand ziet. Routes voor later ziet hij pas op
+    die dag, dus daarvoor geen melding."""
+    if not mid or day != _today_iso():
+        return
+    try:
+        rows = conn.execute("""SELECT p.status, c.name AS client, o.city FROM planning p
+                               JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
+                               WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
+        lines = ["%d. %s%s%s" % (i + 1, r["client"] or "Klant", (", " + r["city"]) if r["city"] else "",
+                                 " (afgerond)" if r["status"] == "afgerond" else "")
+                 for i, r in enumerate(rows)]
+        u = current_user()
+        conn.execute("DELETE FROM monteur_notices WHERE monteur_id=? AND date=? AND kind='route' AND seen=0",
+                     (mid, day))
+        conn.execute("""INSERT INTO monteur_notices(monteur_id,date,kind,text,detail,created_by,created_at,seen)
+                        VALUES(?,?,'route',?,?,?,?,0)""",
+                     (mid, day, "Kantoor heeft je route van vandaag aangepast.", "\n".join(lines),
+                      (u["name"] if u else ""), datetime.now(NL_TZ).strftime("%Y-%m-%dT%H:%M")))
+    except Exception:
+        pass                          # een melding mag het plannen nooit blokkeren
+
+
+def _route_signature(conn, mid, day):
+    return [r["order_id"] for r in conn.execute(
+        "SELECT order_id FROM planning WHERE monteur_id=? AND date=? ORDER BY sequence", (mid, day)).fetchall()]
+
+
+@bp.route("/api/reorder", methods=["POST"])
+def api_reorder():
+    """Slepen in de planning: een stop op een bepaalde plek in een route zetten (binnen
+    dezelfde route omhoog of omlaag, of vanuit een andere route of de bak). De client
+    stuurt de nieuwe volgorde van de doelroute mee. Daarna worden de geplande tijden
+    opnieuw uitgerekend en krijgt de monteur een melding als het om vandaag gaat."""
+    if not has_perm("edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    data = request.get_json(force=True)
+    try:
+        oid, mid, d = int(data["order_id"]), int(data["monteur_id"]), str(data["date"])[:10]
+        order = [int(x) for x in (data.get("order") or [])]
+    except (KeyError, TypeError, ValueError):
+        return jsonify(ok=False, error="Ongeldige gegevens"), 400
+    if oid not in order:
+        order.append(oid)
+    conn = db()
+    old = conn.execute("SELECT monteur_id, date FROM planning WHERE order_id=?", (oid,)).fetchone()
+    before = _route_signature(conn, mid, d)
+    m = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
+    bus_id = m["bus_id"] if m else None
+    if old:
+        if old["monteur_id"] != mid or old["date"] != d:
+            conn.execute("UPDATE planning SET monteur_id=?, bus_id=?, date=? WHERE order_id=?", (mid, bus_id, d, oid))
+    else:
+        conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status)
+                        VALUES(?,?,?,?,0,'gepland')""", (oid, mid, bus_id, d))
+        conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (oid,))
+    # Nieuwe volgorde; stops die de client niet meestuurde blijven achteraan staan.
+    current = _route_signature(conn, mid, d)
+    seq = [x for x in order if x in current] + [x for x in current if x not in order]
+    for k, x in enumerate(seq):
+        conn.execute("UPDATE planning SET sequence=? WHERE order_id=? AND monteur_id=? AND date=?", (k, x, mid, d))
+    conn.commit()
+    moved_from = (old["monteur_id"], old["date"]) if old and (old["monteur_id"] != mid or old["date"] != d) else None
+    conn.close()
+    # Tijden opnieuw (volgorde blijft staan), voor de doelroute en de route waar hij vandaan kwam.
+    for rm, rd in [(mid, d)] + ([moved_from] if moved_from else []):
+        try:
+            _retime_route(rm, rd, keep=True)
+        except Exception:
+            pass
+    conn = db()
+    if seq != before:
+        _route_notice(conn, mid, d)
+    if moved_from:
+        _route_notice(conn, moved_from[0], moved_from[1])
+    conn.commit()
+    warn = None
+    fd = conn.execute("SELECT type FROM free_days WHERE monteur_id=? AND date_from<=? AND date_to>=?",
+                      (mid, d, d)).fetchone()
+    if fd and not (old and old["monteur_id"] == mid and old["date"] == d):
+        mn = conn.execute("SELECT name FROM monteurs WHERE id=?", (mid,)).fetchone()
+        warn = "Let op: %s heeft vrij (%s) op deze dag - toch ingepland." % (
+            (mn["name"] if mn else "Deze monteur"), fd["type"])
+    conn.close()
+    return jsonify(ok=True, warn=warn)
+
+
 @bp.route("/api/assign", methods=["POST"])
 def api_assign():
     if not has_perm("edit_planning"):
@@ -3816,13 +3908,17 @@ def api_assign():
     m = conn.execute("SELECT bus_id FROM monteurs WHERE id=?", (mid,)).fetchone()
     bus_id = m["bus_id"] if m else None
     seq = conn.execute("SELECT COUNT(*) FROM planning WHERE monteur_id=? AND date=?", (mid, d)).fetchone()[0]
-    if conn.execute("SELECT id FROM planning WHERE order_id=?", (oid,)).fetchone():
+    old = conn.execute("SELECT monteur_id, date FROM planning WHERE order_id=?", (oid,)).fetchone()
+    if old:
         conn.execute("UPDATE planning SET monteur_id=?,bus_id=?,date=?,sequence=? WHERE order_id=?",
                      (mid, bus_id, d, seq, oid))
     else:
         conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status)
                         VALUES(?,?,?,?,?,'gepland')""", (oid, mid, bus_id, d, seq))
     conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (oid,))
+    _route_notice(conn, mid, d)
+    if old and (old["monteur_id"] != mid or old["date"] != d):
+        _route_notice(conn, old["monteur_id"], old["date"])
     conn.commit()
     warn = None
     fd = conn.execute("SELECT type FROM free_days WHERE monteur_id=? AND date_from<=? AND date_to>=?",
@@ -3841,8 +3937,11 @@ def api_unassign():
         return jsonify(ok=False, error="Geen rechten"), 403
     oid = int(request.get_json(force=True)["order_id"])
     conn = db()
+    old = conn.execute("SELECT monteur_id, date FROM planning WHERE order_id=?", (oid,)).fetchone()
     conn.execute("DELETE FROM planning WHERE order_id=?", (oid,))
     conn.execute("UPDATE orders SET status='in_te_plannen' WHERE id=?", (oid,))
+    if old:
+        _route_notice(conn, old["monteur_id"], old["date"])
     conn.commit()
     conn.close()
     return jsonify(ok=True)
@@ -5043,7 +5142,9 @@ def _uren_entries(start, end, sel_monteur):
                 src = ("GPS: thuis om %s" % rt) if gt else ("Route afgesloten om %s" % rt)
                 warn_text = "%s, maar uren ingevuld tot %s (+%d min meer dan gewerkt)." % (src, r["end_time"], warn_over)
                 warn_count += 1
-        entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "-",
+        sub = (r["submitted_at"] or "")[:10]
+        late = _nl_date(sub) if (sub and sub > (r["work_date"] or "")) else ""
+        entries.append({"date": r["work_date"], "monteur": r["monteur_name"] or "-", "late": late,
                         "start": r["start_time"], "end": r["end_time"],
                         "worked_min": r["worked_min"] or 0, "overtime_min": r["overtime_min"] or 0,
                         "note": r["note"] or "", "warn": warn, "warn_text": warn_text, "warn_over": warn_over})
@@ -8908,6 +9009,22 @@ def api_optimize_route(mid):
     day = data.get("day") or _today_iso()
     keep = bool(data.get("keep_order"))
     conn = db()
+    before = _route_signature(conn, mid, day)
+    conn.close()
+    res = _retime_route(mid, day, keep)
+    if not keep:
+        conn = db()
+        if _route_signature(conn, mid, day) != before:
+            _route_notice(conn, mid, day)
+            conn.commit()
+        conn.close()
+    return jsonify(ok=True, **res)
+
+
+def _retime_route(mid, day, keep=True):
+    """Geplande tijden (GT) van een route opnieuw uitrekenen met echte rijtijden;
+    zonder keep eerst de snelste volgorde over de weg kiezen."""
+    conn = db()
     m = conn.execute("SELECT * FROM monteurs WHERE id=?", (mid,)).fetchone()
     rows = conn.execute("""SELECT p.id pid, p.order_id, p.status, o.delivery_address, o.postal, o.city,
                                   o.montage_min, o.service_type, c.name AS client
@@ -8915,7 +9032,7 @@ def api_optimize_route(mid):
                            WHERE p.monteur_id=? AND p.date=? ORDER BY p.sequence""", (mid, day)).fetchall()
     if not rows or not m:
         conn.close()
-        return jsonify(ok=True, optimized=0)
+        return dict(optimized=0)
     montage = _montage_map(conn, rows)
     conn.close()                       # niet de databaseverbinding vasthouden tijdens Google
     cfg = _route_cfg()
@@ -8946,8 +9063,8 @@ def api_optimize_route(mid):
         conn.execute("UPDATE planning SET sequence=? WHERE id=?", (k, r["pid"]))
     conn.commit()
     conn.close()
-    return jsonify(ok=True, optimized=len(seq), src=route["src"], km=round(route["km"]),
-                   minutes=round(route["min"]), missing=[r["client"] or r["delivery_address"] or "?" for r in missing])
+    return dict(optimized=len(seq), src=route["src"], km=round(route["km"]),
+                minutes=round(route["min"]), missing=[r["client"] or r["delivery_address"] or "?" for r in missing])
 
 
 def auto_send_daily_mails():

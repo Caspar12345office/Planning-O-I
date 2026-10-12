@@ -259,6 +259,7 @@ function planOrder(btn, oid){
   if(typeof L==='undefined'){return;}
   // gecentreerd tussen NL en BE
   var map=L.map('map',{zoomControl:true}).setView([51.7,4.9],7);
+  map.attributionControl.setPrefix(false);
   // OpenStreetMap i.p.v. CARTO: die eist sinds kort een API-sleutel en zette
   // anders "API KEY REQUIRED" dwars over de kaart. Bronvermelding is verplicht.
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{

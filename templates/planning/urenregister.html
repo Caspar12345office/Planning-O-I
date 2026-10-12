@@ -94,7 +94,7 @@
             <td>{{ e.end }}</td>
             <td>{{ e.worked_min//60 }}u {{ '%02d'|format(e.worked_min%60) }}m</td>
             <td class="ov">{% if e.overtime_min %}+{{ e.overtime_min//60 }}u {{ '%02d'|format(e.overtime_min%60) }}m{% else %}-{% endif %}</td>
-            <td>{{ e.note }}</td>
+            <td>{{ e.note }}{% if e.late %}<div class="muted" style="font-size:11px">achteraf doorgegeven op {{ e.late }}</div>{% endif %}</td>
             <td><span class="st">Doorgegeven</span>{% if e.warn %}<span class="warnbadge" title="{{ e.warn_text }}">!</span><span class="warnamt" title="{{ e.warn_text }}">{% if e.warn_over>=60 %}+{{ e.warn_over//60 }}u {{ '%02d'|format(e.warn_over%60) }}m{% else %}+{{ e.warn_over }} min{% endif %}</span>{% endif %}</td>
           </tr>
           {% endfor %}

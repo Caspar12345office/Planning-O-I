@@ -43,6 +43,14 @@
   .rtbl tr:last-child td{border-bottom:0}
   .rtbl .rowcard{cursor:grab}
   .rtbl .rowcard.dragging{opacity:.4}
+  .rtbl tr.rowcard:not(.done):not(.imp):not(.onderweg):hover td{background:var(--soft)}
+  .rtbl tr.drop-before td{box-shadow:inset 0 3px 0 var(--gold)!important}
+  .rtbl tr.drop-after td{box-shadow:inset 0 -3px 0 var(--gold)!important}
+  .route.busy{opacity:.55;pointer-events:none}
+  .rhead .colbtn svg{transition:transform .2s}
+  .route.collapsed .rtbl{display:none}
+  .route.collapsed .rhead .colbtn svg{transform:rotate(-90deg)}
+  .rhead .mn.tg{cursor:pointer}
   .rtbl tr.imp td{background:#fff8ef}
   .rtbl tr.imp td:first-child{box-shadow:inset 3px 0 0 #d9962b}
   .seq{color:#0f3d3e;font-weight:600}
@@ -135,6 +143,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
   <a href="{{ url_for('planning.planning') }}">Vandaag</a>
   <span style="font-weight:600;color:var(--muted);font-size:13px;margin-left:4px">Ga naar dag:</span>
   <input type="date" value="{{ day }}" title="Kies een dag - ook ver vooruit" onchange="location.href='{{ url_for('planning.planning') }}?day='+this.value">
+  <button class="btn ghost sm" type="button" id="colAllBtn" onclick="collapseAll()" title="Alle routes in- of uitklappen">Alles inklappen</button>
   {% if can_edit %}
   <span style="flex:1"></span>
   <button class="btn ghost sm" onclick="document.getElementById('manualModal').style.display='flex'">+ Handmatig adres</button>
@@ -170,7 +179,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
     <span style="margin-left:12px;font-size:12px;color:var(--muted)">Sorteren:</span>
     <a href="{{ url_for('planning.planning', day=day, usort='nieuw') }}" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;text-decoration:none;{{ 'background:var(--accent);color:#fff' if usort!='oud' else 'color:var(--muted);border:1px solid var(--line)' }}">Nieuwste eerst</a>
     <a href="{{ url_for('planning.planning', day=day, usort='oud') }}" style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;text-decoration:none;{{ 'background:var(--accent);color:#fff' if usort=='oud' else 'color:var(--muted);border:1px solid var(--line)' }}">Oudste eerst</a>
-    {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route. Sleep een rij hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€2000+)</b></span>{% endif %}</div>
+    {% if can_edit %}<span class="hint" style="margin-left:auto">Sleep naar een route, of tussen twee rijen voor een vaste plek. Sleep een rij omhoog of omlaag om de volgorde te wijzigen, of hierheen om uit te plannen. <b style="color:#9a6a17">Oranje = belangrijke levering (€2000+)</b></span>{% endif %}</div>
   <div class="traycards">
     {% for o in unplanned %}
     <div class="ocard {{ 'imp' if (o.amount or 0) >= 2000 }}" draggable="{{ 'true' if can_edit else 'false' }}" data-order="{{ o.id }}">
@@ -188,8 +197,8 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
 {% set t = totals.get(m.id, {}) %}
 <div class="route" data-monteur="{{ m.id }}" data-working="{{ 0 if frees.get(m.id) else 1 }}">
   <div class="rhead" style="background:linear-gradient(135deg,{{ m.color or '#0f3d3e' }},#0f3d3e)">
-    <span class="sw"></span>
-    <span class="mn">{{ m.name }}</span>
+    <span class="exp colbtn" title="In- of uitklappen" onclick="toggleCollapse(event,this)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+    <span class="mn tg" title="In- of uitklappen" onclick="toggleCollapse(event,this)">{{ m.name }}</span>
     {% if not m.standard %}<span class="chip" style="background:rgba(255,255,255,.28)">incidenteel</span>{% endif %}
     {% for cw in crew.get(m.id, []) %}<span class="chip" style="background:rgba(255,255,255,.28)">👥 {{ cw.name }}{% if can_edit %} <form method="post" action="{{ url_for('planning.crew_remove') }}" style="display:inline;margin:0"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="lead_id" value="{{ m.id }}"><input type="hidden" name="monteur_id" value="{{ cw.id }}"><button type="submit" title="Van route halen" style="background:none;border:0;color:#fff;cursor:pointer;padding:0;font:inherit">✕</button></form>{% endif %}</span>{% endfor %}
     {% if can_edit %}<form method="post" action="{{ url_for('planning.crew_add') }}" style="display:inline;margin:0"><input type="hidden" name="day" value="{{ day }}"><input type="hidden" name="lead_id" value="{{ m.id }}"><select name="monteur_id" onchange="if(this.value)this.form.submit()" title="Voeg een extra monteur toe op deze route" style="background:rgba(255,255,255,.2);color:#fff;border:0;border-radius:8px;padding:3px 6px;font:inherit;font-size:11.5px;cursor:pointer"><option value="">+ monteur op route</option>{% for mm in monteurs if mm.id != m.id %}<option value="{{ mm.id }}" style="color:#16302d">{{ mm.name }}</option>{% endfor %}</select></form>{% endif %}
@@ -245,6 +254,19 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
 </div>
 {% endfor %}
 </div>
+<script>
+/* In- en uitklappen per monteur; de keuze blijft per computer bewaard. */
+function _colGet(){try{return JSON.parse(localStorage.getItem('oi-plan-dicht')||'[]');}catch(e){return [];}}
+function _colSet(a){try{localStorage.setItem('oi-plan-dicht',JSON.stringify(a));}catch(e){}}
+function _colBtn(){var all=document.querySelectorAll('.route'),c=document.querySelectorAll('.route.collapsed'),b=document.getElementById('colAllBtn');
+  if(b)b.textContent=(all.length&&c.length===all.length)?'Alles uitklappen':'Alles inklappen';}
+function toggleCollapse(ev,el){if(ev)ev.stopPropagation();var r=el.closest('.route'),id=r.getAttribute('data-monteur'),a=_colGet();
+  r.classList.toggle('collapsed');var i=a.indexOf(id);if(r.classList.contains('collapsed')){if(i<0)a.push(id);}else if(i>=0){a.splice(i,1);}_colSet(a);_colBtn();}
+function collapseAll(){var all=document.querySelectorAll('.route'),c=document.querySelectorAll('.route.collapsed'),dicht=c.length!==all.length,a=_colGet();
+  all.forEach(function(r){var id=r.getAttribute('data-monteur'),i=a.indexOf(id);r.classList.toggle('collapsed',dicht);
+    if(dicht){if(i<0)a.push(id);}else if(i>=0){a.splice(i,1);}});_colSet(a);_colBtn();}
+(function(){var a=_colGet();document.querySelectorAll('.route').forEach(function(r){if(a.indexOf(r.getAttribute('data-monteur'))>=0)r.classList.add('collapsed');});_colBtn();})();
+</script>
 
 <div class="modal" id="addrModal">
   <div class="box" style="width:min(360px,92vw)">
@@ -373,7 +395,7 @@ function showRouteMap(ev, mid, name){
 }
 function drawRoute(mid){
   if(typeof L==='undefined'){ document.getElementById('rmInfo').textContent='Kaart kon niet laden.'; return; }
-  if(!rmMap){ rmMap=L.map('rmMap');
+  if(!rmMap){ rmMap=L.map('rmMap'); rmMap.attributionControl.setPrefix(false);
     // Zie dashboard.html: CARTO eist een API-sleutel, OpenStreetMap niet.
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(rmMap);
   } else { rmMap.eachLayer(function(l){ if(l instanceof L.Polyline || l instanceof L.CircleMarker || l instanceof L.Marker) rmMap.removeLayer(l); }); }
@@ -621,8 +643,34 @@ function sendConfirmations(btn){
     el.addEventListener('dragstart',function(e){dragOrder=el.getAttribute('data-order');el.classList.add('dragging');e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',dragOrder);}catch(_){}});
     el.addEventListener('dragend',function(){el.classList.remove('dragging');});
   });
+  function clearMarks(){document.querySelectorAll('.drop-before,.drop-after').forEach(function(x){x.classList.remove('drop-before','drop-after');});}
+  document.querySelectorAll('[data-order]').forEach(function(el){el.addEventListener('dragend',function(){clearMarks();
+    document.querySelectorAll('.route.drop-on').forEach(function(b){b.classList.remove('drop-on');});dragOrder=null;});});
+  // Op een rij: de stop komt erboven of eronder (gouden lijn), binnen dezelfde route of vanuit elders.
+  document.querySelectorAll('.rtbl tbody tr.rowcard').forEach(function(tr){
+    tr.addEventListener('dragover',function(e){
+      if(!dragOrder)return; e.preventDefault(); e.stopPropagation();
+      document.querySelectorAll('.route.drop-on').forEach(function(b){b.classList.remove('drop-on');});
+      clearMarks(); if(tr.getAttribute('data-order')===dragOrder)return;
+      var r=tr.getBoundingClientRect(); tr.classList.add((e.clientY-r.top)>r.height/2?'drop-after':'drop-before');
+    });
+    tr.addEventListener('drop',function(e){
+      if(!dragOrder)return; e.preventDefault(); e.stopPropagation();
+      var after=tr.classList.contains('drop-after'), target=tr.getAttribute('data-order'); clearMarks();
+      if(target===dragOrder)return;
+      var block=tr.closest('.route');
+      var ids=[].map.call(block.querySelectorAll('tbody tr.rowcard'),function(x){return x.getAttribute('data-order');})
+                .filter(function(x){return x!==dragOrder;});
+      var i=ids.indexOf(target); ids.splice(after?i+1:i,0,dragOrder);
+      var src=document.querySelector('.rowcard[data-order="'+dragOrder+'"]'), srcBlock=src?src.closest('.route'):null;
+      block.classList.add('busy'); if(srcBlock&&srcBlock!==block)srcBlock.classList.add('busy');
+      post('{{ url_for("planning.api_reorder") }}',{order_id:dragOrder,monteur_id:block.getAttribute('data-monteur'),date:'{{ day }}',order:ids})
+        .then(function(res){if(res.ok){if(res.warn)alert(res.warn);location.reload();}else{alert(res.error||'Mislukt');location.reload();}})
+        .catch(function(){alert('Opslaan mislukt, probeer het opnieuw.');location.reload();});
+    });
+  });
   document.querySelectorAll('.route').forEach(function(block){
-    block.addEventListener('dragover',function(e){e.preventDefault();block.classList.add('drop-on');});
+    block.addEventListener('dragover',function(e){e.preventDefault();clearMarks();block.classList.add('drop-on');});
     block.addEventListener('dragleave',function(){block.classList.remove('drop-on');});
     block.addEventListener('drop',function(e){
       e.preventDefault();block.classList.remove('drop-on');

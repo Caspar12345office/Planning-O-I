@@ -9,10 +9,10 @@
   .qa .q{font-size:12px;color:var(--muted)}
   .qa .a{font-size:15px;margin-top:2px}
   .meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:6px 14px}
-  .sig{max-width:320px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:6px}
+  .sig{max-width:320px}
+  .sigbox{margin-top:6px;border-radius:10px}
   .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:#d9f0e1;color:#1f6b3e}
   /* donker (gegenereerd) */
-  [data-theme="dark"] .sig{background:var(--panel)}
   [data-theme="dark"] .badge{color:#a3dc8f;background:rgba(115,191,82,.15)}
   /* einde donker */
 {% endblock %}
@@ -42,7 +42,7 @@
 <div class="card">
   <h3>Ondertekening</h3>
   <div class="meta"><span>Naam</span><span><b>{{ d.signer_name or '-' }}</b></span></div>
-  {% if d.signature %}<img class="sig" src="{{ d.signature }}" alt="handtekening">{% endif %}
+  {% if d.signature %}<span class="sigbox"><img class="sig" src="{{ d.signature }}" alt="handtekening"></span>{% endif %}
 </div>
 {% else %}
 <div class="card">

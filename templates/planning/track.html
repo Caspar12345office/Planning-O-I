@@ -10,6 +10,8 @@
 
 {% block page_css %}
   #map{height:280px;border-radius:14px;border:1px solid var(--rule);margin-top:34px;z-index:0}
+  .leaflet-control-attribution{font-size:9px!important;background:transparent!important;color:#9aa8a1!important;opacity:.7}
+  .leaflet-control-attribution a{color:inherit!important}
   .tsteps{display:flex;margin:34px 4px 0}
   .tstep{flex:1;text-align:center;position:relative;font-size:13px;color:#9aa8a1}
   .tstep .dot{width:16px;height:16px;border-radius:50%;background:#dfd8c9;margin:0 auto 8px;
@@ -138,6 +140,7 @@
   if (typeof L === 'undefined') { return; }
   var d = [{{ d_lat }}, {{ d_lng }}], m = [{{ m_lat }}, {{ m_lng }}];
   var map = L.map('map', {zoomControl: true, attributionControl: true});
+  map.attributionControl.setPrefix(false);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
               {maxZoom: 19, attribution: '&copy; OpenStreetMap'}).addTo(map);
   function pin(html) {
