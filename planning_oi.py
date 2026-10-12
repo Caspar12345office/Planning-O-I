@@ -175,7 +175,7 @@ got_request_exception.connect(_record_app_error)
 # Tabellen zonder autonummer-kolom 'id' (krijgen geen RETURNING id).
 _NO_ID_TABLES = {"monteur_location", "route_closed", "integrations", "settings",
                  "order_magazijn", "voormontage_done", "route_pick", "day_roster", "monteur_day_gps",
-                 "route_crew", "presence", "bag_cache", "geo_cache", "route_cache", "bus_location"}
+                 "route_crew", "presence", "bag_cache", "geo_cache", "route_cache", "bus_location", "bus_km"}
 
 
 def _sub_placeholders(sql):
@@ -600,6 +600,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS route_cache(rkey TEXT PRIMARY KEY, data TEXT, ts TEXT);
     CREATE TABLE IF NOT EXISTS bus_location(plate_key TEXT PRIMARY KEY, plate TEXT, lat REAL, lng REAL,
         at TEXT, ignition TEXT, speed REAL, updated TEXT);
+    CREATE TABLE IF NOT EXISTS bus_km(plate_key TEXT, plate TEXT, date TEXT, km REAL, PRIMARY KEY(plate_key, date));
     CREATE TABLE IF NOT EXISTS office_days(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         person TEXT, date TEXT, status TEXT, note TEXT, UNIQUE(person, date));
@@ -1822,7 +1823,7 @@ def _velocity_sync(force=False):
     try:
         devices = _velocity_positions(cfg)
     except Exception as e:
-        st = {"ok": False, "at": datetime.now().isoformat(timespec="minutes"), "msg": _velocity_err(e, cfg)}
+        st = {"ok": False, "at": datetime.now(NL_TZ).replace(tzinfo=None).isoformat(timespec="minutes"), "msg": _velocity_err(e, cfg)}
         _velocity_save_status(st)
         return st
 
@@ -1887,8 +1888,7 @@ def _velocity_sync(force=False):
             # Alleen bij een nieuwe melding binnen 10 minuten na de vorige (geen sprong over
             # een nacht of een gat), en met een snelheidscontrole tegen GPS-uitschieters.
             bid = bus_id_by_key.get(d["key"])
-            prev = conn.execute("SELECT lat, lng, at FROM bus_location WHERE plate_key=?", (d["key"],)).fetchone() \
-                if bid else None
+            prev = conn.execute("SELECT lat, lng, at FROM bus_location WHERE plate_key=?", (d["key"],)).fetchone()
             if prev and prev["at"] and d["at_nl"]:
                 try:
                     prev_at = datetime.strptime(prev["at"][:16], "%Y-%m-%dT%H:%M")
@@ -1898,9 +1898,18 @@ def _velocity_sync(force=False):
                     mins = (d["at_nl"] - prev_at).total_seconds() / 60.0
                     km = haversine((prev["lat"], prev["lng"]), (d["lat"], d["lng"])) * KM_SAMPLE_FACTOR
                     if mins <= 10 and 0.05 <= km <= mins * 2.5 + 0.5:
-                        conn.execute("""INSERT INTO vehicle_km(bus_id,date,km) VALUES(?,?,?)
-                                        ON CONFLICT(bus_id,date) DO UPDATE SET km=vehicle_km.km+excluded.km""",
-                                     (bid, d["at_nl"].date().isoformat(), round(km, 3)))
+                        day = d["at_nl"].date().isoformat()
+                        # Per kenteken altijd (ook als de bus nog niet onder Bussen staat) ...
+                        conn.execute("""INSERT INTO bus_km(plate_key,plate,date,km) VALUES(?,?,?,?)
+                                        ON CONFLICT(plate_key,date) DO UPDATE SET km=bus_km.km+excluded.km,
+                                        plate=excluded.plate""",
+                                     (d["key"], d["plate"] + ((" · " + d["label"]) if d["label"] else ""), day,
+                                      round(km, 3)))
+                        # ... en bij een bekende bus ook in vehicle_km (CO2-rapportage).
+                        if bid:
+                            conn.execute("""INSERT INTO vehicle_km(bus_id,date,km) VALUES(?,?,?)
+                                            ON CONFLICT(bus_id,date) DO UPDATE SET km=vehicle_km.km+excluded.km""",
+                                         (bid, day, round(km, 3)))
                         km_added += km
             conn.execute("""INSERT INTO bus_location(plate_key,plate,lat,lng,at,ignition,speed,updated)
                             VALUES(?,?,?,?,?,?,?,?)
@@ -1912,7 +1921,7 @@ def _velocity_sync(force=False):
         conn.commit()
     finally:
         conn.close()
-    st = {"ok": True, "at": datetime.now().isoformat(timespec="minutes"),
+    st = {"ok": True, "at": datetime.now(NL_TZ).replace(tzinfo=None).isoformat(timespec="minutes"),
           "devices": len(devices), "matched": sum(1 for d in devices if d["key"] in known),
           "updated": updated,
           "matched_plates": sorted(d["plate"] for d in devices if d["key"] in known),
@@ -6377,7 +6386,7 @@ def _connection_health(deep=False):
         put("velocity", "warn", "Wacht op eerste ophaalronde", advice=_conn_advice("velocity"))
     elif not vst.get("ok"):
         put("velocity", "err", "Fout: %s" % (vst.get("msg") or "onbekend")[:60], advice=_conn_advice("velocity"))
-    elif (vst.get("at") or "") >= (datetime.now() - timedelta(minutes=10)).isoformat(timespec="minutes"):
+    elif (vst.get("at") or "") >= (datetime.now(NL_TZ).replace(tzinfo=None) - timedelta(minutes=10)).isoformat(timespec="minutes"):
         put("velocity", "ok", "Live · %d bus(sen)" % vst.get("matched", 0), "live")
     else:
         put("velocity", "ok", "Gekoppeld · laatst %s" % (vst.get("at") or "")[11:16])
@@ -7616,35 +7625,62 @@ def routes():
 # --------------------------------------------------------------------------- #
 #  Kilometerregistratie per voertuig
 # --------------------------------------------------------------------------- #
+def _km_overview():
+    """Kilometers per voertuig (vandaag, week, maand, per dag) voor de pagina en de export."""
+    today = datetime.now(NL_TZ).date()
+    week_start = (today - timedelta(days=today.weekday())).isoformat()
+    month_start = today.replace(day=1).isoformat()
+    today_iso = today.isoformat()
+    since = (today - timedelta(days=40)).isoformat()
+    conn = db()
+    busses = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
+    # Kilometers per voertuig per dag: uit Radius per kenteken (bus_km), en voor bussen
+    # zonder Radius-gegevens uit vehicle_km (handmatig of van vroeger).
+    per_key = {}
+    for r in conn.execute("SELECT plate_key, plate, date, km FROM bus_km WHERE date>=?", (since,)).fetchall():
+        e = per_key.setdefault(r["plate_key"], {"plate": r["plate"], "days": {}})
+        e["days"][r["date"]] = e["days"].get(r["date"], 0) + (r["km"] or 0)
+    per_bus = {}
+    for r in conn.execute("SELECT bus_id, date, km FROM vehicle_km WHERE date>=?", (since,)).fetchall():
+        d = per_bus.setdefault(r["bus_id"], {})
+        d[r["date"]] = d.get(r["date"], 0) + (r["km"] or 0)
+    vst = _velocity_status() if _velocity_cfg()["token"] else None
+    conn.close()
+
+    vehicles = []          # {name, plate, days, unlinked}
+    used = set()
+    for b in busses:
+        k = _plate_key(b["plate"])
+        if k and k in per_key:
+            used.add(k)
+            vehicles.append({"name": b["name"], "plate": b["plate"], "days": per_key[k]["days"], "unlinked": False})
+        else:
+            vehicles.append({"name": b["name"], "plate": b["plate"], "days": per_bus.get(b["id"], {}), "unlinked": False})
+    for k, e in sorted(per_key.items(), key=lambda kv: kv[1]["plate"]):
+        if k in used:
+            continue
+        plate, _sep, label = (e["plate"] or "").partition(" · ")
+        vehicles.append({"name": label or plate, "plate": plate, "days": e["days"], "unlinked": True})
+
+    def tot(days, frm, to=None):
+        return round(sum(v for d, v in days.items() if d >= frm and (to is None or d <= to)))
+    rows = [{"bus": v, "dag": tot(v["days"], today_iso, today_iso), "week": tot(v["days"], week_start),
+             "maand": tot(v["days"], month_start), "unlinked": v["unlinked"]} for v in vehicles]
+    recent_dates = sorted({d for v in vehicles for d in v["days"]}, reverse=True)[:10]
+    daily = {(i, d): round(v["days"].get(d, 0)) for i, v in enumerate(vehicles) for d in recent_dates}
+    return {"rows": rows, "vehicles": vehicles, "recent_dates": recent_dates, "daily": daily, "radius": vst}
+
+
 @bp.route("/kilometers")
 def vehicle_km():
     guard = login_required("view_reports")
     if guard:
         return guard
-    today = datetime.now().date()
-    week_start = (today - timedelta(days=today.weekday())).isoformat()
-    month_start = today.replace(day=1).isoformat()
-    today_iso = today.isoformat()
-    conn = db()
-    busses = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
-    rows = []
-    for b in busses:
-        def s(since):
-            return conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?",
-                                (b["id"], since)).fetchone()[0]
-        dag = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date=?",
-                           (b["id"], today_iso)).fetchone()[0]
-        rows.append({"bus": b, "dag": round(dag), "week": round(s(week_start)), "maand": round(s(month_start))})
-    # laatste 10 werkdagen voor de tabel
-    recent = conn.execute("""SELECT date FROM vehicle_km GROUP BY date ORDER BY date DESC LIMIT 10""").fetchall()
-    recent_dates = [r["date"] for r in recent]
-    daily = {}
-    for r in conn.execute("SELECT bus_id,date,km FROM vehicle_km WHERE date>=?",
-                          (recent_dates[-1] if recent_dates else today_iso,)).fetchall():
-        daily[(r["bus_id"], r["date"])] = round(r["km"])
-    conn.close()
-    return render_template("planning/vehicle_km.html", rows=rows, busses=busses,
-                           recent_dates=recent_dates, daily=daily,
+    k = _km_overview()
+    rows = k["rows"]
+    return render_template("planning/vehicle_km.html", rows=rows, vehicles=k["vehicles"],
+                           recent_dates=k["recent_dates"], daily=k["daily"], radius=k["radius"],
+                           radius_on=bool(_velocity_cfg()["token"]),
                            totals_day=sum(r["dag"] for r in rows),
                            totals_week=sum(r["week"] for r in rows),
                            totals_month=sum(r["maand"] for r in rows))
@@ -8536,20 +8572,13 @@ def vehicle_km_export():
     guard = login_required("view_reports")
     if guard:
         return guard
-    today = datetime.now().date()
-    week_start = (today - timedelta(days=today.weekday())).isoformat()
-    month_start = today.replace(day=1).isoformat()
-    conn = db()
-    busses = conn.execute("SELECT * FROM busses ORDER BY name").fetchall()
+    k = _km_overview()
     out = io.StringIO()
     w = csv.writer(out, delimiter=";")
-    w.writerow(["Voertuig", "Kenteken", "Vandaag (km)", "Deze week (km)", "Deze maand (km)"])
-    for b in busses:
-        dag = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date=?", (b["id"], today.isoformat())).fetchone()[0]
-        wk = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?", (b["id"], week_start)).fetchone()[0]
-        mo = conn.execute("SELECT COALESCE(SUM(km),0) FROM vehicle_km WHERE bus_id=? AND date>=?", (b["id"], month_start)).fetchone()[0]
-        w.writerow([b["name"], b["plate"], round(dag), round(wk), round(mo)])
-    conn.close()
+    w.writerow(["Voertuig", "Kenteken", "Vandaag (km)", "Deze week (km)", "Deze maand (km)", "Opmerking"])
+    for r in k["rows"]:
+        w.writerow([r["bus"]["name"], r["bus"]["plate"], r["dag"], r["week"], r["maand"],
+                    "nog niet onder Bussen" if r["unlinked"] else ""])
     return Response(out.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=kilometers.csv"})
 

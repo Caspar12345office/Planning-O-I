@@ -14,6 +14,15 @@
   <a class="btn ghost sm" href="{{ url_for('planning.vehicle_km_export') }}"><svg class="ico"><use href="#ic-download"/></svg> Excel (CSV)</a>
   <button class="btn ghost sm" onclick="window.print()"><svg class="ico"><use href="#ic-download"/></svg> PDF / print</button>
 </div>
+{% if not radius_on %}
+<div class="flash" style="margin-bottom:16px;background:#fbeccd;color:#9a6a17;border-color:#f0d49a">De Radius-koppeling staat nog niet aan: vul het refresh token in bij Instellingen &gt; Koppelingen &gt; Radius Velocity. Tot die tijd worden er geen kilometers bijgehouden.</div>
+{% elif radius and not radius.ok %}
+<div class="flash" style="margin-bottom:16px;background:#f7e2dc;color:#a23d2a;border-color:#efc4b8">Radius geeft een fout bij het ophalen ({{ radius.at[11:16] if radius.at }}): {{ radius.msg }}</div>
+{% elif radius %}
+<p class="muted" style="font-size:12.5px;margin:0 0 14px">Radius: laatst opgehaald om {{ radius.at[11:16] }} · {{ radius.devices }} voertuig(en). Kilometers lopen op zodra een bus rijdt (tussen 06:00 en 20:00).</p>
+{% else %}
+<p class="muted" style="font-size:12.5px;margin:0 0 14px">Radius: wacht op de eerste ophaalronde (elke minuut tussen 06:00 en 20:00).</p>
+{% endif %}
 <div class="kpis">
   <div class="kpi"><div class="v">{{ totals_day }} km</div><div class="l">Totaal vandaag (alle bussen)</div></div>
   <div class="kpi"><div class="v">{{ totals_week }} km</div><div class="l">Deze week</div></div>
@@ -25,7 +34,7 @@
     <thead><tr><th>Voertuig</th><th>Kenteken</th><th class="num">Vandaag</th><th class="num">Deze week</th><th class="num">Deze maand</th></tr></thead>
     <tbody>
     {% for r in rows %}
-      <tr><td><b>{{ r.bus.name }}</b></td><td class="muted">{{ r.bus.plate }}</td>
+      <tr><td><b>{{ r.bus.name }}</b>{% if r.unlinked %} <span class="pill amber" title="Dit voertuig komt uit Radius maar staat nog niet onder Bussen">nog niet onder Bussen</span>{% endif %}</td><td class="muted">{{ r.bus.plate }}</td>
       <td class="num">{{ r.dag }} km</td><td class="num">{{ r.week }} km</td><td class="num">{{ r.maand }} km</td></tr>
     {% endfor %}
     </tbody>
@@ -35,13 +44,13 @@
 <div class="card" style="padding:6px">
   <h3 style="color:var(--accent);padding:14px 14px 4px;font-size:15px">Per dag (laatste werkdagen)</h3>
   <table>
-    <thead><tr><th>Datum</th>{% for b in busses %}<th class="num">{{ b.name.split(' - ')[0] }}</th>{% endfor %}</tr></thead>
+    <thead><tr><th>Datum</th>{% for v in vehicles %}<th class="num">{{ v.name.split(' - ')[0] }}</th>{% endfor %}</tr></thead>
     <tbody>
     {% for d in recent_dates %}
-      <tr><td>{{ d }}</td>{% for b in busses %}<td class="num">{{ daily.get((b.id, d), 0) }} km</td>{% endfor %}</tr>
+      <tr><td>{{ d }}</td>{% for v in vehicles %}<td class="num">{{ daily.get((loop.index0, d), 0) }} km</td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
-<p class="muted" style="font-size:12.5px;margin-top:12px">Bij een actieve GPS- of route-koppeling worden de kilometers automatisch per rit geregistreerd; de monteur kan ook handmatig de kilometerstand invoeren in de app.</p>
+<p class="muted" style="font-size:12.5px;margin-top:12px">Met de Radius-koppeling worden de kilometers automatisch bijgehouden uit de busposities (schatting, privéritten niet). Voertuigen die nog niet onder Bussen staan, worden wel geteld en hier apart getoond.</p>
 {% endblock %}
