@@ -133,6 +133,11 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   `_live_loc`, `LIVE_MAX_MIN`. Radius Velocity staat in het blok direct na `_live_loc`.
   Radius-token = refresh token; `_velocity_access` wisselt het in voor een toegangstoken (30 dagen,
   bewaard in settings `velocity_access`, na 25 dagen of bij een 401 opnieuw).
+  Velocity-eigenaardigheden (gezien 2026-10-12): meerdere accounts per bedrijf (Fuel en
+  Telematics; alleen Telematics heeft busposities), lang intern ID naast klantnummer (47057),
+  kenteken met naam ervoor ('Tom-VVB-14-T', zie `_split_registration`), en het veld `timestamp`
+  loopt een uur voor; de leesbare `time` is Nederlandse tijd en wordt gebruikt. Geparkeerde
+  bussen melden zich niet (contact uit), dus de kaart toont ze tot 12 uur na de laatste melding.
   Daarnaast bewaart de Radius-ophaalronde alle bussen in `bus_location` (privéritten niet);
   `/api/bus-locations` zet ze als busjes op de dashboardkaart (alleen kantoor).
 - Pollen: `_poll_cached` (korte cache per proces) voor planningversie en online-lijst.

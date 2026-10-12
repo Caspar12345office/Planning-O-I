@@ -1682,21 +1682,55 @@ def _velocity_err(e, cfg=None):
 
 
 def _velocity_customer(cfg):
-    """Het klant-ID bij Velocity. Staat het niet ingevuld, dan zoeken we het op; bij
-    precies één klantaccount (het gewone geval) is het daarmee geregeld."""
-    if cfg["customer_id"]:
-        return cfg["customer_id"]
-    if _VELOCITY["customer"]:
+    """Het interne klant-ID voor de busposities. Velocity heeft per bedrijf vaak meerdere
+    accounts (tankpas = Fuel, kastjes = Telematics), met een lang intern ID en een kort
+    klantnummer (zoals 47057). Ingevuld mag beide; leeg kiezen we het Telematics-account."""
+    want = cfg["customer_id"]
+    if _VELOCITY.get("customer") and _VELOCITY.get("customer_for") == want:
         return _VELOCITY["customer"]
-    data = _velocity_call("/vapi/v1/accounts/users/customers/", cfg) or {}
-    ids = list(data.keys()) if isinstance(data, dict) else []
-    if len(ids) == 1:
-        _VELOCITY["customer"] = str(ids[0])
-        return _VELOCITY["customer"]
-    if not ids:
-        raise ValueError("Velocity geeft geen klantaccount terug bij dit token.")
-    names = ", ".join("%s (%s)" % ((data[i] or {}).get("name") or "?", i) for i in ids)
-    raise ValueError("Meerdere klantaccounts gevonden: %s. Vul het juiste Klant-ID in." % names)
+    try:
+        data = _velocity_call("/vapi/v1/accounts/users/customers/", cfg) or {}
+    except VelocityAuthError:
+        if want:
+            return want            # lijst mag niet opgevraagd worden: dan het ingevulde ID
+        raise
+    accounts = data if isinstance(data, dict) else {}
+
+    def products(c):
+        return ",".join(str(v) for v in ((c or {}).get("product") or {}).values())
+    chosen = None
+    if want:
+        if want in accounts:
+            chosen = want
+        else:
+            chosen = next((cid for cid, c in accounts.items() if str((c or {}).get("number")) == want), None)
+        if not chosen:
+            raise ValueError("Klant-ID of klantnummer %s komt niet voor bij dit token. Beschikbaar: %s." % (
+                want, ", ".join("%s (%s)" % ((c or {}).get("number"), products(c)) for c in accounts.values())))
+    else:
+        tel = [cid for cid, c in accounts.items() if "telematics" in products(c).lower()]
+        pool = tel or list(accounts.keys())
+        if len(pool) == 1:
+            chosen = pool[0]
+        elif not pool:
+            raise ValueError("Velocity geeft geen klantaccount terug bij dit token.")
+        else:
+            raise ValueError("Meerdere accounts met Telematics: %s. Vul het juiste klantnummer in." % ", ".join(
+                str((accounts[c] or {}).get("number") or c) for c in pool))
+    _VELOCITY["customer"], _VELOCITY["customer_for"] = str(chosen), want
+    return _VELOCITY["customer"]
+
+
+def _split_registration(reg):
+    """Velocity zet soms een naam voor het kenteken: 'Tom-VVB-14-T', 'Bakwagen - VLD-03-F'.
+    Geeft (kenteken, naam). Een Nederlands kenteken is drie groepjes met streepjes."""
+    reg = (reg or "").strip()
+    m = _re.search(r"([A-Za-z0-9]{1,3}-[A-Za-z0-9]{1,3}-[A-Za-z0-9]{1,3})[ ]*$", reg)
+    if not m:
+        return reg, ""
+    plate = m.group(1).upper()
+    label = reg[:m.start()].strip(" -")
+    return plate, label
 
 
 def _velocity_positions(cfg):
@@ -1710,14 +1744,33 @@ def _velocity_positions(cfg):
             continue
         if not (lat or lng):
             continue
+        # Tijd van de laatste melding. Het veld 'timestamp' liep in de praktijk een uur voor
+        # (Britse kloktijd als UTC, gezien op 2026-10-12); het leesbare veld 'time'
+        # ("11:25 </br> 12/10/2026") is de Nederlandse tijd en klopt. Dat gebruiken we dus
+        # eerst, het tijdstempel alleen als terugval.
+        at_nl = None
+        mt = _re.search(r"([0-9]{1,2}):([0-9]{2})[^0-9]+([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})", str(d.get("time") or ""))
+        if mt:
+            try:
+                at_nl = datetime(int(mt.group(5)), int(mt.group(4)), int(mt.group(3)),
+                                 int(mt.group(1)), int(mt.group(2)))
+            except ValueError:
+                at_nl = None
+        if at_nl is None:
+            try:
+                at_nl = datetime.fromtimestamp(int(float(d.get("timestamp"))), NL_TZ).replace(tzinfo=None)
+            except (TypeError, ValueError, OverflowError, OSError):
+                at_nl = None
+        # Servertijd (zelfde basis als de telefoon-GPS en datetime.now() in de rest van de app).
+        at = at_nl.replace(tzinfo=NL_TZ).astimezone().replace(tzinfo=None) if at_nl else None
+        plate, label = _split_registration(d.get("vehicle_registration"))
         try:
-            at = datetime.fromtimestamp(int(float(d.get("timestamp"))))   # unix-tijd van het kastje
-        except (TypeError, ValueError, OverflowError, OSError):
-            at = None
-        out.append({"plate": d.get("vehicle_registration") or "", "key": _plate_key(d.get("vehicle_registration")),
-                    "lat": lat, "lng": lng, "at": at,
-                    "ignition": str(d.get("ignition") or "").upper()[:1],
-                    "speed": float(d.get("speed") or 0) if str(d.get("speed") or "0").replace(".", "", 1).isdigit() else 0.0,
+            speed = float(d.get("speed") or 0)
+        except (TypeError, ValueError):
+            speed = 0.0
+        out.append({"plate": plate, "label": label, "key": _plate_key(plate),
+                    "lat": lat, "lng": lng, "at": at, "at_nl": at_nl,
+                    "ignition": str(d.get("ignition") or "").upper()[:1], "speed": speed,
                     "private": str(d.get("private")).lower() in ("1", "true", "y", "yes")})
     return out
 
@@ -1804,8 +1857,12 @@ def _velocity_sync(force=False):
             if not d or d["private"] or not d["at"]:
                 continue
             stamp = d["at"].isoformat(timespec="minutes")
+            if d["ignition"] == "N" and d["at"] > datetime.now() - timedelta(hours=12):
+                # Contact uit: het kastje meldt zich niet, maar de bus staat er nog. Bijvoorbeeld
+                # bij de klant; dan is dit wel de positie van nu.
+                stamp = datetime.now().isoformat(timespec="minutes")
             if stamp < cutoff:
-                continue          # kastje meldt zich al een tijd niet; niet als live tonen
+                continue          # rijdt, maar meldt zich al een tijd niet; niet als live tonen
             cur = conn.execute("SELECT updated_at, live FROM monteur_location WHERE monteur_id=?",
                                (r["mid"],)).fetchone()
             if cur and cur["live"] and (cur["updated_at"] or "") > stamp:
@@ -1829,8 +1886,8 @@ def _velocity_sync(force=False):
                             ON CONFLICT(plate_key) DO UPDATE SET plate=excluded.plate,lat=excluded.lat,
                             lng=excluded.lng,at=excluded.at,ignition=excluded.ignition,speed=excluded.speed,
                             updated=excluded.updated""",
-                         (d["key"], d["plate"], d["lat"], d["lng"], d["at"].isoformat(timespec="minutes"),
-                          d["ignition"], d["speed"], stamp_now))
+                         (d["key"], d["plate"] + ((" · " + d["label"]) if d["label"] else ""), d["lat"], d["lng"],
+                          d["at_nl"].isoformat(timespec="minutes"), d["ignition"], d["speed"], stamp_now))
         conn.commit()
     finally:
         conn.close()
@@ -1847,7 +1904,7 @@ def _velocity_sync(force=False):
 def _velocity_loop():
     while True:
         try:
-            if VELOCITY_HOURS[0] <= datetime.now().hour < VELOCITY_HOURS[1]:
+            if VELOCITY_HOURS[0] <= datetime.now(NL_TZ).hour < VELOCITY_HOURS[1]:
                 _velocity_sync()
         except Exception:
             pass
@@ -3345,7 +3402,7 @@ def api_locations():
     return jsonify(out)
 
 
-BUS_MAP_MAX_MIN = 60     # een bus staat op de kaart zolang zijn laatste positie < 1 uur oud is
+BUS_MAP_MAX_MIN = 12 * 60   # geparkeerde bussen melden zich niet; tot 12 uur na de laatste melding tonen
 
 
 @bp.route("/api/bus-locations")
@@ -3355,7 +3412,8 @@ def api_bus_locations():
     if not u or u["role"] in ("monteur", "picker"):
         return jsonify(ok=False), 403
     today = _today_iso()
-    cutoff = (datetime.now() - timedelta(minutes=BUS_MAP_MAX_MIN)).isoformat(timespec="minutes")
+    now_nl = datetime.now(NL_TZ).replace(tzinfo=None)          # bus_location staat in Nederlandse tijd
+    cutoff = (now_nl - timedelta(minutes=BUS_MAP_MAX_MIN)).isoformat(timespec="minutes")
     conn = db()
     rows = conn.execute("SELECT * FROM bus_location WHERE at >= ? ORDER BY plate", (cutoff,)).fetchall()
     names = {_plate_key(b["plate"]): b["name"] for b in conn.execute(
@@ -3368,8 +3426,10 @@ def api_bus_locations():
     out = []
     for r in rows:
         moving = (r["ignition"] == "Y" and (r["speed"] or 0) >= 3)
-        out.append({"plate": r["plate"], "lat": r["lat"], "lng": r["lng"], "at": (r["at"] or "")[11:16],
-                    "name": names.get(r["plate_key"], ""), "driver": " en ".join(drivers.get(r["plate_key"], [])),
+        plate, _sep, label = (r["plate"] or "").partition(" · ")
+        out.append({"plate": plate, "lat": r["lat"], "lng": r["lng"], "at": (r["at"] or "")[11:16],
+                    "name": names.get(r["plate_key"], "") or label,
+                    "driver": " en ".join(drivers.get(r["plate_key"], [])),
                     "moving": moving, "speed": round(r["speed"] or 0)})
     d = _depot_point()
     return jsonify(ok=True, busses=out, depot=[d[0], d[1]], depot_label=_route_cfg()["depot"])
