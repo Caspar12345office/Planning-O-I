@@ -111,7 +111,7 @@
               <label>{{ f.label }}</label>
               <input type="{{ 'password' if f.type=='password' else 'text' }}" name="{{ f.key }}"
                      value="{{ vals.get(f.key, f.get('default','')) }}" placeholder="{{ f.get('placeholder','') }}"
-                     autocomplete="off">
+                     autocomplete="{{ 'new-password' if f.type=='password' else 'off' }}">
             </div>
             {% endif %}
           {% endfor %}

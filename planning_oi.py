@@ -466,6 +466,8 @@ INTEGRATIONS = [
          "placeholder": "Velocity: Account > Account Settings > API Integrations"},
         {"key": "customer_id", "label": "Klant-ID (alleen bij meerdere accounts)", "type": "text",
          "optional": True, "placeholder": "Wordt automatisch gevonden"},
+        {"key": "base_url", "label": "Velocity-adres (alleen als je ergens anders inlogt)", "type": "text",
+         "optional": True, "placeholder": "https://www.velocityfleet.com"},
         {"key": "live_gps", "label": "Busposities gebruiken als live locatie", "type": "toggle", "default": "1",
          "help": "Alleen voor monteurs die vandaag nog adressen open hebben, tussen 06:00 en 20:00, en nooit bij een rit die in Velocity als privé is gemarkeerd."}]},
     {"key": "google_oauth", "name": "Google OAuth + MFA", "icon": "🔐", "logo": "google", "c": "#4285F4",
@@ -1544,9 +1546,21 @@ def _velocity_cfg():
         cfg = {}
     conn.close()
     # Een token als env-var op Render gaat voor; anders wat bij Koppelingen is ingevuld.
-    token = (os.environ.get("VELOCITY_API_TOKEN") or cfg.get("api_key") or "").strip()
+    raw = (os.environ.get("VELOCITY_API_TOKEN") or cfg.get("api_key") or "").strip()
+    # Meegekopieerd voorvoegsel weghalen ("Bearer abc" of "Token abc" plakken gebeurt vaak);
+    # alleen met een spatie erachter, want een token kan zelf met 'token' beginnen.
+    for pre in ("bearer ", "token "):
+        if raw.lower().startswith(pre):
+            raw = raw[len(pre):]
+    token = "".join(raw.split())          # spaties en regeleindes eruit
+    base = (cfg.get("base_url") or "").strip()
+    if base:
+        if "://" not in base:
+            base = "https://" + base
+        u = urllib.parse.urlparse(base)
+        base = "%s://%s" % (u.scheme or "https", u.netloc or u.path.split("/")[0])
     return {"token": token, "customer_id": (cfg.get("customer_id") or "").strip(),
-            "enabled": (cfg.get("live_gps") or "1") == "1"}
+            "enabled": (cfg.get("live_gps") or "1") == "1", "base": base or VELOCITY_BASE}
 
 
 def _plate_key(plate):
@@ -1554,17 +1568,50 @@ def _plate_key(plate):
     return _re.sub(r"[^A-Z0-9]", "", (plate or "").upper())
 
 
-def _velocity_call(path, token, method="GET", query=None):
-    url = VELOCITY_BASE + path + ("?" + urllib.parse.urlencode(query) if query else "")
-    req = urllib.request.Request(url, method=method, data=(b"" if method == "POST" else None),
-                                 headers={"Authorization": "Bearer " + token, "Accept": "application/json",
-                                          "User-Agent": "OfficeRoute/1.0 (Office-Interior)"})
-    with urllib.request.urlopen(req, timeout=12) as r:
-        return json.loads(r.read().decode("utf-8") or "null")
+class VelocityAuthError(Exception):
+    pass
 
 
-def _velocity_err(e):
+def _velocity_call(path, cfg, method="GET", query=None):
+    """Aanroep naar Velocity. Eerst 'Bearer <token>' (zoals de openbare SDK); weigert
+    Velocity dat, dan nog één keer 'Token <token>'. Wat werkt, onthouden we."""
+    url = cfg["base"] + path + ("?" + urllib.parse.urlencode(query) if query else "")
+    schemes = [_VELOCITY.get("scheme") or "Bearer"]
+    schemes.append("Token" if schemes[0] == "Bearer" else "Bearer")
+    answers = []
+    for sch in schemes:
+        req = urllib.request.Request(url, method=method, data=(b"" if method == "POST" else None),
+                                     headers={"Authorization": sch + " " + cfg["token"], "Accept": "application/json",
+                                              "User-Agent": "OfficeRoute/1.0 (Office-Interior)"})
+        try:
+            with urllib.request.urlopen(req, timeout=12) as r:
+                data = json.loads(r.read().decode("utf-8") or "null")
+            _VELOCITY["scheme"] = sch
+            return data
+        except urllib.error.HTTPError as e:
+            if e.code not in (401, 403):
+                raise
+            try:
+                body = e.read().decode("utf-8", "replace")
+                detail = (json.loads(body) or {}).get("detail") or body
+            except Exception:
+                detail = ""
+            answers.append("%s: %s" % (sch, str(detail)[:120] or e.code))
+    raise VelocityAuthError("; ".join(answers))
+
+
+def _velocity_err(e, cfg=None):
     """Leesbare foutmelding voor kantoor (Koppelingen en het commandocentrum)."""
+    if isinstance(e, VelocityAuthError):
+        cfg = cfg or _velocity_cfg()
+        tok = cfg["token"]
+        vorm = "JWT (drie delen met punten)" if tok.count(".") == 2 else "geen JWT"
+        msg = ("Velocity weigert het token op %s. Antwoord van Velocity: %s. Het opgeslagen token is %d tekens (%s)."
+               % (cfg["base"].split("://")[-1], e, len(tok), vorm))
+        if len(tok) < 25:
+            msg += (" Dat is kort voor een API-token: mogelijk heeft de browser hier een opgeslagen wachtwoord"
+                    " ingevuld. Plak het token opnieuw en sla op.")
+        return msg
     if isinstance(e, urllib.error.HTTPError):
         if e.code in (401, 403):
             return "Velocity weigert het API-token (code %s). Maak een nieuw token aan en plak het opnieuw." % e.code
@@ -1585,7 +1632,7 @@ def _velocity_customer(cfg):
         return cfg["customer_id"]
     if _VELOCITY["customer"]:
         return _VELOCITY["customer"]
-    data = _velocity_call("/vapi/v1/accounts/users/customers/", cfg["token"]) or {}
+    data = _velocity_call("/vapi/v1/accounts/users/customers/", cfg) or {}
     ids = list(data.keys()) if isinstance(data, dict) else []
     if len(ids) == 1:
         _VELOCITY["customer"] = str(ids[0])
@@ -1597,7 +1644,7 @@ def _velocity_customer(cfg):
 
 
 def _velocity_positions(cfg):
-    data = _velocity_call("/api/mobile/kinesis/device-live-positions/", cfg["token"], "POST",
+    data = _velocity_call("/api/mobile/kinesis/device-live-positions/", cfg, "POST",
                           {"customer": _velocity_customer(cfg)}) or {}
     out = []
     for d in (data.get("devices") or []):
@@ -1666,7 +1713,7 @@ def _velocity_sync(force=False):
     try:
         devices = _velocity_positions(cfg)
     except Exception as e:
-        st = {"ok": False, "at": datetime.now().isoformat(timespec="minutes"), "msg": _velocity_err(e)}
+        st = {"ok": False, "at": datetime.now().isoformat(timespec="minutes"), "msg": _velocity_err(e, cfg)}
         _velocity_save_status(st)
         return st
 
