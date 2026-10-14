@@ -3997,6 +3997,73 @@ def api_order_note():
     return jsonify(ok=True)
 
 
+@bp.route("/api/order-items/<int:oid>", methods=["GET", "POST"])
+def api_order_items(oid):
+    """Orderregels (artikelen) bekijken en aanpassen vanuit de planning.
+
+    POST lines = [{id?, name, qty}]: regels met een id worden bijgewerkt, zonder id
+    toegevoegd, en regels die ontbreken verwijderd. Een gewijzigde naam wordt opnieuw
+    aan de catalogus gekoppeld (zelfde weg als de Shopify-import), en een gewijzigde
+    regel moet in het magazijn opnieuw gepickt worden."""
+    if not has_perm("view_planning" if request.method == "GET" else "edit_planning"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    try:
+        o = conn.execute("SELECT id, order_number, service_type FROM orders WHERE id=?", (oid,)).fetchone()
+        if not o:
+            return jsonify(ok=False, error="Order niet gevonden"), 404
+        prods = _load_products(conn)
+        if request.method == "GET":
+            rows = conn.execute("SELECT id, name, qty FROM order_items WHERE order_id=? ORDER BY id", (oid,)).fetchall()
+            names = sorted({(p["display"] or p["name"]) for p in prods if (p["display"] or p["name"])},
+                           key=str.lower)
+            return jsonify(ok=True, order_number=o["order_number"],
+                           lines=[{"id": r["id"], "name": r["name"] or "", "qty": r["qty"] or 1} for r in rows],
+                           catalog=names)
+        data = request.get_json(force=True) or {}
+        lines = []
+        for ln in data.get("lines") or []:
+            name = " ".join(str(ln.get("name") or "").split())[:200]
+            try:
+                qty = max(1, min(9999, int(ln.get("qty") or 1)))
+            except (TypeError, ValueError):
+                return jsonify(ok=False, error="Aantal bij '%s' is geen getal." % (name or "nieuwe regel")), 400
+            if name:
+                lines.append({"id": ln.get("id"), "name": name, "qty": qty})
+        old = {r["id"]: r for r in conn.execute("SELECT id, name, qty FROM order_items WHERE order_id=?",
+                                                (oid,)).fetchall()}
+        keep = set()
+        for ln in lines:
+            try:
+                lid = int(ln["id"]) if ln["id"] else None
+            except (TypeError, ValueError):
+                lid = None
+            prev = old.get(lid) if lid else None
+            if prev:
+                keep.add(lid)
+                if ln["name"] != (prev["name"] or ""):
+                    conn.execute("""UPDATE order_items SET name=?, src_name=?, qty=?, picked=0, montage_custom=NULL
+                                    WHERE id=?""", (_order_item_label(ln["name"], prods), ln["name"], ln["qty"], lid))
+                elif ln["qty"] != (prev["qty"] or 1):
+                    conn.execute("UPDATE order_items SET qty=?, picked=0 WHERE id=?", (ln["qty"], lid))
+            else:
+                conn.execute("INSERT INTO order_items(order_id,name,src_name,qty) VALUES(?,?,?,?)",
+                             (oid, _order_item_label(ln["name"], prods), ln["name"], ln["qty"]))
+        for lid in set(old) - keep:
+            conn.execute("DELETE FROM order_items WHERE id=?", (lid,))
+        # Werkdruk opnieuw uit de catalogus (zoals bij de import).
+        itr = conn.execute("SELECT %s AS name,qty,montage_custom FROM order_items WHERE order_id=?"
+                           % _mkey(), (oid,)).fetchall()
+        mm = _order_montage([{"name": r["name"], "qty": r["qty"], "montage_custom": r["montage_custom"]}
+                             for r in itr], prods, fallback=0, service_type=o["service_type"] or "montage")
+        if mm:
+            conn.execute("UPDATE orders SET montage_min=? WHERE id=?", (mm, oid))
+        conn.commit()
+        return jsonify(ok=True)
+    finally:
+        conn.close()
+
+
 @bp.route("/api/confirm", methods=["POST"])
 def api_confirm():
     if not has_perm("edit_planning"):

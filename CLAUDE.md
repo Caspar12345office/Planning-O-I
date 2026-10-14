@@ -96,6 +96,10 @@ Gedaan op 2026-10-14: alle apps rekenen in Nederlandse tijd (TZ in `app.py`). Da
 alles op Render 2 uur achter: AT-tijden in de planning, ETA in de "onderweg"-mail, tijdstempels
 van notities, gestart/afgerond, uren. Oude rijen in de database van voor 2026-10-14 staan nog
 in UTC (niet omgezet).
+Ook op 2026-10-14: Shopify-orders met de tag `geen-officeroute` worden overgeslagen; artikelen
+(orderregels) aanpassen vanuit de route in de planning: klik op de cel "Naam · artikel"
+(`/api/order-items/<oid>`, recht `edit_planning`). Een gewijzigde regel krijgt `picked=0`, een
+nieuwe naam wordt opnieuw aan de catalogus gekoppeld en de montagetijd wordt herberekend.
 
 Uitrol naar ongeveer 50 collega's in vier stappen:
 1. Klaarmaken: **af** (Sentry-code in alle apps, versiecode van de inlogpagina's, onaffe

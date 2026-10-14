@@ -56,6 +56,15 @@
   .seq{color:#0f3d3e;font-weight:600}
   .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .nm b{font-weight:600}.nm span{color:var(--muted)}
+  .nm.edit{cursor:pointer}
+  .nm.edit:hover .arts{color:var(--accent);text-decoration:underline dotted}
+  .itbl{width:100%;border-collapse:collapse;margin-top:4px}
+  .itbl th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:4px 4px 6px;font-weight:600}
+  .itbl td{padding:4px;vertical-align:middle}
+  .itbl .q{width:74px}
+  .itbl .del{width:30px;text-align:center;color:var(--muted);cursor:pointer}
+  .itbl .del:hover{color:var(--red)}
+  .itbl tr.empty td{color:var(--muted);font-size:13px;padding:10px 4px}
   .at-ontime{color:#3b6d11;font-weight:600}.at-late{color:#854f0b;font-weight:600}
   .at-done{color:#3b6d11;font-weight:600}.at-none{color:var(--muted)}
   .at-sub{font-size:9.5px;font-weight:400}
@@ -235,7 +244,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
           {% elif j.at_status=='none' %}<span class="at-none">-</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm"><b>{{ (j.client or '').split()[:2] | join(' ') }}</b>{% if j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %} <span>· {{ j.arts or '-' }}</span></td>
+        <td class="nm{{ ' edit' if can_edit }}"{% if can_edit %} onclick="openItems({{ j.order_id }})" title="Artikelen aanpassen: {{ j.arts|e }}"{% endif %}><b>{{ (j.client or '').split()[:2] | join(' ') }}</b>{% if j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %} <span class="arts">· {{ j.arts or ('artikel toevoegen' if can_edit else '-') }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
@@ -352,6 +361,21 @@ function collapseAll(){var all=document.querySelectorAll('.route'),c=document.qu
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <button class="btn ghost" onclick="document.getElementById('noteModal').style.display='none'">Annuleren</button>
       <button class="btn primary" onclick="saveNote()">Opslaan</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="itemsModal">
+  <div class="box" style="width:min(560px,94vw)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px"><h3 id="itemsTitle">Artikelen</h3><span class="x" style="cursor:pointer;color:var(--muted)" onclick="closeItems()"><svg class="ico"><use href="#ic-x"/></svg></span></div>
+    <div class="to">Gewijzigde regels moet het magazijn opnieuw picken.</div>
+    <input type="hidden" id="itemsOid">
+    <table class="itbl"><thead><tr><th class="q">Aantal</th><th>Artikel</th><th class="del"></th></tr></thead><tbody id="itemsBody"></tbody></table>
+    <datalist id="itemsCatalog"></datalist>
+    <button class="btn ghost sm" style="margin-top:8px" onclick="addItemRow()">+ Regel toevoegen</button>
+    <div class="row">
+      <button class="btn ghost" onclick="closeItems()">Annuleren</button>
+      <button class="btn primary" id="itemsSave" onclick="saveItems()">Opslaan</button>
     </div>
   </div>
 </div>
@@ -597,6 +621,49 @@ function saveNote(){
     body:JSON.stringify({order_id:document.getElementById('noteOid').value,
       internal:document.getElementById('noteInternal').value, monteur:document.getElementById('noteMonteur').value})})
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
+}
+function closeItems(){ document.getElementById('itemsModal').style.display='none'; }
+function _itemsEmpty(){
+  var b=document.getElementById('itemsBody');
+  if(!b.querySelector('tr.line')){ b.innerHTML='<tr class="empty"><td colspan="3">Nog geen artikelen. Voeg een regel toe.</td></tr>'; }
+}
+function addItemRow(line){
+  var b=document.getElementById('itemsBody'), e=b.querySelector('tr.empty'); if(e) e.remove();
+  var tr=document.createElement('tr'); tr.className='line'; if(line&&line.id) tr.setAttribute('data-id',line.id);
+  tr.innerHTML='<td class="q"><input type="number" min="1" max="9999" step="1"></td>'+
+               '<td><input type="text" list="itemsCatalog" maxlength="200" placeholder="bv. Bureaustoel zwart"></td>'+
+               '<td class="del" title="Regel verwijderen"><svg class="ico"><use href="#ic-trash"/></svg></td>';
+  var ins=tr.querySelectorAll('input'); ins[0].value=(line&&line.qty)||1; ins[1].value=(line&&line.name)||'';
+  tr.querySelector('.del').onclick=function(){ tr.remove(); _itemsEmpty(); };
+  b.appendChild(tr);
+  if(!line) ins[1].focus();
+}
+function openItems(oid){
+  document.getElementById('itemsOid').value=oid;
+  document.getElementById('itemsBody').innerHTML='<tr class="empty"><td colspan="3">Laden...</td></tr>';
+  document.getElementById('itemsTitle').textContent='Artikelen';
+  document.getElementById('itemsModal').style.display='flex';
+  fetch('{{ url_for("planning.api_order_items", oid=0) }}'.replace(/0$/, oid)).then(function(r){return r.json();}).then(function(res){
+    if(!res.ok){ alert(res.error||'Laden mislukt'); closeItems(); return; }
+    document.getElementById('itemsTitle').textContent='Artikelen bij order #'+res.order_number;
+    var dl=document.getElementById('itemsCatalog'); dl.innerHTML='';
+    (res.catalog||[]).forEach(function(n){ var o=document.createElement('option'); o.value=n; dl.appendChild(o); });
+    document.getElementById('itemsBody').innerHTML='';
+    res.lines.forEach(function(l){ addItemRow(l); });
+    _itemsEmpty();
+  }).catch(function(){ alert('Laden mislukt'); closeItems(); });
+}
+function saveItems(){
+  var lines=[];
+  document.querySelectorAll('#itemsBody tr.line').forEach(function(tr){
+    var ins=tr.querySelectorAll('input');
+    if(ins[1].value.trim()) lines.push({id:tr.getAttribute('data-id'), qty:ins[0].value, name:ins[1].value});
+  });
+  var btn=document.getElementById('itemsSave'); btn.disabled=true;
+  fetch('{{ url_for("planning.api_order_items", oid=0) }}'.replace(/0$/, document.getElementById('itemsOid').value),
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lines:lines})})
+    .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else { btn.disabled=false; alert(res.error||'Opslaan mislukt'); } })
+    .catch(function(){ btn.disabled=false; alert('Opslaan mislukt'); });
 }
 function optimizeRoute(ev, mid, keepOrder){
   ev.stopPropagation();
