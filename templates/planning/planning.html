@@ -661,7 +661,7 @@ function showReceipt(ev, did, el){
       +row('Ontvanger',d.receiver)+row('Afgerond',d.when)+row('Monteur',d.monteur)
       +row('Uitkomst',oc+(d.sub_outcome?' · '+d.sub_outcome:''))
       +(d.signature ? '<span class="sigbox"><img alt="Handtekening"></span>' : '<div class="muted" style="font-size:12.5px;margin-top:8px">Geen handtekening</div>')
-      +'<a class="lnk" href="'+d.link+'">Naar alle handtekeningen</a>';
+      +(d.link ? '<a class="lnk" href="'+d.link+'">Naar alle handtekeningen</a>' : '');
     var img=body.querySelector('.sigbox img'); if(img) img.src=d.signature;
   }).catch(function(){ body.innerHTML='<div class="muted" style="font-size:12.5px">Laden mislukt</div>'; });
 }

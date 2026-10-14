@@ -3729,7 +3729,7 @@ def planning():
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
     leverdoc_map = _leverdoc_status_map(conn, [j["order_id"] for j in jobs]) if jobs else {}
-    delivery_map = _delivery_map(conn, [j["order_id"] for j in jobs], day) if (jobs and has_perm("view_signatures")) else {}
+    delivery_map = _delivery_map(conn, [j["order_id"] for j in jobs], day) if jobs else {}
     # Montagetijd (workload) per order uit de artikelcatalogus (val terug op order.montage_min).
     _prods = _load_products(conn)
     montage_map, weight_map = {}, {}
@@ -3889,8 +3889,9 @@ def _delivery_map(conn, order_ids, day):
 
 @bp.route("/api/delivery/<int:did>")
 def api_delivery(did):
-    """Ontvangstbewijs van één afronding (pop-up in de planning)."""
-    if not has_perm("view_signatures"):
+    """Ontvangstbewijs van één afronding (pop-up in de planning). Bewust voor iedereen die
+    de planning ziet; de pagina Handtekeningen (rapportage) blijft achter view_signatures."""
+    if not has_perm("view_planning"):
         return jsonify(ok=False, error="Geen rechten"), 403
     conn = db()
     try:
@@ -3908,7 +3909,8 @@ def api_delivery(did):
                    outcome=r["outcome"] or "", sub_outcome=r["sub_outcome"] or "",
                    when=("%s-%s-%s %s" % (ts[8:10], ts[5:7], ts[0:4], ts[11:16])) if len(ts) >= 16 else ts,
                    order_number=r["order_number"] or "", client=r["client"] or "", monteur=r["monteur"] or "",
-                   link=url_for("planning.signatures", q=r["order_number"] or ""))
+                   link=(url_for("planning.signatures", q=r["order_number"] or "")
+                         if has_perm("view_signatures") else ""))
 
 
 def _route_notice(conn, mid, day):
