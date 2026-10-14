@@ -100,6 +100,10 @@ Ook op 2026-10-14: Shopify-orders met de tag `geen-officeroute` worden overgesla
 (orderregels) aanpassen vanuit de route in de planning: klik op de cel "Naam · artikel"
 (`/api/order-items/<oid>`, recht `edit_planning`). Een gewijzigde regel krijgt `picked=0`, een
 nieuwe naam wordt opnieuw aan de catalogus gekoppeld en de montagetijd wordt herberekend.
+Ook op 2026-10-14: "bij klant" in de planning en op het dashboard (monteur tikte "Ik ben bij de
+klant": status blijft `onderweg`, `aangekomen_at` gezet; AT = echte aankomsttijd). Afronden in de
+monteur-app kan maar één keer (`_already_delivered`, voorwaardelijke UPDATE + `rowcount`, knop uit
+tijdens versturen); dubbele leveringen worden bij het opstarten van de kantoor-app opgeruimd.
 
 Uitrol naar ongeveer 50 collega's in vier stappen:
 1. Klaarmaken: **af** (Sentry-code in alle apps, versiecode van de inlogpagina's, onaffe

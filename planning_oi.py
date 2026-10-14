@@ -248,6 +248,9 @@ class _PgCur:
         self._cur = conn._raw.cursor(row_factory=_pg_rowfactory)
         self.lastrowid = None
         self._scalar = None
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
     def execute(self, sql, params=()):
         if "last_insert_rowid()" in sql.lower():
             self._scalar = self._conn._lastid
@@ -833,11 +836,24 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_orders_track_token ON orders(track_token)",
                 "CREATE INDEX IF NOT EXISTS idx_leverdoc_token ON leverdoc(token)",
                 "CREATE INDEX IF NOT EXISTS idx_leverdoc_order ON leverdoc(order_id)",
-                "CREATE INDEX IF NOT EXISTS idx_planning_status ON planning(status)"):
+                "CREATE INDEX IF NOT EXISTS idx_planning_status ON planning(status)",
+                "CREATE INDEX IF NOT EXISTS idx_deliveries_order ON deliveries(order_id)"):
         try:
             conn.execute(idx)
         except Exception:
             pass
+    # Dubbele leveringen opruimen (dubbel tikken of de offline-wachtrij stuurde dezelfde
+    # afronding opnieuw, zie _already_delivered). Alleen exacte kopieën; de oudste blijft.
+    try:
+        conn.execute("""DELETE FROM deliveries WHERE id IN (
+                            SELECT d.id FROM deliveries d JOIN deliveries e
+                              ON e.order_id=d.order_id AND e.id<d.id
+                             AND COALESCE(e.monteur_id,0)=COALESCE(d.monteur_id,0)
+                             AND COALESCE(e.outcome,'')=COALESCE(d.outcome,'')
+                             AND COALESCE(e.receiver,'')=COALESCE(d.receiver,'')
+                             AND COALESCE(e.signature,'')=COALESCE(d.signature,''))""")
+    except Exception:
+        pass
     conn.commit()
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         _seed(conn)
@@ -3414,12 +3430,13 @@ def dashboard():
                                  (r["id"], today)).fetchone()[0]
         eta, km = _eta_back_live(conn, r, (r["lat"], r["lng"]))
         # eerstvolgende stop = waar hij nu naartoe onderweg is
-        nxt = conn.execute("""SELECT c.name AS client FROM planning p
+        nxt = conn.execute("""SELECT c.name AS client, p.status, p.aangekomen_at FROM planning p
                               JOIN orders o ON o.id=p.order_id LEFT JOIN clients c ON c.id=o.client_id
                               WHERE p.monteur_id=? AND p.date=? AND p.status!='afgerond'
                               ORDER BY p.sequence LIMIT 1""", (r["id"], today)).fetchone()
         underway.append({"name": r["name"], "color": r["color"], "eta_base": eta, "km_base": km,
                          "next_client": (nxt["client"] if nxt else None),
+                         "at_client": bool(nxt and nxt["status"] == "onderweg" and nxt["aangekomen_at"]),
                          "stops_after": max(0, remaining - 1), "updated": r["updated_at"]})
 
     unplanned_all = conn.execute("""SELECT o.*, c.name AS client,
@@ -3757,6 +3774,15 @@ def planning():
             d2["at"] = a["at"]
             d2["at_status"] = a["status"]
             d2["at_delta"] = a["delta"]
+            # Monteur heeft in de app "Ik ben bij de klant" getikt: status blijft 'onderweg',
+            # aangekomen_at is gezet. AT = de echte aankomsttijd.
+            d2["bij_klant"] = bool(s["status"] == "onderweg" and _rget(s, "aangekomen_at"))
+            if d2["bij_klant"]:
+                d2["arrived"] = (s["aangekomen_at"] or "")[11:16]
+                gtdt, atdt = _gt_today(s["slot_start"]), _gt_today(d2["arrived"])
+                d2["at"] = d2["arrived"]
+                d2["at_delta"] = round((atdt - gtdt).total_seconds() / 60) if (gtdt and atdt) else None
+                d2["at_status"] = "late" if (d2["at_delta"] or 0) > 5 else "ontime"
             d2["important"] = (s["amount"] or 0) >= IMPORTANT_THRESHOLD
             st = s["service_type"]
             d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
@@ -4318,10 +4344,12 @@ def api_planning_version():
     def load():
         conn = db()
         r = conn.execute("""SELECT COUNT(*) c, COALESCE(MAX(id),0) m, COALESCE(SUM(confirmed),0) cf,
-                            COALESCE(SUM(CASE WHEN status='afgerond' THEN 1 ELSE 0 END),0) af
+                            COALESCE(SUM(CASE WHEN status='afgerond' THEN 1 ELSE 0 END),0) af,
+                            COALESCE(SUM(CASE WHEN status='onderweg' THEN 1 ELSE 0 END),0) ow,
+                            COUNT(aangekomen_at) ak
                             FROM planning WHERE date=?""", (day,)).fetchone()
         conn.close()
-        return "%d-%d-%d-%d" % (r["c"], r["m"], r["cf"], r["af"])
+        return "%d-%d-%d-%d-%d-%d" % (r["c"], r["m"], r["cf"], r["af"], r["ow"], r["ak"])
     # De eerste vraag na het laden is het vergelijkingspunt en moet vers zijn, anders
     # ziet wie net zelf iets wijzigde daarna onterecht de "bijgewerkt"-balk.
     return jsonify(v=_poll_cached(("planver", day), 3, load, fresh=bool(request.args.get("fresh"))))
@@ -8401,6 +8429,17 @@ def cleanup_old_signatures():
         pass
 
 
+
+def _already_delivered(conn, claimed, order_id):
+    """Dubbele afronding? Een dubbele tik, of de offline-wachtrij die een aanvraag opnieuw
+    stuurt die de server al had, gaf eerder dezelfde handtekening tien keer. Wie de stop
+    niet zelf op 'afgerond' zette (claimed=False) en er staat al een levering bij de
+    order, voegt niets meer toe."""
+    if claimed:
+        return False
+    return conn.execute("SELECT 1 FROM deliveries WHERE order_id=? LIMIT 1", (order_id,)).fetchone() is not None
+
+
 @bp.route("/monteur/complete/<int:pid>", methods=["POST"])
 def monteur_complete(pid):
     if not has_perm("monteur_app") and not has_perm("complete_deliveries"):
@@ -8418,7 +8457,11 @@ def monteur_complete(pid):
     if p:
         now_iso = datetime.now().isoformat(timespec="seconds")
         # Eindpunt van de duurmeting = het moment van tekenen/afronden (alleen zichtbaar voor kantoor).
-        conn.execute("UPDATE planning SET status='afgerond', afgerond_at=? WHERE id=?", (now_iso, pid))
+        claimed = conn.execute("""UPDATE planning SET status='afgerond', afgerond_at=?
+                                  WHERE id=? AND COALESCE(status,'')<>'afgerond'""", (now_iso, pid)).rowcount == 1
+        if _already_delivered(conn, claimed, p["order_id"]):
+            conn.close()
+            return jsonify(ok=True, already=True)
         # Aankomst niet gemeld tijdens de klus? Val terug op de handmatig ingevulde aankomsttijd,
         # zodat de gemeten duur toch klopt.
         if not p["aangekomen_at"] and len(arrived) == 5 and arrived[2] == ":":
