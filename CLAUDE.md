@@ -137,6 +137,13 @@ morgen in de monteur-app (`?dag=morgen`, laadlijst, bewust oranje en zonder knop
 donkere modus monteur-app leesbaar (`--accent` is in donker licht).
 
 Open:
+- Morgen eerst live nalopen (2026-10-14 alleen lokaal getest, inloggen kon niet): AT-tijden
+  kloppen met NL-tijd, "bij klant" bij aankomst, "Zie handtekening" + vakje, artikelen
+  aanpassen vanuit de route, en of de handtekening die 10x stond nu 1x staat.
+- Nog te beslissen door Caspar: melding in de monteur-app als kantoor artikelen van een stop
+  van vandaag wijzigt; en een Shopify-webhook "Bestelling bijgewerkt" zodat de tag
+  `geen-officeroute` achteraf een nog niet geplande order uit OfficeRoute haalt.
+- Volgpagina klant blijft bij aankomst "onderweg" zeggen: zo gewenst (Caspar, 2026-10-14).
 - Google Maps-sleutel nog niet ingevuld (Koppelingen > Google Maps): tot dan is reistijd een
   schatting met "≈". Niet getest met een echte sleutel.
 - Radius: Caspar moet het refresh token zelf bij Koppelingen zetten en de 9 bussen met
