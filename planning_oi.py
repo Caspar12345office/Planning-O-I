@@ -451,7 +451,8 @@ INTEGRATIONS = [
     # logo = eenkleurig beeldmerk in de merkkleur (CSS-mask), img = bestand zoals het is,
     # app = eigen app-logo. Zonder een van de drie valt de kaart terug op "icon".
     {"key": "shopify", "name": "Shopify", "icon": "🛍", "logo": "shopify", "c": "#7AB55C",
-     "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'. Ordernummers komen overeen met Shopify.",
+     "desc": "Realtime import van bevestigde orders als 'Nog in te plannen'. Ordernummers komen overeen met Shopify. "
+             "Een order met de tag 'geen-officeroute' wordt overgeslagen (bij een handmatige order de tag al op de conceptorder zetten).",
      "fields": [
         {"key": "shop_url", "label": "Shop-URL", "type": "text", "placeholder": "office-interior.myshopify.com"},
         {"key": "webhook_secret", "label": "Webhook-secret (verplicht voor de import)", "type": "password"},
@@ -7602,9 +7603,24 @@ def order_maatwerk(oid):
                            known_total=known_total, nxt=request.args.get("next"))
 
 
+SHOPIFY_SKIP_TAG = "geen-officeroute"
+
+
+def _shopify_skip(o):
+    """Order met de tag 'geen-officeroute' hoort niet in OfficeRoute. Bij een handmatige
+    order zet je de tag op de conceptorder: Shopify neemt die mee naar de order, dus hij
+    staat er al bij de webhook 'Bestelling aangemaakt'. Spaties of hoofdletters maken niet uit."""
+    tags = o.get("tags") or ""
+    if isinstance(tags, list):
+        tags = ",".join(str(t) for t in tags)
+    return SHOPIFY_SKIP_TAG in {"-".join(t.strip().lower().split()) for t in str(tags).split(",")}
+
+
 def _shopify_import_order(o):
     """Maak van een Shopify-orderpayload een 'in te plannen' order met alle regels
     (ook handmatig toegevoegde/custom producten). Idempotent op shopify_id."""
+    if _shopify_skip(o):
+        return "skip"
     sid = str(o.get("id") or "")
     gid = ("gid://shopify/Order/%s" % sid) if sid else None
     conn = db()
@@ -7689,7 +7705,8 @@ def shopify_webhook():
     except Exception:
         return ("Ongeldige payload.", 400)
     try:
-        _shopify_import_order(payload)
+        if _shopify_import_order(payload) == "skip":
+            return ("overgeslagen (tag %s)" % SHOPIFY_SKIP_TAG, 200)
     except Exception as e:
         # 500 → Shopify probeert het later opnieuw (geen orders kwijt)
         return ("Importfout: %s" % e, 500)

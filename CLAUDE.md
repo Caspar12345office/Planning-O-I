@@ -172,6 +172,8 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   blok "donker (gegenereerd)" in page_css voor vaste kleuren. Nieuwe vaste kleuren in een scherm?
   Liever variabelen gebruiken, of een `[data-theme="dark"]`-regel toevoegen.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
+  Orders met de tag `geen-officeroute` slaat de webhook over (`_shopify_skip`). Bij een
+  handmatige order zet je die tag op de conceptorder; Shopify neemt hem mee naar de order.
 - Gebruikers: `_start_passwords` markeert accounts met een gedeeld startwachtwoord.
 - Verlof: goedkeurder = beheerder, of het recht `approve_leave` ("Verlofaanvragen goedkeuren",
   per gebruiker onder Gebruikers), of als vangnet een adres uit `APPROVERS_MONTEUR` /
