@@ -3729,6 +3729,7 @@ def planning():
     all_order_ids = [j["order_id"] for j in jobs] + [o["id"] for o in unplanned]
     items_map = _items_by_order(conn, all_order_ids)
     leverdoc_map = _leverdoc_status_map(conn, [j["order_id"] for j in jobs]) if jobs else {}
+    delivery_map = _delivery_map(conn, [j["order_id"] for j in jobs], day) if (jobs and has_perm("view_signatures")) else {}
     # Montagetijd (workload) per order uit de artikelcatalogus (val terug op order.montage_min).
     _prods = _load_products(conn)
     montage_map, weight_map = {}, {}
@@ -3788,6 +3789,7 @@ def planning():
             d2["ml"] = "O" if st == "ophalen" else ("L" if st == "levering" else "M")
             d2["arts"] = items_map.get(s["order_id"], "")
             d2["leverdoc"] = leverdoc_map.get(s["order_id"])
+            d2["delivery"] = delivery_map.get(s["order_id"]) if s["status"] == "afgerond" else None
             enriched.append(d2)
         routes_by_m[m["id"]] = enriched
         if rj:
@@ -3868,6 +3870,45 @@ def planning():
                            nd=nd, can_edit=has_perm("edit_planning"), usort=usort,
                            shown_ids=shown_ids, addable=addable, crew=crew_map,
                            maatwerk_orders=_orders_needing_custom())
+
+
+def _delivery_map(conn, order_ids, day):
+    """{order_id: {id, has_sig}}: de afronding (ontvangstbewijs) bij een stop, voor de
+    snelkoppeling "Zie handtekening" in de route. Liefst die van deze dag (een order kan
+    eerder 'niet thuis' zijn geweest), anders de laatste."""
+    out = {}
+    qm = ",".join("?" * len(order_ids))
+    for r in conn.execute("""SELECT id, order_id, ts, CASE WHEN COALESCE(signature,'')<>'' THEN 1 ELSE 0 END AS has_sig
+                             FROM deliveries WHERE order_id IN (%s) ORDER BY id""" % qm, tuple(order_ids)).fetchall():
+        cur = out.get(r["order_id"])
+        if cur and cur["today"] and (r["ts"] or "")[:10] != day:
+            continue
+        out[r["order_id"]] = {"id": r["id"], "has_sig": bool(r["has_sig"]), "today": (r["ts"] or "")[:10] == day}
+    return out
+
+
+@bp.route("/api/delivery/<int:did>")
+def api_delivery(did):
+    """Ontvangstbewijs van één afronding (pop-up in de planning)."""
+    if not has_perm("view_signatures"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    try:
+        r = conn.execute("""SELECT d.receiver, d.signature, d.outcome, d.sub_outcome, d.ts,
+                                   o.order_number, c.name AS client, m.name AS monteur
+                            FROM deliveries d LEFT JOIN orders o ON o.id=d.order_id
+                            LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id
+                            WHERE d.id=?""", (did,)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        return jsonify(ok=False, error="Niet gevonden (handtekeningen worden na 30 dagen gewist)."), 404
+    ts = r["ts"] or ""
+    return jsonify(ok=True, receiver=r["receiver"] or "", signature=r["signature"] or "",
+                   outcome=r["outcome"] or "", sub_outcome=r["sub_outcome"] or "",
+                   when=("%s-%s-%s %s" % (ts[8:10], ts[5:7], ts[0:4], ts[11:16])) if len(ts) >= 16 else ts,
+                   order_number=r["order_number"] or "", client=r["client"] or "", monteur=r["monteur"] or "",
+                   link=url_for("planning.signatures", q=r["order_number"] or ""))
 
 
 def _route_notice(conn, mid, day):

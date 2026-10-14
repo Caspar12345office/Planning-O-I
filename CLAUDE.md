@@ -104,6 +104,9 @@ Ook op 2026-10-14: "bij klant" in de planning en op het dashboard (monteur tikte
 klant": status blijft `onderweg`, `aangekomen_at` gezet; AT = echte aankomsttijd). Afronden in de
 monteur-app kan maar één keer (`_already_delivered`, voorwaardelijke UPDATE + `rowcount`, knop uit
 tijdens versturen); dubbele leveringen worden bij het opstarten van de kantoor-app opgeruimd.
+Ook op 2026-10-14: "Zie handtekening" bij afgeronde stops in de route (recht `view_signatures`):
+klein vakje met het ontvangstbewijs (`/api/delivery/<id>`, `_delivery_map`). Statusbadges staan nu
+voor de klantnaam, anders vielen ze weg achter een lange, afgekapte naam.
 
 Uitrol naar ongeveer 50 collega's in vier stappen:
 1. Klaarmaken: **af** (Sentry-code in alle apps, versiecode van de inlogpagina's, onaffe

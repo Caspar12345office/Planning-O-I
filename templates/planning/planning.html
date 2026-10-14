@@ -94,7 +94,16 @@
   .rtbl tr.done td:first-child{box-shadow:inset 3px 0 0 #73bf52}
   .rtbl tr.onderweg td{background:#fdf3e0}
   .rtbl tr.onderweg td:first-child{box-shadow:inset 3px 0 0 #cda35a}
-  .stbadge{display:inline-block;font-size:9px;font-weight:800;border-radius:999px;padding:1px 6px;margin-left:5px;letter-spacing:.02em;vertical-align:middle}
+  .stbadge{display:inline-block;font-size:9px;font-weight:800;border-radius:999px;padding:1px 6px;margin-right:5px;letter-spacing:.02em;vertical-align:middle}
+  .stbadge.rcpt{cursor:pointer;text-decoration:underline dotted}
+  .stbadge.rcpt:hover{background:#b9dea8}
+  .rcpt-pop{position:fixed;width:290px;padding:12px 14px}
+  .rcpt-pop .rl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line)}
+  .rcpt-pop .rl span{color:var(--muted)}
+  .rcpt-pop .rl b{font-weight:600;text-align:right}
+  .rcpt-pop .sigbox{display:flex;justify-content:center;margin-top:9px;width:100%}
+  .rcpt-pop .sigbox img{max-width:100%;height:96px;object-fit:contain}
+  .rcpt-pop .lnk{display:block;margin-top:9px;font-size:12px;color:var(--accent);font-weight:600}
   .stbadge.onderweg{background:#f3e6c9;color:#8a6a1e}
   .stbadge.done{background:#cfe8c2;color:#2c5410}
   .rtbl tr.bijklant td{background:#e9f0fd}
@@ -122,6 +131,7 @@
   [data-theme="dark"] .rtbl tr.bijklant td{background:rgba(47,109,240,.16)}
   [data-theme="dark"] .stbadge.bijklant{color:#a9c4ff;background:rgba(47,109,240,.2)}
   [data-theme="dark"] .stbadge.done{color:#a3dc8f;background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .stbadge.rcpt:hover{background:rgba(115,191,82,.3)}
   /* einde donker */
 {% endblock %}
 
@@ -249,7 +259,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
           {% elif j.at_status=='none' %}<span class="at-none">-</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm{{ ' edit' if can_edit }}"{% if can_edit %} onclick="openItems({{ j.order_id }})" title="Artikelen aanpassen: {{ j.arts|e }}"{% endif %}><b>{{ (j.client or '').split()[:2] | join(' ') }}</b>{% if j.bij_klant %}<span class="stbadge bijklant" title="Bij de klant sinds {{ j.arrived }}">bij klant</span>{% elif j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %} <span class="arts">· {{ j.arts or ('artikel toevoegen' if can_edit else '-') }}</span></td>
+        <td class="nm{{ ' edit' if can_edit }}"{% if can_edit %} onclick="openItems({{ j.order_id }})" title="Artikelen aanpassen: {{ j.arts|e }}"{% endif %}>{% if j.bij_klant %}<span class="stbadge bijklant" title="Bij de klant sinds {{ j.arrived }}">bij klant</span>{% elif j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.delivery %}<span class="stbadge done rcpt" onclick="showReceipt(event,{{ j.delivery.id }},this)" title="Ontvangstbewijs bekijken">{{ 'Zie handtekening' if j.delivery.has_sig else 'Zie afronding' }}</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %}<b>{{ (j.client or '').split()[:2] | join(' ') }}</b> <span class="arts">· {{ j.arts or ('artikel toevoegen' if can_edit else '-') }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
@@ -368,6 +378,11 @@ function collapseAll(){var all=document.querySelectorAll('.route'),c=document.qu
       <button class="btn primary" onclick="saveNote()">Opslaan</button>
     </div>
   </div>
+</div>
+
+<div class="pop rcpt-pop" id="rcptPop" onclick="event.stopPropagation()">
+  <div class="ph"><span>Ontvangstbewijs</span><span class="x" onclick="hideReceipt()"><svg class="ico"><use href="#ic-x"/></svg></span></div>
+  <div id="rcptBody"></div>
 </div>
 
 <div class="modal" id="itemsModal">
@@ -626,6 +641,29 @@ function saveNote(){
     body:JSON.stringify({order_id:document.getElementById('noteOid').value,
       internal:document.getElementById('noteInternal').value, monteur:document.getElementById('noteMonteur').value})})
     .then(function(r){return r.json();}).then(function(res){ if(res.ok) location.reload(); else alert(res.error||'Mislukt'); });
+}
+/* Ontvangstbewijs: klein vakje bij "Zie handtekening" (snelkoppeling naar de handtekeningen). */
+function hideReceipt(){ document.getElementById('rcptPop').style.display='none'; }
+document.addEventListener('click', hideReceipt);
+window.addEventListener('scroll', hideReceipt, true);
+function showReceipt(ev, did, el){
+  if(ev) ev.stopPropagation();
+  var pop=document.getElementById('rcptPop'), body=document.getElementById('rcptBody'), r=el.getBoundingClientRect();
+  body.innerHTML='<div class="muted" style="font-size:12.5px">Laden...</div>';
+  pop.style.left=Math.max(8, Math.min(r.left, window.innerWidth-306))+'px';
+  pop.style.top=(r.bottom+6+300>window.innerHeight ? Math.max(8, r.top-306) : r.bottom+6)+'px';
+  pop.style.display='block';
+  fetch('{{ url_for("planning.api_delivery", did=0) }}'.replace(/0$/, did)).then(function(x){return x.json();}).then(function(d){
+    if(!d.ok){ body.innerHTML='<div class="muted" style="font-size:12.5px">'+esc(d.error||'Niet beschikbaar')+'</div>'; return; }
+    var oc={succesvol:'Succesvol',beschadigd:'Beschadigd',niet_thuis:'Niet thuis'}[d.outcome]||d.outcome;
+    function row(k,v){ return v ? '<div class="rl"><span>'+k+'</span><b>'+esc(v)+'</b></div>' : ''; }
+    body.innerHTML=row('Order','#'+d.order_number+(d.client?' · '+d.client:''))
+      +row('Ontvanger',d.receiver)+row('Afgerond',d.when)+row('Monteur',d.monteur)
+      +row('Uitkomst',oc+(d.sub_outcome?' · '+d.sub_outcome:''))
+      +(d.signature ? '<span class="sigbox"><img alt="Handtekening"></span>' : '<div class="muted" style="font-size:12.5px;margin-top:8px">Geen handtekening</div>')
+      +'<a class="lnk" href="'+d.link+'">Naar alle handtekeningen</a>';
+    var img=body.querySelector('.sigbox img'); if(img) img.src=d.signature;
+  }).catch(function(){ body.innerHTML='<div class="muted" style="font-size:12.5px">Laden mislukt</div>'; });
 }
 function closeItems(){ document.getElementById('itemsModal').style.display='none'; }
 function _itemsEmpty(){
