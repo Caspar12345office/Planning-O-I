@@ -206,3 +206,9 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   optimaliseren" en de klokknop zetten de geplande tijden (GT) met echte rijtijden.
   `route_alerts` toont alleen echte filevertraging (met verkeer min zonder verkeer).
   Kosten: met verkeer is het de Pro-soort van Google (5.000 per maand gratis).
+- Automatisch inplannen: rekenkern `_autoplan_assign` (schrijft niets), de knop `api_autoplan`
+  slaat de uitkomst op. Proefplanning buiten de app: `tools/proefplanning.py [N]` haalt de live data
+  alleen-lezen op (vraagt de External Database URL, bewaart die niet), rekent lokaal met dezelfde
+  rekenkern op een lege agenda en schrijft een HTML-rapport naar `../Proefplanning/`. Draaien met
+  `.venv\Scripts\python tools\proefplanning.py` vanuit Planning-O-I. Caspar wil dit bewust NIET
+  als pagina in OfficeRoute.

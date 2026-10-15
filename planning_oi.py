@@ -4151,20 +4151,18 @@ def _home_city(monteur):
     return addr.split(",")[-1].strip() if addr else ""
 
 
-@bp.route("/api/autoplan", methods=["POST"])
-def api_autoplan():
-    """Plan openstaande (Shopify-)orders automatisch op de best passende dag/monteur
-    qua regio-route: orders in dezelfde provincie komen bij dezelfde monteur op dezelfde dag."""
-    if not has_perm("plan_orders"):
-        return jsonify(ok=False, error="Geen rechten"), 403
-    conn = db()
-    today = datetime.now().date()
-    days = []
-    d = today
-    while len(days) < 6:
-        if d.weekday() < 5:
-            days.append(d.isoformat())
-        d += timedelta(days=1)
+def _autoplan_assign(conn, orders, days, include_existing=True, coord_fn=None):
+    """Rekenkern van "Automatisch inplannen": kiest per order de best passende dag en
+    monteur qua regio-route (orders in dezelfde provincie bij dezelfde monteur op dezelfde
+    dag), binnen de werkdag en het laadgewicht. Schrijft NIETS weg; zowel de knop
+    (api_autoplan) als het losse script tools/proefplanning.py gebruiken deze functie,
+    zodat de proef precies laat zien wat de knop zou doen.
+
+    include_existing: bestaande stops op die dagen tellen mee (de knop); False = lege
+    agenda (proefplanning). coord_fn(row) -> (lat, lng, bron, kwaliteit); standaard het
+    leveradres via de adres-cache of de geocoder.
+    Geeft dict met assign [(order, monteur_id, dag, volgnummer)], notfit [order],
+    routes {(monteur_id, dag): [stop]}, monteurs, homes, depot, workday_min."""
     monteurs = conn.execute("SELECT * FROM monteurs WHERE active=1").fetchall()
     frees = conn.execute("SELECT monteur_id,date_from,date_to FROM free_days").fetchall()
 
@@ -4178,6 +4176,8 @@ def api_autoplan():
     _homes = {m["id"]: _home_point(m, _rcfg["key"]) for m in monteurs}
 
     def _coord(row):
+        if coord_fn:
+            return coord_fn(row)
         # Exact leveradres; de planner probeert veel combinaties, dus hier een schatting
         # over de weg in plaats van een Google-aanvraag per poging.
         pt = _order_point(row, _rcfg["key"])
@@ -4204,11 +4204,9 @@ def api_autoplan():
                       _order_weight(items.get(oid, []), prods, fallback=(ow.get(oid) or 0)))
                 for oid in oids}
 
-    orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
-
     # Bestaande stops per (monteur, dag): coord + provincie + montagetijd (1x inladen).
     routes_state = {}
-    if days:
+    if days and include_existing:
         ph = ",".join(["?"] * len(days))
         exist = conn.execute("SELECT p.monteur_id AS mid, p.date AS date, p.order_id AS oid, o2.city AS city, "
                              "o2.postal AS postal, o2.delivery_address AS delivery_address "
@@ -4218,8 +4216,8 @@ def api_autoplan():
         for r in exist:
             mw = exist_mw.get(r["oid"], (30, 0))
             routes_state.setdefault((r["mid"], r["date"]), []).append(
-                {"coord": _coord(r), "prov": PROVINCE.get(r["city"]),
-                 "montage": mw[0] or 30, "weight": mw[1] or 0})
+                {"oid": r["oid"], "coord": _coord(r), "prov": PROVINCE.get(r["city"]),
+                 "montage": mw[0] or 30, "weight": mw[1] or 0, "existing": True})
 
     cand_mw = _mw_map([o["id"] for o in orders])
     # Alle adressen opzoeken vóór het inplannen (dan schrijven we nog niets weg).
@@ -4228,7 +4226,7 @@ def api_autoplan():
     busweights = {b["id"]: ((b["max_weight"] or 0) - (b["empty_weight"] or 0))
                   for b in conn.execute("SELECT id,max_weight,empty_weight FROM busses").fetchall()}
     home_prov = {m["id"]: PROVINCE.get(_home_city(m)) for m in monteurs}
-    planned = notfit = 0
+    assign, notfit = [], []
     for o in orders:
         oprov = PROVINCE.get(o["city"])
         mw = cand_mw.get(o["id"], (0, 0))
@@ -4262,16 +4260,39 @@ def api_autoplan():
                     best_score, best = score, (m["id"], diso, len(cur))
         if best:
             mid, diso, seq = best
-            conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
-                            VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, busmap.get(mid), diso, seq))
-            conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
-            routes_state.setdefault((mid, diso), []).append({"coord": ocoord, "prov": oprov, "montage": omont, "weight": oweight})
-            planned += 1
+            assign.append((o, mid, diso, seq))
+            routes_state.setdefault((mid, diso), []).append(
+                {"oid": o["id"], "coord": ocoord, "prov": oprov, "montage": omont, "weight": oweight})
         else:
-            notfit += 1               # paste nergens binnen de werkdag én het laadgewicht
+            notfit.append(o)          # paste nergens binnen de werkdag én het laadgewicht
+    return {"assign": assign, "notfit": notfit, "routes": routes_state, "monteurs": monteurs,
+            "homes": _homes, "depot": _depot, "workday_min": WORKDAY_MIN, "busmap": busmap,
+            "busweights": busweights}
+
+
+@bp.route("/api/autoplan", methods=["POST"])
+def api_autoplan():
+    """Plan openstaande (Shopify-)orders automatisch op de best passende dag/monteur
+    qua regio-route: orders in dezelfde provincie komen bij dezelfde monteur op dezelfde dag."""
+    if not has_perm("plan_orders"):
+        return jsonify(ok=False, error="Geen rechten"), 403
+    conn = db()
+    today = datetime.now().date()
+    days = []
+    d = today
+    while len(days) < 6:
+        if d.weekday() < 5:
+            days.append(d.isoformat())
+        d += timedelta(days=1)
+    orders = conn.execute("SELECT * FROM orders WHERE status='in_te_plannen' AND is_draft=0 ORDER BY desired_date").fetchall()
+    res = _autoplan_assign(conn, orders, days)
+    for o, mid, diso, seq in res["assign"]:
+        conn.execute("""INSERT INTO planning(order_id,monteur_id,bus_id,date,sequence,status,mailed)
+                        VALUES(?,?,?,?,?,'gepland',0)""", (o["id"], mid, res["busmap"].get(mid), diso, seq))
+        conn.execute("UPDATE orders SET status='gepland' WHERE id=?", (o["id"],))
     conn.commit()
     conn.close()
-    return jsonify(ok=True, planned=planned, notfit=notfit)
+    return jsonify(ok=True, planned=len(res["assign"]), notfit=len(res["notfit"]))
 
 
 @bp.route("/api/manual-order", methods=["POST"])
