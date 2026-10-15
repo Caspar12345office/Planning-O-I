@@ -209,8 +209,10 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   `/monteur/declaratie` (ukey tegen dubbele). Tabellen `declarations` en `declaration_photos`. Mail
   (met foto's als bijlage) naar actieve gebruikers met het opgeslagen vinkje `receive_declarations`
   ("Declaraties ontvangen (mail)", groep Personeel). Ook een beheerder krijgt dat vinkje niet
-  vanzelf. De mail volgt de testmodus: zolang "E-mails echt versturen" uit staat, gaat er niets uit.
-  Nog geen overzichtspagina in kantoor.
+  vanzelf. De mail volgt de testmodus: zolang "E-mails echt versturen" uit staat, gaat er niets uit
+  (Caspar wil dat zo laten, 2026-10-15). Overzicht in kantoor: menu Declaraties (`/declaraties`, zelfde
+  recht), filter open/uitbetaald/alles, foto's via `/declaratie-foto/<id>`, knop Uitbetaald
+  (`paid_by`, `paid_at`); de monteur ziet daarna "Uitbetaald" in zijn app.
 - Schadefoto's: bij "Beschadigd / incompleet" in de monteur-app een omschrijving (in
   `deliveries.sub_outcome`) en tot 6 foto's, op de telefoon verkleind tot 1400 px JPEG. Elke foto
   apart naar `/monteur/damage-photo/<pid>` (offline-wachtrij, `ukey` tegen dubbele). Tabel

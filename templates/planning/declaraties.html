@@ -1,0 +1,64 @@
+{% extends 'planning/plan_base.html' %}
+{% block title %}Declaraties · OfficeRoute{% endblock %}
+{% block pagehead %}<h1>Declaraties</h1><p>Pin- en tolbonnetjes die monteurs in hun app indienen, met de foto's</p>{% endblock %}
+{% block page_css %}
+  .dtop{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .seg{display:flex;gap:3px;background:var(--soft);border-radius:11px;padding:3px}
+  .seg a{padding:7px 14px;border-radius:9px;font-size:13px;font-weight:600;color:var(--muted)}
+  .seg a.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow-sm)}
+  .dsum{margin-left:auto;font-size:13.5px;color:var(--muted)}
+  .dsum b{color:var(--accent);font-size:16px}
+  .dtbl td{vertical-align:middle}
+  .dtbl .amt{font-weight:700;white-space:nowrap;text-align:right}
+  .dtbl .note{color:var(--muted);font-size:12.5px;max-width:280px}
+  .thumbs{display:flex;gap:5px}
+  .thumbs a{display:block;width:46px;height:46px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--soft)}
+  .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+  .dtbl form{margin:0}
+  .paidby{display:block;font-size:11.5px;color:var(--muted);margin-top:3px}
+  .empty{text-align:center;color:var(--muted);padding:36px 10px}
+  .empty .em{font-size:28px;display:block;margin-bottom:6px}
+{% endblock %}
+{% block content %}
+<div class="dtop">
+  <div class="seg" role="group" aria-label="Filter">
+    <a class="{{ 'on' if view=='open' }}" href="{{ url_for('planning.declarations', toon='open') }}">Nog uit te betalen</a>
+    <a class="{{ 'on' if view=='uitbetaald' }}" href="{{ url_for('planning.declarations', toon='uitbetaald') }}">Uitbetaald</a>
+    <a class="{{ 'on' if view=='alle' }}" href="{{ url_for('planning.declarations', toon='alle') }}">Alles</a>
+  </div>
+  <div class="dsum">Nog uit te betalen: <b>€ {{ '%.2f'|format(open_sum)|replace('.', ',') }}</b> ({{ open_n }} declaratie{{ '' if open_n == 1 else 's' }})</div>
+</div>
+
+<div class="card" style="padding:6px 8px">
+  {% if rows %}
+  <table class="dtbl">
+    <thead><tr><th>Datum</th><th>Monteur</th><th>Soort</th><th style="text-align:right">Bedrag</th><th>Omschrijving</th><th>Bonnetje</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td style="white-space:nowrap">{{ r.date[8:10] }}-{{ r.date[5:7] }}-{{ r.date[:4] }}</td>
+        <td><b>{{ r.user_name or '-' }}</b></td>
+        <td>{{ kinds.get(r.kind, r.kind) }}</td>
+        <td class="amt">€ {{ '%.2f'|format(r.amount or 0)|replace('.', ',') }}</td>
+        <td class="note">{{ r.note or '' }}</td>
+        <td><div class="thumbs">{% for fid in photos.get(r.id, []) %}<a href="{{ url_for('planning.declaration_photo', fid=fid) }}" target="_blank" rel="noopener" title="Foto openen"><img src="{{ url_for('planning.declaration_photo', fid=fid) }}" alt="Bonnetje" loading="lazy"></a>{% endfor %}</div></td>
+        <td>{% if r.status == 'uitbetaald' %}<span class="pill green">Uitbetaald</span><span class="paidby">{{ r.paid_by or '' }}{% if r.paid_at %} · {{ r.paid_at[8:10] }}-{{ r.paid_at[5:7] }}{% endif %}</span>{% else %}<span class="pill amber">Ingediend</span>{% endif %}</td>
+        <td style="text-align:right">
+          <form method="post" action="{{ url_for('planning.declaration_status', did=r.id) }}">
+            <input type="hidden" name="toon" value="{{ view }}">
+            {% if r.status == 'uitbetaald' %}
+            <input type="hidden" name="status" value="ingediend"><button class="btn ghost sm" type="submit">Terugzetten</button>
+            {% else %}
+            <input type="hidden" name="status" value="uitbetaald"><button class="btn primary sm" type="submit"><svg class="ico"><use href="#ic-check"/></svg> Uitbetaald</button>
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty"><span class="em">🧾</span>{% if view == 'open' %}Niets meer uit te betalen.{% elif view == 'uitbetaald' %}Nog niets uitbetaald.{% else %}Nog geen declaraties ingediend.{% endif %}</div>
+  {% endif %}
+</div>
+{% endblock %}

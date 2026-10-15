@@ -408,7 +408,7 @@ PERMISSIONS = [
     ("view_connections",   "Koppelingen (commandocentrum)", "Koppelingen"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
     ("approve_leave",      "Verlofaanvragen goedkeuren", "Personeel"),
-    ("receive_declarations", "Declaraties ontvangen (mail)", "Personeel"),
+    ("receive_declarations", "Declaraties ontvangen (mail) en afhandelen", "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
     ("view_signatures",    "Handtekeningen inzien",      "Rapportage"),
@@ -572,7 +572,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS declarations(
         id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT, monteur_id INTEGER,
         kind TEXT, amount REAL, date TEXT, note TEXT, ukey TEXT, status TEXT DEFAULT 'ingediend',
-        mailed_to TEXT, created_at TEXT);
+        mailed_to TEXT, created_at TEXT, paid_by TEXT, paid_at TEXT);
     CREATE TABLE IF NOT EXISTS declaration_photos(
         id INTEGER PRIMARY KEY AUTOINCREMENT, declaration_id INTEGER, mime TEXT, data BLOB, created_at TEXT);
     CREATE TABLE IF NOT EXISTS damage_photos(
@@ -759,6 +759,8 @@ def init_db():
                  # Originele (Engelse) Shopify-regel. 'name' is de NL-weergavenaam die
                  # monteur/magazijn/klant zien; src_name blijft de herkenningssleutel.
                  "ALTER TABLE order_items ADD COLUMN src_name TEXT",
+                 "ALTER TABLE declarations ADD COLUMN paid_by TEXT",
+                 "ALTER TABLE declarations ADD COLUMN paid_at TEXT",
                  "ALTER TABLE busses ADD COLUMN empty_weight REAL DEFAULT 0",
                  "ALTER TABLE busses ADD COLUMN brandstof TEXT DEFAULT 'diesel'",
                  "ALTER TABLE busses ADD COLUMN verbruik_l100 REAL DEFAULT 0",
@@ -1438,6 +1440,7 @@ NAV = [
         {"label": "Handtekeningen", "endpoint": "planning.signatures", "icon": "pencil", "perm": "view_signatures"},
         {"label": "Milieu & CO₂", "endpoint": "planning.milieu", "icon": "leaf", "perm": "view_reports"}]},
     {"label": "Vrije dagen", "endpoint": "planning.free_days", "icon": "sun", "perm": "manage_freedays"},
+    {"label": "Declaraties", "endpoint": "planning.declarations", "icon": "doc", "perm": "receive_declarations"},
     {"label": "Instellingen", "icon": "gear", "perm": None, "children": [
         {"label": "Live status koppelingen", "endpoint": "planning.koppelingen", "icon": "link", "perm": "view_connections"},
         {"label": "Koppelingen instellen", "endpoint": "planning.integrations", "icon": "gear", "perm": "manage_integrations"},
@@ -3914,6 +3917,70 @@ def _damage_photo_ids(conn, delivery_id=None, order_id=None):
     else:
         rows = conn.execute("SELECT id FROM damage_photos WHERE order_id=? ORDER BY id", (order_id,)).fetchall()
     return [r["id"] for r in rows]
+
+
+DECL_KINDS = {"pinbon": "Pinbon", "tolbon": "Tolbon", "parkeren": "Parkeren", "overig": "Overig"}
+
+
+@bp.route("/declaraties")
+def declarations():
+    """Declaraties van monteurs (pin- en tolbonnetjes uit de monteur-app) met de foto's;
+    afvinken als uitbetaald. Voor wie "Declaraties ontvangen (mail) en afhandelen" heeft."""
+    guard = login_required("receive_declarations")
+    if guard:
+        return guard
+    view = request.args.get("toon", "open")
+    if view not in ("open", "uitbetaald", "alle"):
+        view = "open"
+    conn = db()
+    try:
+        where = {"open": "WHERE status<>'uitbetaald'", "uitbetaald": "WHERE status='uitbetaald'", "alle": ""}[view]
+        rows = conn.execute("""SELECT id, user_name, kind, amount, date, note, status, paid_by, paid_at, created_at
+                               FROM declarations %s ORDER BY date DESC, id DESC LIMIT 300""" % where).fetchall()
+        photos = {}
+        ids = [r["id"] for r in rows]
+        for i in range(0, len(ids), 200):
+            part = ids[i:i + 200]
+            for f in conn.execute("SELECT id, declaration_id FROM declaration_photos WHERE declaration_id IN (%s) ORDER BY id"
+                                  % ",".join("?" * len(part)), tuple(part)).fetchall():
+                photos.setdefault(f["declaration_id"], []).append(f["id"])
+        tot = conn.execute("""SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS s FROM declarations
+                              WHERE status<>'uitbetaald'""").fetchone()
+    finally:
+        conn.close()
+    return render_template("planning/declaraties.html", rows=rows, photos=photos, view=view,
+                           kinds=DECL_KINDS, open_n=tot["n"], open_sum=tot["s"] or 0)
+
+
+@bp.route("/declaraties/<int:did>/status", methods=["POST"])
+def declaration_status(did):
+    if not has_perm("receive_declarations"):
+        abort(403)
+    paid = request.form.get("status") == "uitbetaald"
+    u = current_user()
+    conn = db()
+    conn.execute("UPDATE declarations SET status=?, paid_by=?, paid_at=? WHERE id=?",
+                 ("uitbetaald" if paid else "ingediend", (u["name"] if (u and paid) else None),
+                  (datetime.now().isoformat(timespec="minutes") if paid else None), did))
+    conn.commit()
+    conn.close()
+    return redirect(url_for("planning.declarations", toon=request.form.get("toon") or "open"))
+
+
+@bp.route("/declaratie-foto/<int:fid>")
+def declaration_photo(fid):
+    if not has_perm("receive_declarations"):
+        abort(403)
+    conn = db()
+    try:
+        r = conn.execute("SELECT mime, data FROM declaration_photos WHERE id=?", (fid,)).fetchone()
+    finally:
+        conn.close()
+    if not r or r["data"] is None:
+        abort(404)
+    resp = Response(bytes(r["data"]), mimetype=r["mime"] or "image/jpeg")
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
 
 
 @bp.route("/schadefoto/<int:fid>")
