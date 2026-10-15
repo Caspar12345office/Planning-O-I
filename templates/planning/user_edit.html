@@ -91,7 +91,7 @@
   function applyRole(role){
     var set = ROLE_DEFAULTS[role] || [];
     document.querySelectorAll('.permchk').forEach(function(c){
-      c.checked = (role==='beheerder') ? true : set.indexOf(c.getAttribute('data-key'))>=0;
+      c.checked = set.indexOf(c.getAttribute('data-key'))>=0;
     });
   }
 </script>

@@ -408,6 +408,7 @@ PERMISSIONS = [
     ("view_connections",   "Koppelingen (commandocentrum)", "Koppelingen"),
     ("manage_freedays",    "Vrije dagen beheren",        "Personeel"),
     ("approve_leave",      "Verlofaanvragen goedkeuren", "Personeel"),
+    ("receive_declarations", "Declaraties ontvangen (mail)", "Personeel"),
     ("view_reports",       "Kilometerrapportage",        "Rapportage"),
     ("view_performance",   "Monteursprestaties",         "Rapportage"),
     ("view_signatures",    "Handtekeningen inzien",      "Rapportage"),
@@ -426,7 +427,8 @@ PERMISSION_KEYS = [k for k, _, _ in PERMISSIONS]
 ALL_PERMS = list(PERMISSION_KEYS)
 
 ROLE_DEFAULTS = {
-    "beheerder": ALL_PERMS,
+    # Declaratie-mails zijn een bewuste keuze per persoon, ook voor een beheerder.
+    "beheerder": [k for k in ALL_PERMS if k != "receive_declarations"],
     "manager": ["view_kpis", "view_planning", "view_reports", "view_performance",
                 "view_signatures", "view_speed", "view_orders", "view_invoices",
                 "view_personnel", "export", "view_emails", "view_preassembly", "view_magazijn",
@@ -567,6 +569,12 @@ def init_db():
     CREATE TABLE IF NOT EXISTS chat_messages(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER, text TEXT, order_number TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS declarations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, user_name TEXT, monteur_id INTEGER,
+        kind TEXT, amount REAL, date TEXT, note TEXT, ukey TEXT, status TEXT DEFAULT 'ingediend',
+        mailed_to TEXT, created_at TEXT);
+    CREATE TABLE IF NOT EXISTS declaration_photos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, declaration_id INTEGER, mime TEXT, data BLOB, created_at TEXT);
     CREATE TABLE IF NOT EXISTS damage_photos(
         id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, planning_id INTEGER,
         delivery_id INTEGER, monteur_id INTEGER, ukey TEXT, mime TEXT, data BLOB, created_at TEXT);

@@ -98,7 +98,8 @@ opslaan (`_autoplan_assign`, getest: de knop geeft exact dezelfde uitkomst) + lo
 `Planning-O-I/tools/proefplanning.py` dat de live data alleen-lezen ophaalt en lokaal een HTML-rapport
 maakt (Caspar wil dit bewust niet als pagina in OfficeRoute); teamchat: taggen met `@naam` met
 pop-up voor wie getagd is (`chat_mentions`); schadefoto's bij "Beschadigd / incompleet" in de
-monteur-app, zichtbaar in kantoor (`damage_photos`, "Zie schade" in de route).
+monteur-app, zichtbaar in kantoor (`damage_photos`, "Zie schade" in de route); declaraties met foto
+in de monteur-app (tabblad Ik) met mail aan wie "Declaraties ontvangen (mail)" aan heeft.
 
 Gedaan op 2026-10-14: alle apps rekenen in Nederlandse tijd (TZ in `app.py`). Daarvoor liep
 alles op Render 2 uur achter: AT-tijden in de planning, ETA in de "onderweg"-mail, tijdstempels
@@ -203,6 +204,13 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   `data-theme="dark"` op html). Basis via de kleurvariabelen in `plan_base.html`; per scherm een
   blok "donker (gegenereerd)" in page_css voor vaste kleuren. Nieuwe vaste kleuren in een scherm?
   Liever variabelen gebruiken, of een `[data-theme="dark"]`-regel toevoegen.
+- Declaraties (pin-/tolbonnetjes): monteur-app, tabblad Ik, knop "Declaratie indienen" (bewust geen
+  icoon in de onderbalk). Soort, bedrag, datum, omschrijving + 1 tot 3 foto's in één aanvraag naar
+  `/monteur/declaratie` (ukey tegen dubbele). Tabellen `declarations` en `declaration_photos`. Mail
+  (met foto's als bijlage) naar actieve gebruikers met het opgeslagen vinkje `receive_declarations`
+  ("Declaraties ontvangen (mail)", groep Personeel). Ook een beheerder krijgt dat vinkje niet
+  vanzelf. De mail volgt de testmodus: zolang "E-mails echt versturen" uit staat, gaat er niets uit.
+  Nog geen overzichtspagina in kantoor.
 - Schadefoto's: bij "Beschadigd / incompleet" in de monteur-app een omschrijving (in
   `deliveries.sub_outcome`) en tot 6 foto's, op de telefoon verkleind tot 1400 px JPEG. Elke foto
   apart naar `/monteur/damage-photo/<pid>` (offline-wachtrij, `ukey` tegen dubbele). Tabel
