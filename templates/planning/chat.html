@@ -18,9 +18,21 @@
   .chatbar input.onum{width:130px;flex:0 0 130px}
   .chatbar input.txt{flex:1}
   .chatbar button{flex:0 0 auto}
+  .chatbar .tw{flex:1;position:relative;display:flex}
+  .chatbar .tw input{flex:1}
+  .mention{color:var(--accent);font-weight:600;background:var(--soft);border-radius:4px;padding:0 1px}
+  .mention.me{background:#fbeccd;color:#7a5713}
+  .msg.tagged .bub{box-shadow:inset 3px 0 0 var(--gold)}
+  .mlist{position:absolute;left:0;bottom:calc(100% + 6px);min-width:240px;max-width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:5px;display:none;z-index:20}
+  .mlist .mi{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13.5px}
+  .mlist .mi .av{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .mlist .mi.on,.mlist .mi:hover{background:var(--soft);color:var(--accent)}
+  .mlist .hint{font-size:11.5px;color:var(--muted);padding:3px 9px 5px}
   /* donker (gegenereerd) */
   [data-theme="dark"] .msg .onum{background:var(--panel)}
   [data-theme="dark"] .msg.me .bub{background:rgba(115,191,82,.15)}
+  [data-theme="dark"] .mention.me{background:rgba(217,150,43,.18);color:#f0c57c}
+  [data-theme="dark"] .mlist .mi .av{color:#06201c}
   /* einde donker */
 {% endblock %}
 {% block content %}
@@ -31,7 +43,7 @@
       <div class="av">{{ (m.user[:1] if m.user else '?')|upper }}</div>
       <div class="bub">
         <div class="who"><b>{{ m.user or 'Onbekend' }}</b> · {{ m.ts.replace('T',' ') }}</div>
-        <div class="txt">{{ m.text }}</div>
+        <div class="txt" data-raw="{{ m.text }}">{{ m.text }}</div>
         {% if m.order_number %}<a class="onum" href="#">#{{ m.order_number }}</a>{% endif %}
       </div>
     </div>
@@ -39,7 +51,10 @@
   </div>
   <div class="chatbar">
     <input class="onum" id="onum" placeholder="#order (optie)">
-    <input class="txt" id="ctext" placeholder="Typ een bericht…" onkeydown="if(event.key==='Enter')sendMsg()">
+    <div class="tw">
+      <div class="mlist" id="mlist" role="listbox"></div>
+      <input class="txt" id="ctext" placeholder="Typ een bericht… Tag een collega met @naam" autocomplete="off">
+    </div>
     <button class="btn primary" onclick="sendMsg()">Verstuur</button>
   </div>
 </div>
@@ -48,17 +63,74 @@
 <script>
 var lastId = {{ last_id }};
 var me = {{ me }};
+var PEOPLE = {{ people|tojson }};
+var MY_NAME = {{ me_name|tojson }};
 var log = document.getElementById('chatlog');
 function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');}
+
+/* Tags markeren: volledige naam, of voornaam als die uniek is (zelfde regel als de server). */
+var FIRSTS={}; PEOPLE.forEach(function(p){ var f=p.name.split(' ')[0].toLowerCase(); FIRSTS[f]=(FIRSTS[f]||0)+1; });
+var TAGS=PEOPLE.map(function(p){return p.name;}).sort(function(a,b){return b.length-a.length;});
+PEOPLE.forEach(function(p){ var f=p.name.split(' ')[0]; if(FIRSTS[f.toLowerCase()]===1 && TAGS.indexOf(f)<0) TAGS.push(f); });
+var TAG_RE = TAGS.length ? new RegExp('@('+TAGS.map(reEsc).join('|')+')(?![\\w\\u00C0-\\u024F])','gi') : null;
+function isMe(tag){ tag=tag.toLowerCase(); var mn=(MY_NAME||'').toLowerCase(); return tag===mn || (tag===mn.split(' ')[0] && FIRSTS[tag]===1); }
+function fmtText(raw){
+  var html=esc(raw||''), mine=false;
+  if(TAG_RE){ html=html.replace(TAG_RE,function(all,tag){ var m=isMe(tag); if(m) mine=true; return '<span class="mention'+(m?' me':'')+'">@'+tag+'</span>'; }); }
+  return {html:html, mine:mine};
+}
+document.querySelectorAll('#chatlog .txt[data-raw]').forEach(function(el){
+  var f=fmtText(el.getAttribute('data-raw')); el.innerHTML=f.html;
+  var msg=el.closest('.msg'); if(f.mine && !msg.classList.contains('me')) msg.classList.add('tagged');
+});
 log.scrollTop = log.scrollHeight;
 function addMsg(m){
-  var d=document.createElement('div'); d.className='msg'+(m.user_id===me?' me':'');
+  var f=fmtText(m.text), d=document.createElement('div');
+  d.className='msg'+(m.user_id===me?' me':'')+(f.mine && m.user_id!==me?' tagged':'');
   var onum=m.order_number?'<a class="onum" href="#">#'+esc(m.order_number)+'</a>':'';
   d.innerHTML='<div class="av">'+(m.user?esc(m.user[0].toUpperCase()):'?')+'</div>'+
     '<div class="bub"><div class="who"><b>'+esc(m.user||'Onbekend')+'</b> · '+esc((m.ts||'').replace('T',' '))+'</div>'+
-    '<div class="txt">'+esc(m.text)+'</div>'+onum+'</div>';
+    '<div class="txt">'+f.html+'</div>'+onum+'</div>';
   log.appendChild(d); log.scrollTop=log.scrollHeight;
+  if(f.mine && m.user_id!==me){ fetch('{{ url_for("planning.api_mentions_seen") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); }
 }
+
+/* Suggestielijst bij @: verder typen filtert, pijltjes + Enter of Tab kiezen, Esc sluit. */
+var inp=document.getElementById('ctext'), ml=document.getElementById('mlist'), mSel=0, mHits=[], mStart=-1;
+function mClose(){ ml.style.display='none'; mHits=[]; mStart=-1; }
+function mOpen(){
+  var pos=inp.selectionStart, before=inp.value.slice(0,pos), at=before.lastIndexOf('@');
+  if(at<0 || (at>0 && !/\s/.test(before[at-1]))){ mClose(); return; }
+  var q=before.slice(at+1).toLowerCase();
+  if(q.length>30){ mClose(); return; }
+  mHits=PEOPLE.filter(function(p){ if(p.id===me) return false; var n=p.name.toLowerCase();
+    return n.indexOf(q)===0 || n.split(' ').some(function(w){return w.indexOf(q)===0;}); }).slice(0,6);
+  if(!mHits.length){ mClose(); return; }
+  mStart=at; mSel=Math.min(mSel,mHits.length-1);
+  ml.innerHTML='<div class="hint">Tag een collega</div>'+mHits.map(function(p,i){
+    return '<div class="mi'+(i===mSel?' on':'')+'" data-i="'+i+'"><span class="av">'+esc(p.name[0].toUpperCase())+'</span>'+esc(p.name)+'</div>'; }).join('');
+  ml.style.display='block';
+}
+function mPick(i){
+  var p=mHits[i]; if(!p) return;
+  var pos=inp.selectionStart, v=inp.value, ins='@'+p.name+' ';
+  inp.value=v.slice(0,mStart)+ins+v.slice(pos);
+  var c=mStart+ins.length; inp.setSelectionRange(c,c); inp.focus(); mClose();
+}
+ml.addEventListener('mousedown',function(e){ var it=e.target.closest('.mi'); if(it){ e.preventDefault(); mPick(+it.getAttribute('data-i')); } });
+inp.addEventListener('input',function(){ mSel=0; mOpen(); });
+inp.addEventListener('click',mOpen);
+inp.addEventListener('blur',function(){ setTimeout(mClose,120); });
+inp.addEventListener('keydown',function(e){
+  if(ml.style.display==='block'){
+    if(e.key==='ArrowDown'){ e.preventDefault(); mSel=(mSel+1)%mHits.length; mOpen(); return; }
+    if(e.key==='ArrowUp'){ e.preventDefault(); mSel=(mSel-1+mHits.length)%mHits.length; mOpen(); return; }
+    if(e.key==='Enter'||e.key==='Tab'){ e.preventDefault(); mPick(mSel); return; }
+    if(e.key==='Escape'){ mClose(); return; }
+  }
+  if(e.key==='Enter') sendMsg();
+});
 function poll(){
   fetch('{{ url_for("planning.api_chat") }}?after='+lastId).then(function(r){return r.json();}).then(function(list){
     list.forEach(function(m){ if(m.id>lastId){ addMsg(m); lastId=m.id; } });
@@ -68,7 +140,15 @@ function sendMsg(){
   var t=document.getElementById('ctext'), o=document.getElementById('onum');
   if(!t.value.trim())return;
   fetch('{{ url_for("planning.api_chat") }}',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({text:t.value, order_number:o.value})}).then(function(){ t.value=''; o.value=''; poll(); });
+    body:JSON.stringify({text:t.value, order_number:o.value})}).then(function(r){return r.json();}).then(function(res){
+      t.value=''; o.value=''; poll();
+      if(res && res.tagged && res.tagged.length){ chatNote((res.tagged.length>1?'Getagd: ':'')+res.tagged.join(', ')+(res.tagged.length>1?'':' is getagd en krijgt een melding')); }
+    });
+}
+function chatNote(txt){
+  var n=document.createElement('div'); n.className='flash'; n.textContent=txt;
+  n.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:90;box-shadow:var(--shadow)';
+  document.body.appendChild(n); setTimeout(function(){ n.remove(); }, 3500);
 }
 oiPoll(poll, 4000);
 </script>

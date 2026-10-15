@@ -190,6 +190,10 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   `data-theme="dark"` op html). Basis via de kleurvariabelen in `plan_base.html`; per scherm een
   blok "donker (gegenereerd)" in page_css voor vaste kleuren. Nieuwe vaste kleuren in een scherm?
   Liever variabelen gebruiken, of een `[data-theme="dark"]`-regel toevoegen.
+- Teamchat: taggen met `@naam` (volledige naam, of voornaam als die uniek is; `_chat_mentions`,
+  suggestielijst bij `@` in `chat.html`). Tags in tabel `chat_mentions`; de getagde krijgt op elke
+  kantoorpagina een pop-up (`/api/mentions`, poll 15 s, `plan_base.html`), behalve op de chat zelf.
+  De chat openen vinkt de tags af. Taggen kan alleen bij actieve gebruikers met `view_orders`.
 - Shopify-webhook `/api/shopify/webhook`; ochtendmail `/cron/ochtendmail` via cron-job.org.
   Orders met de tag `geen-officeroute` slaat de webhook over (`_shopify_skip`). Bij een
   handmatige order zet je die tag op de conceptorder; Shopify neemt hem mee naar de order.

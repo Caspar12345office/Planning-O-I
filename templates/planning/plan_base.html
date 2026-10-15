@@ -477,6 +477,44 @@ function leaveSeen(){
 }
 </script>
 {% endif %}
+{% if p_user and 'view_orders' in p_perms and request.endpoint != 'planning.chat' %}
+<div class="leavepop" id="tagPop" style="display:none">
+  <div class="lb" style="text-align:left;width:min(420px,92vw)">
+    <h3 style="color:var(--accent);margin-top:0">Je bent getagd in de teamchat</h3>
+    <div id="tagList" style="margin:6px 0 16px"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn ghost" onclick="tagSeen(false)">Gezien</button>
+      <button class="btn primary" onclick="tagSeen(true)">Naar de chat</button>
+    </div>
+  </div>
+</div>
+<script>
+/* Getagd met @naam in de teamchat: pop-up, op elke pagina. */
+(function(){
+  var shown=[], url='{{ url_for("planning.api_mentions") }}';
+  function e(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+  function check(){
+    fetch(url).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok || !d.mentions.length) return;
+      var ids=d.mentions.map(function(m){return m.id;});
+      if(document.getElementById('tagPop').style.display==='flex' && ids.join()===shown.join()) return;
+      shown=ids;
+      document.getElementById('tagList').innerHTML=d.mentions.map(function(m){
+        return '<div style="padding:9px 11px;background:var(--soft);border-radius:11px;margin-bottom:7px">'+
+          '<div style="font-size:12px;color:var(--muted)"><b style="color:var(--accent)">'+e(m.by)+'</b> om '+e(m.time)+(m.order?' · #'+e(m.order):'')+'</div>'+
+          '<div style="font-size:14px;margin-top:2px">'+e(m.text.length>220?m.text.slice(0,220)+'…':m.text)+'</div></div>';
+      }).join('');
+      document.getElementById('tagPop').style.display='flex';
+    }).catch(function(){});
+  }
+  window.tagSeen=function(go){
+    fetch('{{ url_for("planning.api_mentions_seen") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:shown})})
+      .then(function(){ document.getElementById('tagPop').style.display='none'; if(go) location.href='{{ url_for("planning.chat") }}'; });
+  };
+  check(); oiPoll(check, 15000, 60000);
+})();
+</script>
+{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

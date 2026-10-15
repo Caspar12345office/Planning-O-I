@@ -567,6 +567,9 @@ def init_db():
     CREATE TABLE IF NOT EXISTS chat_messages(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER, text TEXT, order_number TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS chat_mentions(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id INTEGER, user_id INTEGER, by_user_id INTEGER, seen INTEGER DEFAULT 0, ts TEXT);
     CREATE TABLE IF NOT EXISTS deliveries(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id INTEGER, monteur_id INTEGER, receiver TEXT, signature TEXT,
@@ -830,6 +833,7 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_orders_client ON orders(client_id)",
                 "CREATE INDEX IF NOT EXISTS idx_orders_desired ON orders(desired_date)",
                 "CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_messages(ts)",
+                "CREATE INDEX IF NOT EXISTS idx_chat_mentions_user ON chat_mentions(user_id, seen)",
                 "CREATE INDEX IF NOT EXISTS idx_email_log_client ON email_log(client_id)",
                 "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)",
                 "CREATE INDEX IF NOT EXISTS idx_deliveries_monteur_ts ON deliveries(monteur_id, ts)",
@@ -5089,11 +5093,16 @@ def chat():
     msgs = conn.execute("""SELECT m.id, m.text, m.order_number, m.ts, m.user_id, u.name AS user
                            FROM chat_messages m LEFT JOIN users u ON u.id=m.user_id
                            ORDER BY m.id DESC LIMIT 80""").fetchall()
-    conn.close()
     msgs = list(reversed(msgs))
     last_id = msgs[-1]["id"] if msgs else 0
+    me = current_user()
+    people = _chat_people(conn)
+    # Wie de chat opent, heeft de tags gezien: geen pop-up meer daarvoor.
+    conn.execute("UPDATE chat_mentions SET seen=1 WHERE user_id=? AND seen=0", (me["id"],))
+    conn.commit()
+    conn.close()
     return render_template("planning/chat.html", messages=msgs, last_id=last_id,
-                           me=current_user()["id"])
+                           me=me["id"], me_name=me["name"], people=people)
 
 
 @bp.route("/api/chat", methods=["GET", "POST"])
@@ -5105,13 +5114,20 @@ def api_chat():
         data = request.get_json(force=True)
         text = (data.get("text") or "").strip()
         onum = (data.get("order_number") or "").strip().lstrip("#")
+        tagged = []
         if text:
+            now = datetime.now().isoformat(timespec="minutes")
             conn = db()
-            conn.execute("INSERT INTO chat_messages(user_id,text,order_number,ts) VALUES(?,?,?,?)",
-                         (u["id"], text, onum or None, datetime.now().isoformat(timespec="minutes")))
+            mid = conn.execute("INSERT INTO chat_messages(user_id,text,order_number,ts) VALUES(?,?,?,?)",
+                               (u["id"], text, onum or None, now)).lastrowid
+            people = _chat_people(conn)
+            for pid in _chat_mentions(text, people, u["id"]):
+                conn.execute("INSERT INTO chat_mentions(message_id,user_id,by_user_id,seen,ts) VALUES(?,?,?,0,?)",
+                             (mid, pid, u["id"], now))
+                tagged.append(next(p["name"] for p in people if p["id"] == pid))
             conn.commit()
             conn.close()
-        return jsonify(ok=True)
+        return jsonify(ok=True, tagged=tagged)
     after = int(request.args.get("after", 0))
     conn = db()
     rows = conn.execute("""SELECT m.id, m.text, m.order_number, m.ts, m.user_id, u.name AS user
@@ -5119,6 +5135,68 @@ def api_chat():
                            WHERE m.id>? ORDER BY m.id LIMIT 200""", (after,)).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+def _chat_people(conn):
+    """Collega's die je in de teamchat kunt taggen: actief en met toegang tot de chat."""
+    out = []
+    for r in conn.execute("SELECT id, name, role, permissions FROM users WHERE active=1 ORDER BY name").fetchall():
+        if (r["name"] or "").strip() and "view_orders" in user_perms(r):
+            out.append({"id": r["id"], "name": r["name"].strip()})
+    return out
+
+
+def _chat_mentions(text, people, author_id):
+    """Wie wordt er getagd met @naam? Volledige naam (ook met spaties, bv. '@Stijn v Gurp'),
+    of alleen de voornaam als die uniek is ('@Caspar'). Hoofdletters maken niet uit.
+    Jezelf taggen telt niet."""
+    low = (text or "").lower()
+    found = []
+    for p in sorted(people, key=lambda p: -len(p["name"])):
+        if _re.search("@" + _re.escape(p["name"].lower()) + r"(?!\w)", low) and p["id"] not in found:
+            found.append(p["id"])
+    firsts = {}
+    for p in people:
+        firsts.setdefault(p["name"].split()[0].lower(), []).append(p["id"])
+    for m in _re.finditer(r"@([\w\-]+)", low):
+        ids = firsts.get(m.group(1))
+        if ids and len(ids) == 1 and ids[0] not in found:
+            found.append(ids[0])
+    return [i for i in found if i != author_id]
+
+
+@bp.route("/api/mentions")
+def api_mentions():
+    """Nog niet geziene tags voor de ingelogde gebruiker (pop-up op elke pagina)."""
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    conn = db()
+    rows = conn.execute("""SELECT t.id, t.message_id, t.ts, m.text, m.order_number, b.name AS by_name
+                           FROM chat_mentions t JOIN chat_messages m ON m.id=t.message_id
+                           LEFT JOIN users b ON b.id=t.by_user_id
+                           WHERE t.user_id=? AND t.seen=0 ORDER BY t.id DESC LIMIT 5""", (u["id"],)).fetchall()
+    conn.close()
+    return jsonify(ok=True, mentions=[{"id": r["id"], "message_id": r["message_id"], "by": r["by_name"] or "Een collega",
+                                       "text": r["text"] or "", "order": r["order_number"] or "",
+                                       "time": (r["ts"] or "")[11:16]} for r in rows])
+
+
+@bp.route("/api/mentions/seen", methods=["POST"])
+def api_mentions_seen():
+    u = current_user()
+    if not u:
+        return jsonify(ok=False), 403
+    ids = [int(i) for i in ((request.get_json(silent=True) or {}).get("ids") or []) if str(i).isdigit()]
+    conn = db()
+    if ids:
+        conn.execute("UPDATE chat_mentions SET seen=1 WHERE user_id=? AND id IN (%s)" % ",".join("?" * len(ids)),
+                     [u["id"]] + ids)
+    else:
+        conn.execute("UPDATE chat_mentions SET seen=1 WHERE user_id=? AND seen=0", (u["id"],))
+    conn.commit()
+    conn.close()
+    return jsonify(ok=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -6818,7 +6896,7 @@ def koppelingen_check():
 # Leegt de demo-inhoud (NIET de koppelingen/instellingen) en draait _seed opnieuw.
 _RESEED_TABLES = ["bus_issues", "deliveries", "planning", "order_items", "orders",
                   "clients", "route_closed", "free_days", "email_log", "monteur_location",
-                  "office_days", "vehicle_km", "team_questions", "chat_messages", "leave_requests",
+                  "office_days", "vehicle_km", "team_questions", "chat_mentions", "chat_messages", "leave_requests",
                   "busses", "monteurs", "users"]
 
 
