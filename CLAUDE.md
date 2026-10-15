@@ -190,6 +190,12 @@ staten, handleiding bijwerken, UptimeRobot, backup-terugzettest.
   `data-theme="dark"` op html). Basis via de kleurvariabelen in `plan_base.html`; per scherm een
   blok "donker (gegenereerd)" in page_css voor vaste kleuren. Nieuwe vaste kleuren in een scherm?
   Liever variabelen gebruiken, of een `[data-theme="dark"]`-regel toevoegen.
+- Schadefoto's: bij "Beschadigd / incompleet" in de monteur-app een omschrijving (in
+  `deliveries.sub_outcome`) en tot 6 foto's, op de telefoon verkleind tot 1400 px JPEG. Elke foto
+  apart naar `/monteur/damage-photo/<pid>` (offline-wachtrij, `ukey` tegen dubbele). Tabel
+  `damage_photos` (BLOB in de gedeelde database). Kantoor: "Zie schade (n foto's)" in de route,
+  foto's in het ontvangstbewijs-vakje, op de orderpagina en bij Handtekeningen; `/schadefoto/<id>`.
+  De monteur-app staat formulieren tot 4 MB toe (`max_form_memory_size` in `app.py`).
 - Teamchat: taggen met `@naam` (volledige naam, of voornaam als die uniek is; `_chat_mentions`,
   suggestielijst bij `@` in `chat.html`). Tags in tabel `chat_mentions`; de getagde krijgt op elke
   kantoorpagina een pop-up (`/api/mentions`, poll 15 s, `plan_base.html`), behalve op de chat zelf.

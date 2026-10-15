@@ -97,6 +97,11 @@
   .stbadge{display:inline-block;font-size:9px;font-weight:800;border-radius:999px;padding:1px 6px;margin-right:5px;letter-spacing:.02em;vertical-align:middle}
   .stbadge.rcpt{cursor:pointer;text-decoration:underline dotted}
   .stbadge.rcpt:hover{background:#b9dea8}
+  .stbadge.dmg{background:#fbeccd;color:#9a6a17}
+  .stbadge.dmg.rcpt:hover{background:#f5dca8}
+  .rcpt-pop .ph{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:9px}
+  .rcpt-pop .ph a{display:block;aspect-ratio:1;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .rcpt-pop .ph img{width:100%;height:100%;object-fit:cover;display:block}
   .rcpt-pop{position:fixed;width:290px;padding:12px 14px}
   .rcpt-pop .rl{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line)}
   .rcpt-pop .rl span{color:var(--muted)}
@@ -132,6 +137,8 @@
   [data-theme="dark"] .stbadge.bijklant{color:#a9c4ff;background:rgba(47,109,240,.2)}
   [data-theme="dark"] .stbadge.done{color:#a3dc8f;background:rgba(115,191,82,.15)}
   [data-theme="dark"] .stbadge.rcpt:hover{background:rgba(115,191,82,.3)}
+  [data-theme="dark"] .stbadge.dmg{background:rgba(217,150,43,.18);color:#f0c57c}
+  [data-theme="dark"] .stbadge.dmg.rcpt:hover{background:rgba(217,150,43,.3)}
   /* einde donker */
 {% endblock %}
 
@@ -259,7 +266,7 @@ function mwClose(){document.getElementById('mwModalBg').style.display='none';try
           {% elif j.at_status=='none' %}<span class="at-none">-</span>
           {% else %}<span class="at-{{ j.at_status }}">{{ j.at }}</span>{% if j.at_delta and j.at_delta>5 %}<div class="at-sub at-late">+{{ j.at_delta }}</div>{% endif %}{% endif %}
         </td>
-        <td class="nm{{ ' edit' if can_edit }}"{% if can_edit %} onclick="openItems({{ j.order_id }})" title="Artikelen aanpassen: {{ j.arts|e }}"{% endif %}>{% if j.bij_klant %}<span class="stbadge bijklant" title="Bij de klant sinds {{ j.arrived }}">bij klant</span>{% elif j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.delivery %}<span class="stbadge done rcpt" onclick="showReceipt(event,{{ j.delivery.id }},this)" title="Ontvangstbewijs bekijken">{{ 'Zie handtekening' if j.delivery.has_sig else 'Zie afronding' }}</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %}<b>{{ (j.client or '').split()[:2] | join(' ') }}</b> <span class="arts">· {{ j.arts or ('artikel toevoegen' if can_edit else '-') }}</span></td>
+        <td class="nm{{ ' edit' if can_edit }}"{% if can_edit %} onclick="openItems({{ j.order_id }})" title="Artikelen aanpassen: {{ j.arts|e }}"{% endif %}>{% if j.bij_klant %}<span class="stbadge bijklant" title="Bij de klant sinds {{ j.arrived }}">bij klant</span>{% elif j.status=='onderweg' %}<span class="stbadge onderweg">onderweg</span>{% elif j.delivery and j.delivery.damaged %}<span class="stbadge dmg rcpt" onclick="showReceipt(event,{{ j.delivery.id }},this)" title="Schade gemeld: ontvangstbewijs en foto's bekijken">Zie schade{% if j.delivery.photos %} ({{ j.delivery.photos }} foto{{ '' if j.delivery.photos == 1 else "'s" }}){% endif %}</span>{% elif j.delivery %}<span class="stbadge done rcpt" onclick="showReceipt(event,{{ j.delivery.id }},this)" title="Ontvangstbewijs bekijken">{{ 'Zie handtekening' if j.delivery.has_sig else 'Zie afronding' }}</span>{% elif j.status=='afgerond' %}<span class="stbadge done">afgerond</span>{% endif %}<b>{{ (j.client or '').split()[:2] | join(' ') }}</b> <span class="arts">· {{ j.arts or ('artikel toevoegen' if can_edit else '-') }}</span></td>
         <td class="muted">#{{ j.order_number }}</td>
         <td style="text-align:center"><span class="ic-btn" data-oid="{{ j.order_id }}" data-internal="{{ j.notes|e }}" data-monteur="{{ j.instructions|e }}" onclick="openNote(this)" title="Interne opmerking / opmerking voor monteur">{% if j.notes %}<span style="color:#185fa5"><svg class="ico"><use href="#ic-pencil"/></svg></span>{% endif %}{% if j.instructions %}<span style="color:#0f6e56"><svg class="ico"><use href="#ic-device"/></svg></span>{% endif %}{% if not j.notes and not j.instructions %}<span class="muted">+</span>{% endif %}</span></td>
         <td style="text-align:center"><span class="ml {{ j.ml }}">{{ j.ml }}</span></td>
@@ -660,7 +667,8 @@ function showReceipt(ev, did, el){
     body.innerHTML=row('Order','#'+d.order_number+(d.client?' · '+d.client:''))
       +row('Ontvanger',d.receiver)+row('Afgerond',d.when)+row('Monteur',d.monteur)
       +row('Uitkomst',oc+(d.sub_outcome?' · '+d.sub_outcome:''))
-      +(d.signature ? '<span class="sigbox"><img alt="Handtekening"></span>' : '<div class="muted" style="font-size:12.5px;margin-top:8px">Geen handtekening</div>')
+      +(d.signature ? '<span class="sigbox"><img alt="Handtekening"></span>' : (d.outcome==='succesvol' ? '<div class="muted" style="font-size:12.5px;margin-top:8px">Geen handtekening</div>' : ''))
+      +((d.photos&&d.photos.length) ? '<div class="ph">'+d.photos.map(function(u){ return '<a href="'+u+'" target="_blank" rel="noopener"><img src="'+u+'" alt="Schadefoto"></a>'; }).join('')+'</div>' : '')
       +(d.link ? '<a class="lnk" href="'+d.link+'">Naar alle handtekeningen</a>' : '');
     var img=body.querySelector('.sigbox img'); if(img) img.src=d.signature;
   }).catch(function(){ body.innerHTML='<div class="muted" style="font-size:12.5px">Laden mislukt</div>'; });

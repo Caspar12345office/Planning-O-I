@@ -567,6 +567,9 @@ def init_db():
     CREATE TABLE IF NOT EXISTS chat_messages(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER, text TEXT, order_number TEXT, ts TEXT);
+    CREATE TABLE IF NOT EXISTS damage_photos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER, planning_id INTEGER,
+        delivery_id INTEGER, monteur_id INTEGER, ukey TEXT, mime TEXT, data BLOB, created_at TEXT);
     CREATE TABLE IF NOT EXISTS chat_mentions(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         message_id INTEGER, user_id INTEGER, by_user_id INTEGER, seen INTEGER DEFAULT 0, ts TEXT);
@@ -834,6 +837,8 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_orders_desired ON orders(desired_date)",
                 "CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_messages(ts)",
                 "CREATE INDEX IF NOT EXISTS idx_chat_mentions_user ON chat_mentions(user_id, seen)",
+                "CREATE INDEX IF NOT EXISTS idx_damage_photos_order ON damage_photos(order_id)",
+                "CREATE INDEX IF NOT EXISTS idx_damage_photos_delivery ON damage_photos(delivery_id)",
                 "CREATE INDEX IF NOT EXISTS idx_email_log_client ON email_log(client_id)",
                 "CREATE INDEX IF NOT EXISTS idx_team_q_to ON team_questions(to_user_id, resolved)",
                 "CREATE INDEX IF NOT EXISTS idx_deliveries_monteur_ts ON deliveries(monteur_id, ts)",
@@ -3882,13 +3887,42 @@ def _delivery_map(conn, order_ids, day):
     eerder 'niet thuis' zijn geweest), anders de laatste."""
     out = {}
     qm = ",".join("?" * len(order_ids))
-    for r in conn.execute("""SELECT id, order_id, ts, CASE WHEN COALESCE(signature,'')<>'' THEN 1 ELSE 0 END AS has_sig
-                             FROM deliveries WHERE order_id IN (%s) ORDER BY id""" % qm, tuple(order_ids)).fetchall():
+    for r in conn.execute("""SELECT d.id, d.order_id, d.ts, d.outcome,
+                                    CASE WHEN COALESCE(d.signature,'')<>'' THEN 1 ELSE 0 END AS has_sig,
+                                    (SELECT COUNT(*) FROM damage_photos f WHERE f.delivery_id=d.id) AS photos
+                             FROM deliveries d WHERE d.order_id IN (%s) ORDER BY d.id""" % qm, tuple(order_ids)).fetchall():
         cur = out.get(r["order_id"])
         if cur and cur["today"] and (r["ts"] or "")[:10] != day:
             continue
-        out[r["order_id"]] = {"id": r["id"], "has_sig": bool(r["has_sig"]), "today": (r["ts"] or "")[:10] == day}
+        out[r["order_id"]] = {"id": r["id"], "has_sig": bool(r["has_sig"]), "today": (r["ts"] or "")[:10] == day,
+                              "damaged": r["outcome"] == "beschadigd", "photos": r["photos"] or 0}
     return out
+
+
+def _damage_photo_ids(conn, delivery_id=None, order_id=None):
+    """Schadefoto's (id's) bij een afronding of een order, oudste eerst."""
+    if delivery_id:
+        rows = conn.execute("SELECT id FROM damage_photos WHERE delivery_id=? ORDER BY id", (delivery_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM damage_photos WHERE order_id=? ORDER BY id", (order_id,)).fetchall()
+    return [r["id"] for r in rows]
+
+
+@bp.route("/schadefoto/<int:fid>")
+def damage_photo(fid):
+    """Schadefoto die de monteur bij "Beschadigd / incompleet" maakte."""
+    if not (has_perm("view_planning") or has_perm("view_orders")):
+        abort(403)
+    conn = db()
+    try:
+        r = conn.execute("SELECT mime, data FROM damage_photos WHERE id=?", (fid,)).fetchone()
+    finally:
+        conn.close()
+    if not r or r["data"] is None:
+        abort(404)
+    resp = Response(bytes(r["data"]), mimetype=r["mime"] or "image/jpeg")
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
 
 
 @bp.route("/api/delivery/<int:did>")
@@ -3904,6 +3938,7 @@ def api_delivery(did):
                             FROM deliveries d LEFT JOIN orders o ON o.id=d.order_id
                             LEFT JOIN clients c ON c.id=o.client_id LEFT JOIN monteurs m ON m.id=d.monteur_id
                             WHERE d.id=?""", (did,)).fetchone()
+        photo_ids = _damage_photo_ids(conn, delivery_id=did) if r else []
     finally:
         conn.close()
     if not r:
@@ -3913,6 +3948,7 @@ def api_delivery(did):
                    outcome=r["outcome"] or "", sub_outcome=r["sub_outcome"] or "",
                    when=("%s-%s-%s %s" % (ts[8:10], ts[5:7], ts[0:4], ts[11:16])) if len(ts) >= 16 else ts,
                    order_number=r["order_number"] or "", client=r["client"] or "", monteur=r["monteur"] or "",
+                   photos=[url_for("planning.damage_photo", fid=i) for i in photo_ids],
                    link=(url_for("planning.signatures", q=r["order_number"] or "")
                          if has_perm("view_signatures") else ""))
 
@@ -4832,6 +4868,10 @@ def order_detail(oid):
     _akey = " ".join((o["delivery_address"] or "").lower().split())
     pand_ind = conn.execute("SELECT * FROM bag_cache WHERE addr_key=?", (_akey,)).fetchone() if _akey else None
     pand_ind = dict(pand_ind) if pand_ind else None
+    damage = conn.execute("""SELECT f.id, f.created_at, m.name AS monteur FROM damage_photos f
+                             LEFT JOIN monteurs m ON m.id=f.monteur_id WHERE f.order_id=? ORDER BY f.id""", (oid,)).fetchall()
+    damage_notes = conn.execute("""SELECT sub_outcome, ts FROM deliveries WHERE order_id=? AND outcome='beschadigd'
+                                   AND COALESCE(sub_outcome,'')<>'' ORDER BY id""", (oid,)).fetchall()
     conn.close()
     _bag_key_set = bool((_bag_cfg().get("api_key") or "").strip())
     # Nog niet gecachet maar sleutel is er? Direct ophalen (en cachen) zodat het er gewoon staat.
@@ -4846,11 +4886,12 @@ def order_detail(oid):
                            needs_maatwerk=(n_open > 0 and _maatwerk_alerts_on()), n_open=n_open, workload=workload,
                            leverdoc_reasons=leverdoc_reasons, leverdocs=leverdocs,
                            leverdoc_has_template=has_template, leverdoc_base=LEVERDOC_BASE,
-                           pand_ind=pand_ind, bag_ready=_bag_key_set, fulfilled=fulfilled)
+                           pand_ind=pand_ind, bag_ready=_bag_key_set, fulfilled=fulfilled,
+                           damage=damage, damage_notes=damage_notes)
 
 
 ORDER_CHILD_TABLES = ("order_items", "planning", "order_magazijn", "deliveries",
-                      "leverdoc", "team_questions")
+                      "leverdoc", "team_questions", "damage_photos")
 
 
 def _drop_pakbon_file(conn, pakbon):
@@ -9050,13 +9091,20 @@ def signatures():
         args = (like, like, like, like)
     sql += " ORDER BY d.ts DESC LIMIT 500"
     rows = conn.execute(sql, args).fetchall()
+    photos = {}
+    dids = [r["id"] for r in rows]
+    for i in range(0, len(dids), 200):
+        part = dids[i:i + 200]
+        for f in conn.execute("SELECT id, delivery_id FROM damage_photos WHERE delivery_id IN (%s) ORDER BY id"
+                              % ",".join("?" * len(part)), tuple(part)).fetchall():
+            photos.setdefault(f["delivery_id"], []).append(f["id"])
     conn.close()
     by_date = {}
     for r in rows:
         d = (r["ts"] or "")[:10]
         by_date.setdefault(d, []).append(r)
     days = sorted(by_date.keys(), reverse=True)
-    return render_template("planning/signatures.html", by_date=by_date, days=days, q=q)
+    return render_template("planning/signatures.html", by_date=by_date, days=days, q=q, photos=photos)
 
 
 @bp.route("/kilometers/export.csv")

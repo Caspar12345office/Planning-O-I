@@ -7,6 +7,9 @@
   .kv .k{color:var(--muted)}
   @media(max-width:900px){.cols{grid-template-columns:1fr}}
   .delcard{margin-top:18px;border-color:#e6b8ac}
+  .dmggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+  .dmggrid a{display:block;aspect-ratio:1;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+  .dmggrid img{width:100%;height:100%;object-fit:cover;display:block}
   .delcard h3{color:#b23a1e;margin:0 0 8px;font-size:15px}
   .delcard p{margin:0 0 14px;font-size:13px;line-height:1.6;color:var(--muted)}
   .delcard .delwarn{display:flex;align-items:flex-start;gap:8px;color:#b23a1e;margin-bottom:10px}
@@ -126,13 +129,25 @@
         <span class="k">Tijdvak</span><span>{{ plan.slot_start or '-' }} - {{ plan.slot_end or '-' }}</span></div>
       {% else %}<p class="muted">Nog niet ingepland. Sleep deze order in de <a href="{{ url_for('planning.planning') }}">planning</a>.</p>{% endif %}
     </div>
+    {% if damage or damage_notes %}
+    <div class="card">
+      <h3 style="color:var(--accent);margin-bottom:10px">Schade gemeld door de monteur</h3>
+      {% for n in damage_notes %}<p style="margin:0 0 8px;font-size:13.5px">"{{ n.sub_outcome }}" <span class="muted" style="font-size:12px">{{ (n.ts or '')[:16].replace('T', ' ') }}</span></p>{% endfor %}
+      {% if damage %}
+      <div class="dmggrid">
+        {% for f in damage %}<a href="{{ url_for('planning.damage_photo', fid=f.id) }}" target="_blank" rel="noopener" title="{{ f.monteur or 'Monteur' }} · {{ (f.created_at or '')[:16].replace('T', ' ') }}"><img src="{{ url_for('planning.damage_photo', fid=f.id) }}" alt="Schadefoto" loading="lazy"></a>{% endfor %}
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">{{ damage|length }} foto{{ '' if damage|length == 1 else "'s" }} · klik voor groot</p>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 </div>
 
 {% if p_has_perm('delete_orders') %}
 <div class="card delcard">
   <h3>Order verwijderen</h3>
-  <p>Order <b>#{{ o.order_number }}</b> verdwijnt definitief, samen met de planning, de magazijnstatus, verstuurde leveringsdocumenten, het afleverbewijs en de ordervragen. Dit kan niet ongedaan worden gemaakt.</p>
+  <p>Order <b>#{{ o.order_number }}</b> verdwijnt definitief, samen met de planning, de magazijnstatus, verstuurde leveringsdocumenten, het afleverbewijs, schadefoto's en de ordervragen. Dit kan niet ongedaan worden gemaakt.</p>
   <form method="post" action="{{ url_for('planning.order_delete', oid=o.id) }}"
         onsubmit="return confirm('Order #{{ o.order_number }} definitief verwijderen?\n\nPlanning, magazijnstatus, leveringsdocumenten en afleverbewijs gaan mee. Dit kan niet ongedaan worden gemaakt.');">
     {% if fulfilled %}
